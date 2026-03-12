@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import os
 import shutil
 import signal
@@ -55,31 +56,154 @@ def _find_chromium() -> str | None:
     return None
 
 
+def _is_wayland() -> bool:
+    """Check if the system is running a Wayland session."""
+    if os.environ.get("WAYLAND_DISPLAY"):
+        return True
+    # Check if any user has a Wayland session via loginctl
+    try:
+        result = subprocess.run(
+            ["loginctl", "show-session", "auto", "--property=Type"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if "wayland" in result.stdout.lower():
+            return True
+    except Exception:
+        pass
+    # Check for Wayland compositor processes
+    try:
+        result = subprocess.run(
+            ["pgrep", "-a", "-f", "gnome-shell|kwin_wayland|sway|weston|mutter"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.stdout.strip():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _get_graphical_session_env() -> dict[str, str]:
+    """Grab DISPLAY and WAYLAND_DISPLAY from an active graphical session.
+
+    When running from SSH or a systemd service, these env vars aren't set.
+    We find them from a running user session.
+    """
+    env = {}
+    uid = os.getuid()
+
+    # Try loginctl to find graphical sessions
+    try:
+        result = subprocess.run(
+            ["loginctl", "list-sessions", "--no-legend"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            session_id = parts[0]
+            try:
+                props = subprocess.run(
+                    ["loginctl", "show-session", session_id,
+                     "--property=Type", "--property=Display",
+                     "--property=User", "--property=Name"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                prop_dict = {}
+                for p in props.stdout.strip().splitlines():
+                    if "=" in p:
+                        k, v = p.split("=", 1)
+                        prop_dict[k] = v
+                if prop_dict.get("Type") not in ("x11", "wayland"):
+                    continue
+                # Found a graphical session — get its env vars
+                # Try reading from /proc of a process in that session
+                sess_leader = subprocess.run(
+                    ["loginctl", "show-session", session_id, "--property=Leader"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                leader_pid = sess_leader.stdout.strip().split("=")[-1]
+                if leader_pid and leader_pid.isdigit():
+                    env = _read_env_from_proc(int(leader_pid))
+                    if env:
+                        return env
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Fallback: scan /proc for a process with DISPLAY or WAYLAND_DISPLAY set
+    try:
+        for proc_dir in sorted(glob.glob("/proc/[0-9]*")):
+            try:
+                # Only check our user's processes
+                if os.stat(proc_dir).st_uid != uid:
+                    continue
+                environ_path = os.path.join(proc_dir, "environ")
+                with open(environ_path, "rb") as f:
+                    environ_data = f.read().decode("utf-8", errors="replace")
+                proc_env = {}
+                for item in environ_data.split("\0"):
+                    if "=" in item:
+                        k, v = item.split("=", 1)
+                        if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+                            proc_env[k] = v
+                if proc_env.get("DISPLAY") or proc_env.get("WAYLAND_DISPLAY"):
+                    return proc_env
+            except (PermissionError, FileNotFoundError, ProcessLookupError):
+                continue
+    except Exception:
+        pass
+
+    return env
+
+
+def _read_env_from_proc(pid: int) -> dict[str, str]:
+    """Read display-related env vars from a process."""
+    env = {}
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            data = f.read().decode("utf-8", errors="replace")
+        for item in data.split("\0"):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+                    env[k] = v
+    except Exception:
+        pass
+    return env
+
+
 def _detect_display() -> str:
     """Auto-detect the active X display.
 
     Checks DISPLAY env var first, then looks for running X servers.
     """
-    # Use env if already set
     display = os.environ.get("DISPLAY")
     if display:
         return display
 
+    # Try to get it from a graphical session
+    session_env = _get_graphical_session_env()
+    if session_env.get("DISPLAY"):
+        return session_env["DISPLAY"]
+
     # Find running X servers by checking /tmp/.X*-lock files
-    import glob
     locks = sorted(glob.glob("/tmp/.X*-lock"))
     for lock in locks:
         try:
             with open(lock) as f:
                 pid = int(f.read().strip())
-            # Check if process exists (works even for root-owned processes)
             if os.path.isdir(f"/proc/{pid}"):
                 num = lock.split(".X")[1].split("-lock")[0]
-                return f":{num}"
+                # Skip XWayland high-numbered displays
+                if int(num) < 100:
+                    return f":{num}"
         except (ValueError, IndexError):
             continue
 
-    return ":0"  # fallback
+    return ":0"
 
 
 class DisplayManager:
@@ -88,14 +212,18 @@ class DisplayManager:
     def __init__(self, display_url: str) -> None:
         self._url = display_url
         self._chromium = _find_chromium()
-        self._display_env = _detect_display()
+        self._wayland = _is_wayland()
+        self._session_env = _get_graphical_session_env()
+        self._display_env = self._session_env.get("DISPLAY") or _detect_display()
         self._proc: subprocess.Popen | None = None
-        self._adopted_pid: int | None = None  # PID of pre-existing Chromium
+        self._adopted_pid: int | None = None
         self._lock = threading.Lock()
-        # Figure out which VT the X server is on
-        self._x_vt = self._detect_x_vt()
-        # Detect already-running kiosk
+        self._x_vt = self._detect_x_vt() if not self._wayland else None
         self._adopt_existing()
+
+        if self._wayland:
+            print(f"chiketi: Wayland session detected")
+        print(f"chiketi: using DISPLAY={self._display_env}")
 
     def _detect_x_vt(self) -> int | None:
         """Detect which virtual terminal the X server is running on."""
@@ -110,7 +238,7 @@ class DisplayManager:
                         return int(part[2:])
         except Exception:
             pass
-        return 7  # sensible default
+        return None
 
     def _adopt_existing(self) -> None:
         """Find a Chromium kiosk already showing our display URL."""
@@ -123,12 +251,23 @@ class DisplayManager:
             for line in result.stdout.strip().splitlines():
                 if marker in line:
                     pid = int(line.split()[0])
-                    os.kill(pid, 0)  # verify it exists
+                    os.kill(pid, 0)
                     self._adopted_pid = pid
                     print(f"chiketi: adopted existing display (pid {pid})")
                     return
         except Exception:
             pass
+
+    def _build_env(self) -> dict[str, str]:
+        """Build the environment for launching Chromium."""
+        env = {**os.environ}
+        env["DISPLAY"] = self._display_env
+        # Pass through Wayland env vars if available
+        for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+            val = self._session_env.get(key) or os.environ.get(key)
+            if val:
+                env[key] = val
+        return env
 
     @property
     def is_on(self) -> bool:
@@ -156,10 +295,8 @@ class DisplayManager:
     def turn_on(self) -> bool:
         """Launch Chromium kiosk. Returns True if started."""
         with self._lock:
-            # Check managed process
             if self._proc is not None and self._proc.poll() is None:
                 return True
-            # Check adopted process
             if self._adopted_pid is not None:
                 try:
                     os.kill(self._adopted_pid, 0)
@@ -168,10 +305,10 @@ class DisplayManager:
                     self._adopted_pid = None
             if not self._chromium:
                 return False
-            # Switch to X virtual terminal
-            if self._x_vt:
+            # Switch to X virtual terminal (X11 only)
+            if self._x_vt and not self._wayland:
                 self._switch_vt(self._x_vt)
-            env = {**os.environ, "DISPLAY": self._display_env}
+            env = self._build_env()
             chrome_args = [
                 self._chromium,
                 "--kiosk",
@@ -185,6 +322,9 @@ class DisplayManager:
                 "--window-size=1024,600",
                 "--window-position=0,0",
             ]
+            # On Wayland, Chromium may need ozone platform hint
+            if self._wayland:
+                chrome_args.append("--ozone-platform=wayland")
             try:
                 self._proc = subprocess.Popen(
                     chrome_args, env=env,
@@ -198,9 +338,8 @@ class DisplayManager:
                 return False
 
     def turn_off(self) -> bool:
-        """Stop Chromium kiosk and switch to console. Returns True if stopped."""
+        """Stop Chromium kiosk. Returns True if stopped."""
         with self._lock:
-            # Stop adopted process
             if self._adopted_pid is not None:
                 try:
                     os.kill(self._adopted_pid, signal.SIGTERM)
@@ -208,7 +347,6 @@ class DisplayManager:
                 except OSError:
                     pass
                 self._adopted_pid = None
-            # Stop managed process
             if self._proc is not None and self._proc.poll() is None:
                 try:
                     self._proc.terminate()
@@ -218,8 +356,10 @@ class DisplayManager:
                     self._proc.wait()
                 print("chiketi: display OFF")
             self._proc = None
-            # Switch to console tty1 (login prompt)
-            self._switch_vt(1)
+            # Switch to console (X11 only — on Wayland, closing Chromium
+            # just returns to the desktop)
+            if self._x_vt and not self._wayland:
+                self._switch_vt(1)
             return True
 
 

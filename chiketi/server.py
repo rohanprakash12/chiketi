@@ -31,10 +31,18 @@ _display_height: int = 600
 _screen_rotation: dict = {}
 
 
-def _get_display_env() -> str:
-    """Get the DISPLAY env var, auto-detecting if not set."""
-    from chiketi.app import _detect_display
-    return _detect_display()
+def _get_session_env() -> dict[str, str]:
+    """Get display env vars, auto-detecting from graphical session if needed."""
+    from chiketi.app import _get_graphical_session_env
+    env = {**os.environ}
+    session_env = _get_graphical_session_env()
+    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+        if key not in env and key in session_env:
+            env[key] = session_env[key]
+    if "DISPLAY" not in env:
+        from chiketi.app import _detect_display
+        env["DISPLAY"] = _detect_display()
+    return env
 
 
 def _parse_xrandr(stdout: str) -> list[dict]:
@@ -59,36 +67,85 @@ def _parse_xrandr(stdout: str) -> list[dict]:
     return outputs
 
 
-def _get_xrandr_outputs() -> list[dict]:
-    """Query xrandr for available display outputs, trying all X displays."""
-    import glob
+def _get_gnome_outputs() -> list[dict]:
+    """Get display outputs via GNOME/Mutter DBus (works on Wayland)."""
+    try:
+        env = _get_session_env()
+        # gnome-randr or mutter's DBus interface
+        result = subprocess.run(
+            ["gnome-randr", "query"],
+            capture_output=True, text=True, timeout=5, env=env,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            outputs = []
+            current_name = ""
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line.startswith(("├", "│", "└", " ")) and line and "@" not in line:
+                    current_name = line
+                if "associated physical monitors" in line.lower() or "current" in line.lower():
+                    continue
+                # Parse resolution from lines like "1920x1080@60.0"
+                if "@" in line and "x" in line:
+                    res = line.split("@")[0].strip().lstrip("*")
+                    if current_name and res:
+                        outputs.append({
+                            "name": current_name,
+                            "connected": True,
+                            "resolution": res,
+                        })
+                        current_name = ""
+            if outputs:
+                return outputs
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
 
-    # Collect all possible displays to try
+    # Fallback: parse xrandr via XWayland
+    return []
+
+
+def _get_xrandr_outputs() -> list[dict]:
+    """Query display outputs, supporting both X11 and Wayland."""
+    import glob
+    from chiketi.app import _is_wayland
+
+    # On Wayland, try gnome-randr first
+    if _is_wayland():
+        outputs = _get_gnome_outputs()
+        if outputs:
+            return outputs
+
+    # Build env with session vars
+    env = _get_session_env()
+
+    # Collect all possible X displays to try
     displays = set()
-    display_env = os.environ.get("DISPLAY")
-    if display_env:
-        displays.add(display_env)
+    if env.get("DISPLAY"):
+        displays.add(env["DISPLAY"])
     for lock in glob.glob("/tmp/.X*-lock"):
         try:
             num = lock.split(".X")[1].split("-lock")[0]
-            displays.add(f":{num}")
+            if int(num) < 100:  # skip XWayland high-numbered displays
+                displays.add(f":{num}")
         except (IndexError, ValueError):
             pass
     if not displays:
         displays.add(":0")
 
-    # Try each display, return first one with results
+    # Try each display
     all_outputs = []
     for disp in sorted(displays):
         try:
+            run_env = {**env, "DISPLAY": disp}
             result = subprocess.run(
                 ["xrandr", "--query"],
                 capture_output=True, text=True, timeout=5,
-                env={**os.environ, "DISPLAY": disp},
+                env=run_env,
             )
             outputs = _parse_xrandr(result.stdout)
             if outputs:
-                # Tag outputs with which X display they belong to
                 for o in outputs:
                     o["display"] = disp
                 all_outputs.extend(outputs)
