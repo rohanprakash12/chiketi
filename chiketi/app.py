@@ -223,6 +223,7 @@ class DisplayManager:
         self._wayland = _is_wayland()
         self._session_env = _get_graphical_session_env()
         self._display_env = self._session_env.get("DISPLAY") or _detect_display()
+        self._screen_size = self._detect_screen_size()
         self._proc: subprocess.Popen | None = None
         self._adopted_pid: int | None = None
         self._lock = threading.Lock()
@@ -232,6 +233,27 @@ class DisplayManager:
         if self._wayland:
             print(f"chiketi: Wayland session detected")
         print(f"chiketi: using DISPLAY={self._display_env}")
+        if self._screen_size:
+            print(f"chiketi: screen size {self._screen_size[0]}x{self._screen_size[1]}")
+
+    def _detect_screen_size(self) -> tuple[int, int] | None:
+        """Detect the primary screen resolution via xrandr."""
+        try:
+            env = self._build_env()
+            result = subprocess.run(
+                ["xrandr", "--query"],
+                capture_output=True, text=True, timeout=5, env=env,
+            )
+            for line in result.stdout.splitlines():
+                if " connected" in line:
+                    for part in line.split():
+                        if "x" in part and part[0].isdigit():
+                            res = part.split("+")[0]
+                            w, h = res.split("x")
+                            return (int(w), int(h))
+        except Exception:
+            pass
+        return None
 
     def _detect_x_vt(self) -> int | None:
         """Detect which virtual terminal the X server is running on."""
@@ -329,6 +351,9 @@ class DisplayManager:
                 "--noerrdialogs",
                 "--start-fullscreen",
             ]
+            if self._screen_size:
+                w, h = self._screen_size
+                chrome_args.append(f"--window-size={w},{h}")
             if self._wayland:
                 chrome_args.append("--ozone-platform=wayland")
             try:
