@@ -72,12 +72,16 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     NVIDIA_FLAG="[nvidia]"
 fi
 
+# ── Upgrade pip/setuptools inside pipx's build environment ──
+info "Ensuring pip and setuptools are up to date..."
+python3 -m pip install --user --upgrade pip setuptools wheel 2>/dev/null || true
+
 # ── Install chiketi ──
 info "Installing chiketi..."
 if [ -n "$NVIDIA_FLAG" ]; then
-    pipx install "chiketi[nvidia] @ git+${REPO}" --force
+    pipx install "chiketi[nvidia] @ git+${REPO}" --force --pip-args="--upgrade-strategy eager"
 else
-    pipx install "git+${REPO}" --force
+    pipx install "git+${REPO}" --force --pip-args="--upgrade-strategy eager"
 fi
 
 # ── Optional: lm-sensors for fan monitoring ──
