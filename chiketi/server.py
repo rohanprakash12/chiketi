@@ -338,7 +338,7 @@ def _build_display_html() -> str:
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=__DISPLAY_W__">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chiketi Display</title>
 <style>
   @font-face {
@@ -382,7 +382,7 @@ def _build_display_html() -> str:
     font-weight: normal; font-style: normal;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: __DISPLAY_W__px; height: __DISPLAY_H__px; overflow: hidden; background: #000; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
   body { cursor: none; }
 
   /* ── Terminal panels ── */
@@ -508,6 +508,21 @@ def _build_display_html() -> str:
 </head>
 <body>
 <div id="display"></div>
+
+<script>
+/* Scale the 1024x600 screen-frame to fill the viewport */
+function scaleDisplay() {
+  const frame = document.querySelector('.screen-frame');
+  if (!frame) return;
+  const sx = window.innerWidth / 1024;
+  const sy = window.innerHeight / 600;
+  const s = Math.max(sx, sy);
+  frame.style.transform = 'scale(' + s + ')';
+  frame.style.transformOrigin = 'top left';
+}
+new MutationObserver(scaleDisplay).observe(document.getElementById('display'), {childList: true});
+window.addEventListener('resize', scaleDisplay);
+</script>
 
 <script>
 const API = window.location.origin;
