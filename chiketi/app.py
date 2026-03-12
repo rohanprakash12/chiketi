@@ -55,13 +55,40 @@ def _find_chromium() -> str | None:
     return None
 
 
+def _detect_display() -> str:
+    """Auto-detect the active X display.
+
+    Checks DISPLAY env var first, then looks for running X servers.
+    """
+    # Use env if already set
+    display = os.environ.get("DISPLAY")
+    if display:
+        return display
+
+    # Find running X servers by checking /tmp/.X*-lock files
+    import glob
+    locks = sorted(glob.glob("/tmp/.X*-lock"))
+    for lock in locks:
+        try:
+            with open(lock) as f:
+                pid = int(f.read().strip())
+            # Check if process exists (works even for root-owned processes)
+            if os.path.isdir(f"/proc/{pid}"):
+                num = lock.split(".X")[1].split("-lock")[0]
+                return f":{num}"
+        except (ValueError, IndexError):
+            continue
+
+    return ":0"  # fallback
+
+
 class DisplayManager:
     """Manages the Chromium kiosk process — start/stop from control panel."""
 
     def __init__(self, display_url: str) -> None:
         self._url = display_url
         self._chromium = _find_chromium()
-        self._display_env = os.environ.get("DISPLAY", ":1")
+        self._display_env = _detect_display()
         self._proc: subprocess.Popen | None = None
         self._adopted_pid: int | None = None  # PID of pre-existing Chromium
         self._lock = threading.Lock()

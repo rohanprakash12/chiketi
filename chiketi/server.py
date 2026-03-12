@@ -31,13 +31,19 @@ _display_height: int = 600
 _screen_rotation: dict = {}
 
 
+def _get_display_env() -> str:
+    """Get the DISPLAY env var, auto-detecting if not set."""
+    from chiketi.app import _detect_display
+    return _detect_display()
+
+
 def _get_xrandr_outputs() -> list[dict]:
     """Query xrandr for available display outputs."""
     try:
         result = subprocess.run(
             ["xrandr", "--query"],
             capture_output=True, text=True, timeout=5,
-            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":1")},
+            env={**os.environ, "DISPLAY": _get_display_env()},
         )
         outputs = []
         for line in result.stdout.splitlines():
@@ -73,7 +79,7 @@ def _apply_display_settings(output: str, brightness: float) -> bool:
             return False
         subprocess.run(
             args, capture_output=True, timeout=5,
-            env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":1")},
+            env={**os.environ, "DISPLAY": _get_display_env()},
         )
         _display_output = output
         _display_brightness = brightness
