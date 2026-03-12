@@ -22,17 +22,37 @@ Built for the GeeekPi 7" (1024x600) but works on any HDMI display.
 
 ## Install
 
-Requires Python 3.11+ and Chromium (for the display kiosk).
+### One-liner (Debian/Ubuntu)
 
 ```bash
-# Install with pipx (recommended)
+curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi/main/scripts/install.sh | bash
+```
+
+This automatically installs all prerequisites (Python, pip, pipx, git, build tools, lm-sensors), detects NVIDIA GPUs, and installs chiketi.
+
+### Manual install
+
+**Prerequisites:**
+
+```bash
+# Debian/Ubuntu
+sudo apt install python3 python3-pip python3-venv python3-dev gcc git lm-sensors
+
+# Install pipx
+python3 -m pip install --user pipx
+pipx ensurepath
+```
+
+**Install chiketi:**
+
+```bash
 pipx install git+https://github.com/rohanprakash12/chiketi.git
 
 # With NVIDIA GPU support
 pipx install "chiketi[nvidia] @ git+https://github.com/rohanprakash12/chiketi.git"
 ```
 
-Or install from source:
+**Or from source:**
 
 ```bash
 git clone https://github.com/rohanprakash12/chiketi.git
