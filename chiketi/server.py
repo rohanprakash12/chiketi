@@ -136,12 +136,15 @@ class ControlHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/health":
             self._json_response({"status": "ok"})
         elif self.path == "/api/display":
+            from chiketi.app import get_display_manager
+            mgr = get_display_manager()
             self._json_response({
                 "current_output": _display_output,
                 "brightness": _display_brightness,
                 "width": _display_width,
                 "height": _display_height,
                 "screen_rotation": _screen_rotation,
+                "display_on": mgr.is_on if mgr else False,
                 "outputs": _get_xrandr_outputs(),
             })
         elif self.path.startswith("/assets/fonts/"):
@@ -194,6 +197,14 @@ class ControlHandler(BaseHTTPRequestHandler):
                                     "enabled": bool(cfg.get("enabled", True)),
                                     "duration": max(3, min(600, int(cfg.get("duration", 10)))),
                                 }
+                # Display power toggle
+                from chiketi.app import get_display_manager
+                mgr = get_display_manager()
+                if "display_on" in body and mgr:
+                    if body["display_on"]:
+                        mgr.turn_on()
+                    else:
+                        mgr.turn_off()
                 # Apply xrandr if output specified
                 if output:
                     _apply_display_settings(output, brightness)
@@ -203,6 +214,7 @@ class ControlHandler(BaseHTTPRequestHandler):
                     "width": _display_width,
                     "height": _display_height,
                     "screen_rotation": _screen_rotation,
+                    "display_on": mgr.is_on if mgr else False,
                 })
             except Exception as e:
                 self.send_error(400, str(e))
@@ -258,6 +270,14 @@ class ControlHandler(BaseHTTPRequestHandler):
 
 def start_server() -> None:
     """Start the control panel server in a daemon thread."""
+    # Ensure a DisplayManager exists even if app.run() was not used
+    from chiketi.app import get_display_manager, DisplayManager, _display_mgr
+    import chiketi.app as _app_mod
+    if get_display_manager() is None:
+        _app_mod._display_mgr = DisplayManager(
+            f"http://localhost:{CONTROL_PORT}/display"
+        )
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer(("0.0.0.0", CONTROL_PORT), ControlHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -2416,6 +2436,15 @@ def _build_html() -> str:
   <div class="settings-section">
     <h3>Display</h3>
     <div class="setting-row">
+      <span class="setting-label">Dashboard</span>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <div id="powerToggle" style="width:44px;height:24px;border-radius:12px;background:#333;position:relative;transition:background 0.3s;cursor:pointer">
+          <div style="width:20px;height:20px;border-radius:50%;background:#888;position:absolute;top:2px;left:2px;transition:all 0.3s"></div>
+        </div>
+        <span id="powerLabel" style="color:#888;font-size:13px">OFF</span>
+      </label>
+    </div>
+    <div class="setting-row">
       <span class="setting-label">Output</span>
       <select id="outputSelect" class="setting-select"></select>
       <button id="scanDisplays" class="setting-btn" style="font-size:11px;padding:4px 10px">Scan</button>
@@ -2632,6 +2661,7 @@ async function loadSettings() {
     document.getElementById('brightnessVal').textContent = (data.brightness || 1.0).toFixed(1);
     _serverScreenRotation = data.screen_rotation || {};
     renderScreenRotationUI();
+    updatePowerToggle(data.display_on || false);
     updateResDisplay();
     updatePreviewAspectRatio(data.width || 1024, data.height || 600);
   } catch(e) {}
@@ -2693,6 +2723,40 @@ function getScreenRotationFromUI() {
   });
   return result;
 }
+let _displayOn = false;
+function updatePowerToggle(isOn) {
+  _displayOn = isOn;
+  const toggle = document.getElementById('powerToggle');
+  const knob = toggle.firstElementChild;
+  const label = document.getElementById('powerLabel');
+  if (isOn) {
+    toggle.style.background = '#00aa44';
+    knob.style.left = '22px';
+    knob.style.background = '#fff';
+    label.textContent = 'ON';
+    label.style.color = '#00ff41';
+  } else {
+    toggle.style.background = '#333';
+    knob.style.left = '2px';
+    knob.style.background = '#888';
+    label.textContent = 'OFF';
+    label.style.color = '#888';
+  }
+}
+document.getElementById('powerToggle').addEventListener('click', async function() {
+  const newState = !_displayOn;
+  try {
+    const res = await fetch(API + '/api/display', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ display_on: newState }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      updatePowerToggle(data.display_on);
+    }
+  } catch(e) {}
+});
 function updatePreviewAspectRatio(w, h) {
   document.querySelectorAll('.screen-frame').forEach(f => {
     f.style.aspectRatio = w + ' / ' + h;
