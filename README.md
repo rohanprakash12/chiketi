@@ -5,13 +5,13 @@ A real-time system monitoring dashboard designed for dedicated small displays. R
 Built for the GeeekPi 7" (1024x600) but works on any HDMI display.
 
 <!-- Screenshots: uncomment when added
-![LCARS TOS Theme](screenshots/lcars-tos.png)
+![Panel Gold Theme](screenshots/panel-gold.png)
 ![Terminal Hacker Theme](screenshots/terminal-hacker.png)
 -->
 
 ## Features
 
-- **12 themed dashboards** across 3 theme families — LCARS (Star Trek), Terminal (hacker/retro), and Vintage (tubes/VFD/scanlines)
+- **12 themed dashboards** across 3 theme families — Panel, Terminal (hacker/retro), and Vintage (tubes/VFD/scanlines)
 - **3 rotating screens** — System stats, GPU/AI monitor, Claude Code usage
 - **Remote control panel** — Switch themes, toggle screens, adjust rotation from your phone at `http://<host>:7777`
 - **Display on/off toggle** — Turn the dashboard on/off from the control panel, restoring the console when off
@@ -48,7 +48,7 @@ pip install .[nvidia]  # with NVIDIA GPU support
 chiketi
 
 # Specify a theme
-chiketi --theme LCARS/TOS
+chiketi --theme Panel/Gold
 
 # Custom rotation interval
 chiketi --rotate-interval 15
@@ -67,13 +67,13 @@ The dashboard launches Chromium in kiosk mode on the detected display and starts
 
 ## Themes
 
-### LCARS (Star Trek)
+### Panel
 
 | Theme | Font | Style |
 |-------|------|-------|
-| TOS | Chakra Petch | Gold panels, anticlockwise donuts |
-| TNG | Antonio | Pill headers, clockwise donuts |
-| DS9 | Rajdhani | Angular headers, butt linecap donuts |
+| Gold | Chakra Petch | Gold panels, anticlockwise donuts |
+| Coral | Antonio | Pill headers, clockwise donuts |
+| Teal | Rajdhani | Angular headers, butt linecap donuts |
 
 ### Terminal
 
@@ -131,7 +131,7 @@ sudo modprobe nct6775  # or your chipset's module
 
 | CLI flag | Default | Description |
 |----------|---------|-------------|
-| `--theme` | `LCARS/TOS` | Initial theme (`LCARS/TOS`, `Terminal/hacker`, `Vintage/VFD`, etc.) |
+| `--theme` | `Panel/Gold` | Initial theme (`Panel/Gold`, `Terminal/hacker`, `Vintage/VFD`, etc.) |
 | `--rotate-interval` | `10` | Seconds between screen auto-rotation |
 | `--screen` | auto-detect | Target display by name substring (e.g. `HDMI`) |
 

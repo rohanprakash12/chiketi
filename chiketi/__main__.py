@@ -27,7 +27,7 @@ def main() -> None:
         "--theme",
         type=str,
         default=None,
-        help="Theme to use (e.g. 'LCARS/TOS', 'Terminal/hacker'). Default: LCARS/TOS.",
+        help="Theme to use (e.g. 'Panel/Gold', 'Terminal/hacker'). Default: Panel/Gold.",
     )
 
     args = parser.parse_args()

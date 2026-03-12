@@ -1,68 +1,68 @@
-"""Shared LCARS design spec used by pygame and control-panel preview."""
+"""Shared Panel design spec used by control-panel preview."""
 
 from __future__ import annotations
 
 
-# Core LCARS palette (TOS v11)
-LCARS_GOLD = "#FDCD06"
-LCARS_RED = "#BF0F0F"
-LCARS_BLUE = "#165FC5"
-LCARS_GREEN = "#B9C92F"
-LCARS_TEAL = "#11709F"
-LCARS_AMBER = "#FF8800"
-LCARS_MAROON = "#8B0000"
+# Core Panel palette (Gold variant)
+PANEL_GOLD = "#FDCD06"
+PANEL_RED = "#BF0F0F"
+PANEL_BLUE = "#165FC5"
+PANEL_GREEN = "#B9C92F"
+PANEL_TEAL = "#11709F"
+PANEL_AMBER = "#FF8800"
+PANEL_MAROON = "#8B0000"
 
 # Thermal gradient colors
-LCARS_THERM_BLUE = "#2288DD"
-LCARS_THERM_GREEN = "#22BB44"
-LCARS_THERM_YELLOW = "#DDCC00"
-LCARS_THERM_ORANGE = "#FF7700"
-LCARS_THERM_DARK_RED = "#AA0000"
+PANEL_THERM_BLUE = "#2288DD"
+PANEL_THERM_GREEN = "#22BB44"
+PANEL_THERM_YELLOW = "#DDCC00"
+PANEL_THERM_ORANGE = "#FF7700"
+PANEL_THERM_DARK_RED = "#AA0000"
 
-# ── TNG palette ──
-TNG_TANOI = "#FFCC99"
-TNG_GOLDEN_TANOI = "#FFCC66"
-TNG_NEON_CARROT = "#FF9933"
-TNG_LILAC = "#CC99CC"
-TNG_ANAKIWA = "#99CCFF"
-TNG_EGGPLANT = "#664466"
-TNG_MARINER = "#3366CC"
-TNG_BAHAMA = "#006699"
-TNG_PALE_CANARY = "#FFFF99"
-TNG_SUNFLOWER = "#FFCC99"
-TNG_ICE = "#99CCFF"
-TNG_BLUEY = "#8899FF"
-TNG_AFRICAN_VIOLET = "#CC99FF"
-TNG_HOPBUSH = "#CC6699"
-TNG_MARS = "#FF2200"
-TNG_GREEN = "#999933"
-TNG_GOLD = "#FFAA00"
+# ── Coral palette ──
+CORAL_TANOI = "#FFCC99"
+CORAL_GOLDEN_TANOI = "#FFCC66"
+CORAL_NEON_CARROT = "#FF9933"
+CORAL_LILAC = "#CC99CC"
+CORAL_ANAKIWA = "#99CCFF"
+CORAL_EGGPLANT = "#664466"
+CORAL_MARINER = "#3366CC"
+CORAL_BAHAMA = "#006699"
+CORAL_PALE_CANARY = "#FFFF99"
+CORAL_SUNFLOWER = "#FFCC99"
+CORAL_ICE = "#99CCFF"
+CORAL_BLUEY = "#8899FF"
+CORAL_AFRICAN_VIOLET = "#CC99FF"
+CORAL_HOPBUSH = "#CC6699"
+CORAL_MARS = "#FF2200"
+CORAL_GREEN = "#999933"
+CORAL_GOLD = "#FFAA00"
 
-TNG_THERM_BLUE = "#99CCFF"
-TNG_THERM_GREEN = "#99CC66"
-TNG_THERM_YELLOW = "#FFCC66"
-TNG_THERM_ORANGE = "#FF9933"
-TNG_THERM_DARK_RED = "#CC4444"
+CORAL_THERM_BLUE = "#99CCFF"
+CORAL_THERM_GREEN = "#99CC66"
+CORAL_THERM_YELLOW = "#FFCC66"
+CORAL_THERM_ORANGE = "#FF9933"
+CORAL_THERM_DARK_RED = "#CC4444"
 
-# ── DS9/Picard palette ──
-DS9_BURNT = "#E7442A"
-DS9_STEEL = "#9EA5BA"
-DS9_SLATE = "#6D748C"
-DS9_NAVY = "#2F3749"
-DS9_VOID = "#111419"
-DS9_TEAL = "#2A9D8F"
-DS9_CYAN = "#66CCCC"
-DS9_LAVENDER = "#8888BB"
-DS9_PALE = "#AAAACC"
-DS9_DEEP_BLUE = "#2A2A55"
-DS9_WARM = "#CCAA77"
-DS9_ALERT = "#FF4444"
+# ── Teal palette ──
+TEAL_BURNT = "#E7442A"
+TEAL_STEEL = "#9EA5BA"
+TEAL_SLATE = "#6D748C"
+TEAL_NAVY = "#2F3749"
+TEAL_VOID = "#111419"
+TEAL_TEAL = "#2A9D8F"
+TEAL_CYAN = "#66CCCC"
+TEAL_LAVENDER = "#8888BB"
+TEAL_PALE = "#AAAACC"
+TEAL_DEEP_BLUE = "#2A2A55"
+TEAL_WARM = "#CCAA77"
+TEAL_ALERT = "#FF4444"
 
-DS9_THERM_BLUE = "#4488AA"
-DS9_THERM_GREEN = "#55AA77"
-DS9_THERM_YELLOW = "#CCAA44"
-DS9_THERM_ORANGE = "#DD7733"
-DS9_THERM_DARK_RED = "#BB3333"
+TEAL_THERM_BLUE = "#4488AA"
+TEAL_THERM_GREEN = "#55AA77"
+TEAL_THERM_YELLOW = "#CCAA44"
+TEAL_THERM_ORANGE = "#DD7733"
+TEAL_THERM_DARK_RED = "#BB3333"
 
 # ── Vintage / Scanlines palette ──
 VFD_BG = "#060810"
@@ -135,60 +135,60 @@ VFDR_SUBSTRATE = "#0A0A08"
 VFDR_LABEL = "#556655"
 
 # Shared shape/size tokens
-LCARS_PANEL_RADIUS_PX = 2
-LCARS_BAR_HEIGHT_PX = 12
+PANEL_RADIUS_PX = 2
+PANEL_BAR_HEIGHT_PX = 12
 
 
 def web_spec() -> dict:
     """Return a JSON-serializable spec for the control panel preview."""
     return {
         "colors": {
-            "gold": LCARS_GOLD,
-            "red": LCARS_RED,
-            "blue": LCARS_BLUE,
-            "green": LCARS_GREEN,
-            "teal": LCARS_TEAL,
-            "amber": LCARS_AMBER,
-            "maroon": LCARS_MAROON,
-            "thermBlue": LCARS_THERM_BLUE,
-            "thermGreen": LCARS_THERM_GREEN,
-            "thermYellow": LCARS_THERM_YELLOW,
-            "thermOrange": LCARS_THERM_ORANGE,
-            "thermDarkRed": LCARS_THERM_DARK_RED,
+            "gold": PANEL_GOLD,
+            "red": PANEL_RED,
+            "blue": PANEL_BLUE,
+            "green": PANEL_GREEN,
+            "teal": PANEL_TEAL,
+            "amber": PANEL_AMBER,
+            "maroon": PANEL_MAROON,
+            "thermBlue": PANEL_THERM_BLUE,
+            "thermGreen": PANEL_THERM_GREEN,
+            "thermYellow": PANEL_THERM_YELLOW,
+            "thermOrange": PANEL_THERM_ORANGE,
+            "thermDarkRed": PANEL_THERM_DARK_RED,
         },
-        "tng": {
-            "tanoi": TNG_TANOI,
-            "goldenTanoi": TNG_GOLDEN_TANOI,
-            "neonCarrot": TNG_NEON_CARROT,
-            "lilac": TNG_LILAC,
-            "anakiwa": TNG_ANAKIWA,
-            "eggplant": TNG_EGGPLANT,
-            "mariner": TNG_MARINER,
-            "paleCanary": TNG_PALE_CANARY,
-            "mars": TNG_MARS,
-            "thermBlue": TNG_THERM_BLUE,
-            "thermGreen": TNG_THERM_GREEN,
-            "thermYellow": TNG_THERM_YELLOW,
-            "thermOrange": TNG_THERM_ORANGE,
-            "thermDarkRed": TNG_THERM_DARK_RED,
+        "coral": {
+            "tanoi": CORAL_TANOI,
+            "goldenTanoi": CORAL_GOLDEN_TANOI,
+            "neonCarrot": CORAL_NEON_CARROT,
+            "lilac": CORAL_LILAC,
+            "anakiwa": CORAL_ANAKIWA,
+            "eggplant": CORAL_EGGPLANT,
+            "mariner": CORAL_MARINER,
+            "paleCanary": CORAL_PALE_CANARY,
+            "mars": CORAL_MARS,
+            "thermBlue": CORAL_THERM_BLUE,
+            "thermGreen": CORAL_THERM_GREEN,
+            "thermYellow": CORAL_THERM_YELLOW,
+            "thermOrange": CORAL_THERM_ORANGE,
+            "thermDarkRed": CORAL_THERM_DARK_RED,
         },
-        "ds9": {
-            "burnt": DS9_BURNT,
-            "steel": DS9_STEEL,
-            "slate": DS9_SLATE,
-            "navy": DS9_NAVY,
-            "void": DS9_VOID,
-            "teal": DS9_TEAL,
-            "cyan": DS9_CYAN,
-            "lavender": DS9_LAVENDER,
-            "pale": DS9_PALE,
-            "warm": DS9_WARM,
-            "alert": DS9_ALERT,
-            "thermBlue": DS9_THERM_BLUE,
-            "thermGreen": DS9_THERM_GREEN,
-            "thermYellow": DS9_THERM_YELLOW,
-            "thermOrange": DS9_THERM_ORANGE,
-            "thermDarkRed": DS9_THERM_DARK_RED,
+        "teal": {
+            "burnt": TEAL_BURNT,
+            "steel": TEAL_STEEL,
+            "slate": TEAL_SLATE,
+            "navy": TEAL_NAVY,
+            "void": TEAL_VOID,
+            "teal": TEAL_TEAL,
+            "cyan": TEAL_CYAN,
+            "lavender": TEAL_LAVENDER,
+            "pale": TEAL_PALE,
+            "warm": TEAL_WARM,
+            "alert": TEAL_ALERT,
+            "thermBlue": TEAL_THERM_BLUE,
+            "thermGreen": TEAL_THERM_GREEN,
+            "thermYellow": TEAL_THERM_YELLOW,
+            "thermOrange": TEAL_THERM_ORANGE,
+            "thermDarkRed": TEAL_THERM_DARK_RED,
         },
         "scanlines": {
             "bg": VFD_BG, "glass": VFD_GLASS,
@@ -227,7 +227,7 @@ def web_spec() -> dict:
             "grid": VFDR_GRID, "substrate": VFDR_SUBSTRATE, "label": VFDR_LABEL,
         },
         "sizes": {
-            "panel_radius_px": LCARS_PANEL_RADIUS_PX,
-            "bar_height_px": LCARS_BAR_HEIGHT_PX,
+            "panel_radius_px": PANEL_RADIUS_PX,
+            "bar_height_px": PANEL_BAR_HEIGHT_PX,
         },
     }

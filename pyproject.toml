@@ -1,7 +1,7 @@
 [project]
 name = "chiketi"
 version = "0.1.0"
-description = "System stats dashboard with Star Trek and vintage themes"
+description = "System stats dashboard with panel and vintage themes"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [

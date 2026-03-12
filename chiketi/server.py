@@ -13,7 +13,7 @@ from chiketi.themes import (
     get_active_theme, get_active_family, set_active_theme,
     get_families, THEMES,
 )
-from chiketi.lcars_spec import web_spec
+from chiketi.panel_spec import web_spec
 
 CONTROL_PORT = 7777
 
@@ -367,7 +367,7 @@ def _build_display_html() -> str:
   }
   .t-val { flex-shrink: 0; }
 
-  /* ── LCARS panels (sizes in cqw = % of 1024px container width) ── */
+  /* ── Panel layout (sizes in cqw = % of 1024px container width) ── */
   .screen-frame {
     width: 1024px; height: 600px; position: relative; container-type: inline-size;
   }
@@ -451,7 +451,7 @@ def _build_display_html() -> str:
     font-weight: normal; font-family: 'Chakra Petch', sans-serif;
   }
 
-  /* ── 4-col grid inside LCARS NPU panel ── */
+  /* ── 4-col grid inside NPU panel ── */
   .l-4col { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.78cqw; }
 
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.12} }
@@ -466,7 +466,7 @@ def _build_display_html() -> str:
 
 <script>
 const API = window.location.origin;
-const LCARS_SPEC = __LCARS_SPEC_JSON__;
+const PANEL_SPEC = __PANEL_SPEC_JSON__;
 let metrics = null;
 let activeFamily = null, activeVariant = null;
 let themeColors = null;
@@ -511,15 +511,15 @@ function tRow(c, label, bar, val, color) {
     (bar || '') + `<span class="t-val" style="color:${color}">${val}</span></div>`;
 }
 
-const GOLD = LCARS_SPEC.colors.gold;
-const AMBER = LCARS_SPEC.colors.amber;
-const GREEN = LCARS_SPEC.colors.green;
-const TEAL = LCARS_SPEC.colors.teal;
+const GOLD = PANEL_SPEC.colors.gold;
+const AMBER = PANEL_SPEC.colors.amber;
+const GREEN = PANEL_SPEC.colors.green;
+const TEAL = PANEL_SPEC.colors.teal;
 function _thermColor(t) {
-  if (t >= 90) return LCARS_SPEC.colors.thermOrange || '#FF7700';
-  if (t >= 70) return LCARS_SPEC.colors.thermYellow || '#DDCC00';
-  if (t >= 50) return LCARS_SPEC.colors.thermGreen || '#22BB44';
-  return LCARS_SPEC.colors.thermBlue || '#2288DD';
+  if (t >= 90) return PANEL_SPEC.colors.thermOrange || '#FF7700';
+  if (t >= 70) return PANEL_SPEC.colors.thermYellow || '#DDCC00';
+  if (t >= 50) return PANEL_SPEC.colors.thermGreen || '#22BB44';
+  return PANEL_SPEC.colors.thermBlue || '#2288DD';
 }
 function lPanel(titleLeft, color, body, titleRight) {
   const right = titleRight ? `<span>${titleRight}</span>` : '';
@@ -543,14 +543,14 @@ __SCREEN_FUNCTIONS__
 
 /* ── Screen registry for current theme ── */
 function getScreenRegistry(c) {
-  const isLCARS = activeFamily === 'LCARS';
+  const isPanel = activeFamily === 'Panel';
   const isVintage = activeFamily === 'Vintage';
-  const isTNG = isLCARS && activeVariant === 'TNG';
-  const isDS9 = isLCARS && activeVariant === 'DS9';
+  const isCoral = isPanel && activeVariant === 'Coral';
+  const isTeal = isPanel && activeVariant === 'Teal';
   let screens;
-  if (isDS9) screens = [{id:'screen1',name:'System Stats',fn:ds9Screen1},{id:'screen2',name:'Clock',fn:ds9Screen2}];
-  else if (isTNG) screens = [{id:'screen1',name:'System Stats',fn:tngScreen1},{id:'screen2',name:'Clock',fn:tngScreen2}];
-  else if (isLCARS) screens = [{id:'screen1',name:'System Stats',fn:lcarsScreen1},{id:'screen2',name:'Clock',fn:lcarsScreen2}];
+  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:panelTealScreen1},{id:'screen2',name:'Clock',fn:panelTealScreen2}];
+  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:panelCoralScreen1},{id:'screen2',name:'Clock',fn:panelCoralScreen2}];
+  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:panelGoldScreen1},{id:'screen2',name:'Clock',fn:panelGoldScreen2}];
   else if (isVintage && activeVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'Clock',fn:tubeScreen2}];
   else if (isVintage && activeVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'Clock',fn:vfdScreen2}];
   else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'Clock',fn:scanScreen2}];
@@ -641,7 +641,7 @@ requestAnimationFrame(tick);
     screen_fns = _screen_functions_js()
     return (
         html
-        .replace("__LCARS_SPEC_JSON__", json.dumps(spec))
+        .replace("__PANEL_SPEC_JSON__", json.dumps(spec))
         .replace("__PAUSE_S__", str(pause_s))
         .replace("__DISPLAY_W__", str(_display_width))
         .replace("__DISPLAY_H__", str(_display_height))
@@ -665,7 +665,7 @@ function donut(pct, label, ringColor, size, sw, font, opts) {
   const circ = 2 * Math.PI * r;
   const offset = circ - (Math.min(100, Math.max(0, pct)) / 100) * circ;
   const cx = size / 2, cy = size / 2;
-  // TOS uses anticlockwise (scale(-1,1)), TNG/DS9 use clockwise (rotate(-90))
+  // Gold uses anticlockwise (scale(-1,1)), Coral/Teal use clockwise (rotate(-90))
   const xform = opts.anticlockwise
     ? `translate(${size}, 0) scale(-1, 1) rotate(-90 ${cx} ${cy})`
     : `rotate(-90 ${cx} ${cy})`;
@@ -856,11 +856,11 @@ function terminalScreen2(c) {
     `</div></div>`;
 }
 
-function lcarsScreen1(c) {
+function panelGoldScreen1(c) {
   const F = "'Chakra Petch', sans-serif";
-  const RED = LCARS_SPEC.colors.red;
-  const BLUE = LCARS_SPEC.colors.blue;
-  const MAROON = LCARS_SPEC.colors.maroon || '#8B0000';
+  const RED = PANEL_SPEC.colors.red;
+  const BLUE = PANEL_SPEC.colors.blue;
+  const MAROON = PANEL_SPEC.colors.maroon || '#8B0000';
   const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
   const diskRootPct = m('disk.root_percent');
   const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
@@ -873,7 +873,7 @@ function lcarsScreen1(c) {
   const anyDanger = temps.some(t => t >= 110);
   const anyOrange = temps.some(t => t >= 90);
   const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const thermalStatusColor = anyDanger ? LCARS_SPEC.colors.thermDarkRed : anyOrange ? LCARS_SPEC.colors.thermOrange : GREEN;
+  const thermalStatusColor = anyDanger ? PANEL_SPEC.colors.thermDarkRed : anyOrange ? PANEL_SPEC.colors.thermOrange : GREEN;
 
   const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
   const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
@@ -934,7 +934,7 @@ function lcarsScreen1(c) {
     `</div></div>`;
 }
 
-function lcarsScreen2(c) {
+function panelGoldScreen2(c) {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
@@ -960,8 +960,8 @@ function lcarsScreen2(c) {
   `</div></div>`;
 }
 
-function tngScreen1(c) {
-  const T = LCARS_SPEC.tng || {};
+function panelCoralScreen1(c) {
+  const T = PANEL_SPEC.coral || {};
   const F = "'Antonio', sans-serif";
   const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
   const diskRootPct = m('disk.root_percent');
@@ -981,26 +981,26 @@ function tngScreen1(c) {
   const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
   const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
 
-  function tngThermColor(t) {
+  function coralThermColor(t) {
     if (t >= 90) return T.thermOrange || '#FF9933';
     if (t >= 70) return T.thermYellow || '#FFCC66';
     if (t >= 50) return T.thermGreen || '#99CC66';
     return T.thermBlue || '#99CCFF';
   }
-  function tngBar(label, temp) {
+  function coralBar(label, temp) {
     const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
     const flash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
-    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;font-family:${F};width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:#1a1a2a;border-radius:999px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${tngThermColor(temp)};border-radius:999px;transition:width 0.8s ease${flash}"></div></div></div>`;
+    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;font-family:${F};width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:#1a1a2a;border-radius:999px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${coralThermColor(temp)};border-radius:999px;transition:width 0.8s ease${flash}"></div></div></div>`;
   }
-  function tngHdr(title, color, rightText) {
+  function coralHdr(title, color, rightText) {
     return `<div style="display:flex;align-items:center;gap:0.59cqw;margin-bottom:0.59cqw"><div style="background:${color};border-radius:999px;height:2.34cqw;padding:0 1.46cqw;display:flex;align-items:center"><span style="color:#000;font-size:1.76cqw;font-family:${F};text-transform:uppercase;letter-spacing:0.15cqw">${title}</span></div><div style="flex:1;height:0.44cqw;background:${color};border-radius:2px"></div>${rightText?`<span style="color:${color};font-size:2.05cqw;font-family:${F};text-transform:uppercase;letter-spacing:0.15cqw">${rightText}</span>`:''}</div>`;
   }
   const donutOpts = {critColor: T.mars||'#FF2200', valColor: T.paleCanary||'#FFFF99', bgRing: '#1a1a2a', labelColor: T.tanoi||'#FFCC99', fontWeight: '400', valSize: '4.10cqw', labelSize: '2.64cqw'};
 
   return `<div class="screen-frame"><div style="background:#000;width:100%;height:100%;display:flex;flex-direction:column;padding:0.88cqw;gap:0.59cqw;font-family:${F}">` +
     `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${tngHdr('Core Systems', T.goldenTanoi||'#FFCC66', hostStr)}</div>` +
-      `<div style="flex:1">${tngHdr('Thermals', T.neonCarrot||'#FF9933', thermalStatus)}</div>` +
+      `<div style="flex:1">${coralHdr('Core Systems', T.goldenTanoi||'#FFCC66', hostStr)}</div>` +
+      `<div style="flex:1">${coralHdr('Thermals', T.neonCarrot||'#FF9933', thermalStatus)}</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw;flex:1">` +
       `<div style="flex:1;display:flex;justify-content:space-around;align-items:center">` +
@@ -1009,9 +1009,9 @@ function tngScreen1(c) {
         donut(diskRootPct.available?diskRootPct.value:0, 'SSD', T.lilac||'#CC99CC', 170, 14, F, donutOpts) +
       `</div>` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">` +
-        tngBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        tngBar('MB', mbTemp.available?mbTemp.value:20) +
-        tngBar('GPU', gpuTemp.available?gpuTemp.value:20) +
+        coralBar('CPU', cpuTemp.available?cpuTemp.value:20) +
+        coralBar('MB', mbTemp.available?mbTemp.value:20) +
+        coralBar('GPU', gpuTemp.available?gpuTemp.value:20) +
         thermalScale(T.tanoi||'#FFCC99', F, '4.69cqw') +
       `</div>` +
     `</div>` +
@@ -1029,8 +1029,8 @@ function tngScreen1(c) {
       `</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${tngHdr('Comms', T.anakiwa||'#99CCFF', speedStr)}</div>` +
-      `<div style="flex:1">${tngHdr('NPU', T.lilac||'#CC99CC', 'llama.cpp')}</div>` +
+      `<div style="flex:1">${coralHdr('Comms', T.anakiwa||'#99CCFF', speedStr)}</div>` +
+      `<div style="flex:1">${coralHdr('NPU', T.lilac||'#CC99CC', 'llama.cpp')}</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw;flex:1">` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
@@ -1048,8 +1048,8 @@ function tngScreen1(c) {
   `</div></div>`;
 }
 
-function tngScreen2(c) {
-  const T = LCARS_SPEC.tng || {};
+function panelCoralScreen2(c) {
+  const T = PANEL_SPEC.coral || {};
   const FONT = "'Antonio', sans-serif";
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
@@ -1088,8 +1088,8 @@ function tngScreen2(c) {
   `</div></div>`;
 }
 
-function ds9Screen1(c) {
-  const D = LCARS_SPEC.ds9 || {};
+function panelTealScreen1(c) {
+  const D = PANEL_SPEC.teal || {};
   const F = "'Rajdhani', sans-serif";
   const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
   const diskRootPct = m('disk.root_percent');
@@ -1108,18 +1108,18 @@ function ds9Screen1(c) {
   const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
   const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
 
-  function ds9ThermColor(t) {
+  function tealThermColor(t) {
     if (t >= 90) return D.thermOrange || '#DD7733';
     if (t >= 70) return D.thermYellow || '#CCAA44';
     if (t >= 50) return D.thermGreen || '#55AA77';
     return D.thermBlue || '#4488AA';
   }
-  function ds9Bar(label, temp) {
+  function tealBar(label, temp) {
     const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
     const flash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
-    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-family:${F};font-weight:600;width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${ds9ThermColor(temp)};border-radius:2px;transition:width 0.8s ease${flash}"></div></div></div>`;
+    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-family:${F};font-weight:600;width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${tealThermColor(temp)};border-radius:2px;transition:width 0.8s ease${flash}"></div></div></div>`;
   }
-  function ds9Hdr(title, color, rightText) {
+  function tealHdr(title, color, rightText) {
     return `<div style="display:flex;align-items:center;gap:0;height:2.93cqw;margin-bottom:0.59cqw">` +
       `<svg width="2.05cqw" height="2.93cqw" viewBox="0 0 14 20" style="flex-shrink:0"><polygon points="14,0 14,20 0,20" fill="${color}"/></svg>` +
       `<div style="background:${color};height:100%;padding:0 1.46cqw;display:flex;align-items:center"><span style="color:${D.void||'#111419'};font-size:1.90cqw;font-family:${F};font-weight:600;text-transform:uppercase;letter-spacing:0.29cqw">${title}</span></div>` +
@@ -1132,8 +1132,8 @@ function ds9Screen1(c) {
   const bg = D.void || '#111419';
   return `<div class="screen-frame"><div style="background:${bg};width:100%;height:100%;display:flex;flex-direction:column;padding:0.88cqw;gap:0.59cqw;font-family:${F}">` +
     `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${ds9Hdr('Core Systems', D.teal||'#2A9D8F', hostStr)}</div>` +
-      `<div style="flex:1">${ds9Hdr('Thermals', D.burnt||'#E7442A', thermalStatus)}</div>` +
+      `<div style="flex:1">${tealHdr('Core Systems', D.teal||'#2A9D8F', hostStr)}</div>` +
+      `<div style="flex:1">${tealHdr('Thermals', D.burnt||'#E7442A', thermalStatus)}</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw;flex:1">` +
       `<div style="flex:1;display:flex;justify-content:space-around;align-items:center">` +
@@ -1142,9 +1142,9 @@ function ds9Screen1(c) {
         donut(diskRootPct.available?diskRootPct.value:0, 'SSD', D.lavender||'#8888BB', 170, 14, F, donutOpts) +
       `</div>` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">` +
-        ds9Bar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        ds9Bar('MB', mbTemp.available?mbTemp.value:20) +
-        ds9Bar('GPU', gpuTemp.available?gpuTemp.value:20) +
+        tealBar('CPU', cpuTemp.available?cpuTemp.value:20) +
+        tealBar('MB', mbTemp.available?mbTemp.value:20) +
+        tealBar('GPU', gpuTemp.available?gpuTemp.value:20) +
         thermalScale(D.steel||'#9EA5BA', F) +
       `</div>` +
     `</div>` +
@@ -1162,8 +1162,8 @@ function ds9Screen1(c) {
       `</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${ds9Hdr('Comms', D.lavender||'#8888BB', '')}</div>` +
-      `<div style="flex:1">${ds9Hdr('NPU', D.warm||'#CCAA77', 'LLAMA.CPP')}</div>` +
+      `<div style="flex:1">${tealHdr('Comms', D.lavender||'#8888BB', '')}</div>` +
+      `<div style="flex:1">${tealHdr('NPU', D.warm||'#CCAA77', 'LLAMA.CPP')}</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw;flex:1">` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
@@ -1181,8 +1181,8 @@ function ds9Screen1(c) {
   `</div></div>`;
 }
 
-function ds9Screen2(c) {
-  const D = LCARS_SPEC.ds9 || {};
+function panelTealScreen2(c) {
+  const D = PANEL_SPEC.teal || {};
   const FONT = "'Rajdhani', sans-serif";
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
@@ -1238,7 +1238,7 @@ function scanSectionLabel(text, color, rightText, rightColor) {
 }
 
 function scanDonut(pct, label, color, size) {
-  const S = LCARS_SPEC.scanlines || {};
+  const S = PANEL_SPEC.scanlines || {};
   const F = "'Share Tech Mono', monospace";
   const dim = S.dim || '#334455';
   const red = S.red || '#FF3344';
@@ -1261,7 +1261,7 @@ function scanDonut(pct, label, color, size) {
 }
 
 function scanThermBar(label, temp) {
-  const S = LCARS_SPEC.scanlines || {};
+  const S = PANEL_SPEC.scanlines || {};
   const F = "'Share Tech Mono', monospace";
   const cyan = S.cyan || '#00FFCC';
   const dim = S.dim || '#334455';
@@ -1279,7 +1279,7 @@ function scanThermBar(label, temp) {
 }
 
 function scanScreen1(c) {
-  const S = LCARS_SPEC.scanlines || {};
+  const S = PANEL_SPEC.scanlines || {};
   const F = "'Share Tech Mono', monospace";
   const cyan = S.cyan || '#00FFCC';
   const amber = S.amber || '#FFAA00';
@@ -1378,7 +1378,7 @@ function scanScreen1(c) {
 }
 
 function scanScreen2(c) {
-  const S = LCARS_SPEC.scanlines || {};
+  const S = PANEL_SPEC.scanlines || {};
   const F = "'Share Tech Mono', monospace";
   const cyan = S.cyan || '#00FFCC';
   const cyanDim = S.cyanDim || '#009977';
@@ -1420,7 +1420,7 @@ function scanScreen2(c) {
    ═══════════════════════════════════════ */
 
 function nixieDigit(value, size, showTube) {
-  const N = LCARS_SPEC.tubes || {};
+  const N = PANEL_SPEC.tubes || {};
   const NIXIE = "'Nixie One', cursive";
   const bright = N.bright || '#FF6E0B';
   const bloom = N.bloom || '#FF4400';
@@ -1467,7 +1467,7 @@ function nixieDigit(value, size, showTube) {
 }
 
 function bargraphBar(pct, label, color, flash) {
-  const N = LCARS_SPEC.tubes || {};
+  const N = PANEL_SPEC.tubes || {};
   const MONO = "'IBM Plex Mono', monospace";
   const barColor = color || N.barStd || '#FF6622';
   const interior = N.interior || '#0C0A06';
@@ -1517,7 +1517,7 @@ function magicEye(pct, label, size) {
   const s = size / 420;
   const holeSize = rInner * 2 * s;
   const MONO = "'IBM Plex Mono', monospace";
-  const N = LCARS_SPEC.tubes || {};
+  const N = PANEL_SPEC.tubes || {};
 
   return '<div style="text-align:center">' +
     '<div style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 3px ' + (N.label||'#AA8855') + '44;font-size:2.34cqw;font-family:' + MONO + ';letter-spacing:3px;margin-bottom:3px">' + label + '</div>' +
@@ -1548,7 +1548,7 @@ function magicEye(pct, label, size) {
 }
 
 function dekatron(rpm, size) {
-  const N = LCARS_SPEC.tubes || {};
+  const N = PANEL_SPEC.tubes || {};
   const rps = rpm > 0 ? (rpm / 60) * 0.1 : 0;
   const speed = rps > 0 ? Math.max(0.3, 1 / rps) : 0;
   const stopped = !rpm || rpm <= 0;
@@ -1572,7 +1572,7 @@ function dekatron(rpm, size) {
 }
 
 function tubeSectionLabel(text, color, rightText, rightColor) {
-  const N = LCARS_SPEC.tubes || {};
+  const N = PANEL_SPEC.tubes || {};
   const MONO = "'IBM Plex Mono', monospace";
   const rc = rightColor || color;
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.59cqw">' +
@@ -1583,7 +1583,7 @@ function tubeSectionLabel(text, color, rightText, rightColor) {
 }
 
 function tubeScreen1(c) {
-  const N = LCARS_SPEC.tubes || {};
+  const N = PANEL_SPEC.tubes || {};
   const MONO = "'IBM Plex Mono', monospace";
   const bg = N.bg || '#0A0806';
   const core = N.core || '#FF8833';
@@ -1691,7 +1691,7 @@ function tubeScreen1(c) {
 }
 
 function tubeScreen2(c) {
-  const N = LCARS_SPEC.tubes || {};
+  const N = PANEL_SPEC.tubes || {};
   const NIXIE = "'Nixie One', cursive";
   const MONO = "'IBM Plex Mono', monospace";
   const bg = N.bg || '#0A0806';
@@ -1734,7 +1734,7 @@ function tubeScreen2(c) {
    ═══════════════════════════════════════ */
 
 function vfdPal(colorName) {
-  const V = LCARS_SPEC.vfd || {};
+  const V = PANEL_SPEC.vfd || {};
   return {
     main: V[colorName] || '#00DDAA',
     bright: V[colorName+'Bright'] || '#44FFCC',
@@ -1756,7 +1756,7 @@ function vfdSectionLabel(text, color, rightText, rightColor) {
 
 function vfdDonut(pct, label, color, size) {
   const p = vfdPal(color);
-  const V = LCARS_SPEC.vfd || {};
+  const V = PANEL_SPEC.vfd || {};
   const F = "'Share Tech Mono', monospace";
   const cx = size / 2, cy = size / 2;
   const r = (size - 14) / 2;
@@ -1790,7 +1790,7 @@ function vfdDonut(pct, label, color, size) {
 }
 
 function vfdThermalBar(temp, label) {
-  const V = LCARS_SPEC.vfd || {};
+  const V = PANEL_SPEC.vfd || {};
   const F = "'Share Tech Mono', monospace";
   const pct = ((Math.max(20, Math.min(120, temp)) - 20) / 100) * 100;
   let color = 'blue';
@@ -1824,7 +1824,7 @@ function vfdThermalBar(temp, label) {
 }
 
 function vfdPanel(children) {
-  const V = LCARS_SPEC.vfd || {};
+  const V = PANEL_SPEC.vfd || {};
   const filament = V.filament || '#332211';
   const filamentWarm = V.filamentWarm || '#443322';
   const grid = V.grid || '#1A1A18';
@@ -1838,7 +1838,7 @@ function vfdPanel(children) {
 }
 
 function vfdScreen1(c) {
-  const V = LCARS_SPEC.vfd || {};
+  const V = PANEL_SPEC.vfd || {};
   const F = "'Share Tech Mono', monospace";
   const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
   const diskRootPct = m('disk.root_percent');
@@ -1949,7 +1949,7 @@ function vfdScreen1(c) {
 }
 
 function vfdScreen2(c) {
-  const V = LCARS_SPEC.vfd || {};
+  const V = PANEL_SPEC.vfd || {};
   const F = "'Share Tech Mono', monospace";
   const green = V.green || '#00DDAA';
   const greenDim = V.greenDim || '#008866';
@@ -2320,7 +2320,7 @@ def _build_html() -> str:
   }
   .t-val { flex-shrink: 0; }
 
-  /* ── LCARS panels (sizes in cqw = % of 1024px container width) ── */
+  /* ── Panel layout (sizes in cqw = % of 1024px container width) ── */
   .l-screen {
     display: grid; gap: 0.78cqw; padding: 0.78cqw; width: 100%; height: 100%;
     font-family: 'Chakra Petch', sans-serif;
@@ -2401,7 +2401,7 @@ def _build_html() -> str:
     font-weight: normal; font-family: 'Chakra Petch', sans-serif;
   }
 
-  /* ── 4-col grid inside LCARS NPU panel ── */
+  /* ── 4-col grid inside NPU panel ── */
   .l-4col { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.78cqw; }
 
   .status { margin-top: 24px; color: #555; font-size: 12px; }
@@ -2473,7 +2473,7 @@ def _build_html() -> str:
 
 <script>
 const API = window.location.origin;
-const LCARS_SPEC = __LCARS_SPEC_JSON__;
+const PANEL_SPEC = __PANEL_SPEC_JSON__;
 let currentData = null, metrics = null;
 let selectedFamily = null, selectedVariant = null;
 
@@ -2576,15 +2576,15 @@ function tRow(c, label, bar, val, color) {
     (bar || '') + `<span class="t-val" style="color:${color}">${val}</span></div>`;
 }
 
-const GOLD = LCARS_SPEC.colors.gold;
-const AMBER = LCARS_SPEC.colors.amber;
-const GREEN = LCARS_SPEC.colors.green;
-const TEAL = LCARS_SPEC.colors.teal;
+const GOLD = PANEL_SPEC.colors.gold;
+const AMBER = PANEL_SPEC.colors.amber;
+const GREEN = PANEL_SPEC.colors.green;
+const TEAL = PANEL_SPEC.colors.teal;
 function _thermColor(t) {
-  if (t >= 90) return LCARS_SPEC.colors.thermOrange || '#FF7700';
-  if (t >= 70) return LCARS_SPEC.colors.thermYellow || '#DDCC00';
-  if (t >= 50) return LCARS_SPEC.colors.thermGreen || '#22BB44';
-  return LCARS_SPEC.colors.thermBlue || '#2288DD';
+  if (t >= 90) return PANEL_SPEC.colors.thermOrange || '#FF7700';
+  if (t >= 70) return PANEL_SPEC.colors.thermYellow || '#DDCC00';
+  if (t >= 50) return PANEL_SPEC.colors.thermGreen || '#22BB44';
+  return PANEL_SPEC.colors.thermBlue || '#2288DD';
 }
 function lPanel(titleLeft, color, body, titleRight) {
   const right = titleRight ? `<span>${titleRight}</span>` : '';
@@ -2606,14 +2606,14 @@ __SCREEN_FUNCTIONS__
 
 
 function getScreenRegistry(c) {
-  const isLCARS = selectedFamily === 'LCARS';
+  const isPanel = selectedFamily === 'Panel';
   const isVintage = selectedFamily === 'Vintage';
-  const isTNG = isLCARS && selectedVariant === 'TNG';
-  const isDS9 = isLCARS && selectedVariant === 'DS9';
+  const isCoral = isPanel && selectedVariant === 'Coral';
+  const isTeal = isPanel && selectedVariant === 'Teal';
   let screens;
-  if (isDS9) screens = [{id:'screen1',name:'System Stats',fn:ds9Screen1},{id:'screen2',name:'Clock',fn:ds9Screen2}];
-  else if (isTNG) screens = [{id:'screen1',name:'System Stats',fn:tngScreen1},{id:'screen2',name:'Clock',fn:tngScreen2}];
-  else if (isLCARS) screens = [{id:'screen1',name:'System Stats',fn:lcarsScreen1},{id:'screen2',name:'Clock',fn:lcarsScreen2}];
+  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:panelTealScreen1},{id:'screen2',name:'Clock',fn:panelTealScreen2}];
+  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:panelCoralScreen1},{id:'screen2',name:'Clock',fn:panelCoralScreen2}];
+  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:panelGoldScreen1},{id:'screen2',name:'Clock',fn:panelGoldScreen2}];
   else if (isVintage && selectedVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'Clock',fn:tubeScreen2}];
   else if (isVintage && selectedVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'Clock',fn:vfdScreen2}];
   else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'Clock',fn:scanScreen2}];
@@ -2820,7 +2820,7 @@ setInterval(async () => {
     screen_fns = _screen_functions_js()
     return (
         html
-        .replace("__LCARS_SPEC_JSON__", json.dumps(spec))
-        .replace("__LCARS_GOLD__", spec["colors"]["gold"])
+        .replace("__PANEL_SPEC_JSON__", json.dumps(spec))
+        .replace("__PANEL_GOLD__", spec["colors"]["gold"])
         .replace("__SCREEN_FUNCTIONS__", screen_fns)
     )
