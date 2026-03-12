@@ -36,7 +36,7 @@ def _get_session_env() -> dict[str, str]:
     from chiketi.app import _get_graphical_session_env
     env = {**os.environ}
     session_env = _get_graphical_session_env()
-    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"):
         if key not in env and key in session_env:
             env[key] = session_env[key]
     if "DISPLAY" not in env:

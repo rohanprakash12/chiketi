@@ -125,19 +125,21 @@ def _get_graphical_session_env() -> dict[str, str]:
                 )
                 leader_pid = sess_leader.stdout.strip().split("=")[-1]
                 if leader_pid and leader_pid.isdigit():
-                    env = _read_env_from_proc(int(leader_pid))
-                    if env:
-                        return env
+                    candidate = _read_env_from_proc(int(leader_pid))
+                    if candidate:
+                        # Merge into env but keep scanning if missing XAUTHORITY
+                        env.update(candidate)
             except Exception:
                 continue
     except Exception:
         pass
 
     # Fallback: scan /proc for a process with DISPLAY or WAYLAND_DISPLAY set
+    # Prefer processes that also have XAUTHORITY (needed for XWayland)
+    best = {}
     try:
         for proc_dir in sorted(glob.glob("/proc/[0-9]*")):
             try:
-                # Only check our user's processes
                 if os.stat(proc_dir).st_uid != uid:
                     continue
                 environ_path = os.path.join(proc_dir, "environ")
@@ -147,16 +149,22 @@ def _get_graphical_session_env() -> dict[str, str]:
                 for item in environ_data.split("\0"):
                     if "=" in item:
                         k, v = item.split("=", 1)
-                        if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+                        if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"):
                             proc_env[k] = v
-                if proc_env.get("DISPLAY") or proc_env.get("WAYLAND_DISPLAY"):
+                if not (proc_env.get("DISPLAY") or proc_env.get("WAYLAND_DISPLAY")):
+                    continue
+                # If this process has XAUTHORITY, it's the best match
+                if proc_env.get("XAUTHORITY"):
                     return proc_env
+                # Otherwise save as fallback
+                if not best:
+                    best = proc_env
             except (PermissionError, FileNotFoundError, ProcessLookupError):
                 continue
     except Exception:
         pass
 
-    return env
+    return best or env
 
 
 def _read_env_from_proc(pid: int) -> dict[str, str]:
@@ -168,7 +176,7 @@ def _read_env_from_proc(pid: int) -> dict[str, str]:
         for item in data.split("\0"):
             if "=" in item:
                 k, v = item.split("=", 1)
-                if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+                if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"):
                     env[k] = v
     except Exception:
         pass
@@ -262,8 +270,8 @@ class DisplayManager:
         """Build the environment for launching Chromium."""
         env = {**os.environ}
         env["DISPLAY"] = self._display_env
-        # Pass through Wayland env vars if available
-        for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+        # Pass through session env vars (Wayland, X auth, runtime dir)
+        for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"):
             val = self._session_env.get(key) or os.environ.get(key)
             if val:
                 env[key] = val
