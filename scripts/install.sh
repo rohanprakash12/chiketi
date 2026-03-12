@@ -39,6 +39,9 @@ dpkg -s python3-venv >/dev/null 2>&1 || PKGS="$PKGS python3-venv"
 dpkg -s python3-dev >/dev/null 2>&1  || PKGS="$PKGS python3-dev"
 dpkg -s gcc >/dev/null 2>&1          || PKGS="$PKGS gcc"
 
+# Chromium for dashboard display
+command -v chromium >/dev/null || command -v chromium-browser >/dev/null || command -v google-chrome >/dev/null || PKGS="$PKGS chromium-browser"
+
 if [ -n "$PKGS" ]; then
     info "Installing system packages:$PKGS"
     sudo apt-get install -y -qq $PKGS
