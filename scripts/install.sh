@@ -90,6 +90,27 @@ if ! command -v sensors >/dev/null 2>&1; then
     sudo apt-get install -y -qq lm-sensors
 fi
 
+# ── Fix PATH ──
+PIPX_BIN="$HOME/.local/bin"
+if ! echo "$PATH" | grep -q "$PIPX_BIN"; then
+    export PATH="$PIPX_BIN:$PATH"
+    # Add to shell profile permanently
+    SHELL_RC=""
+    if [ -f "$HOME/.bashrc" ]; then
+        SHELL_RC="$HOME/.bashrc"
+    elif [ -f "$HOME/.zshrc" ]; then
+        SHELL_RC="$HOME/.zshrc"
+    elif [ -f "$HOME/.profile" ]; then
+        SHELL_RC="$HOME/.profile"
+    fi
+    if [ -n "$SHELL_RC" ]; then
+        if ! grep -q '.local/bin' "$SHELL_RC" 2>/dev/null; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
+            info "Added ~/.local/bin to PATH in $(basename $SHELL_RC)"
+        fi
+    fi
+fi
+
 # ── Verify ──
 if command -v chiketi >/dev/null 2>&1; then
     info "Installation complete!"
@@ -103,7 +124,8 @@ if command -v chiketi >/dev/null 2>&1; then
     echo "    chiketi --theme Vintage/VFD"
     echo "    chiketi --rotate-interval 15"
     echo ""
+    echo "  If 'chiketi' is not found, open a new terminal and try again."
+    echo ""
 else
-    warn "chiketi not found in PATH. Try: export PATH=\"\$HOME/.local/bin:\$PATH\""
-    warn "Then run: chiketi"
+    fail "Installation failed. Check errors above."
 fi
