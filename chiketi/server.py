@@ -37,35 +37,64 @@ def _get_display_env() -> str:
     return _detect_display()
 
 
+def _parse_xrandr(stdout: str) -> list[dict]:
+    """Parse xrandr output into a list of display dicts."""
+    outputs = []
+    for line in stdout.splitlines():
+        if " connected" in line or " disconnected" in line:
+            parts = line.split()
+            name = parts[0]
+            connected = parts[1] == "connected" if len(parts) > 1 else False
+            resolution = ""
+            if connected and len(parts) > 2:
+                for p in parts[2:]:
+                    if "x" in p and p[0].isdigit():
+                        resolution = p.split("+")[0]
+                        break
+            outputs.append({
+                "name": name,
+                "connected": connected,
+                "resolution": resolution,
+            })
+    return outputs
+
+
 def _get_xrandr_outputs() -> list[dict]:
-    """Query xrandr for available display outputs."""
-    try:
-        result = subprocess.run(
-            ["xrandr", "--query"],
-            capture_output=True, text=True, timeout=5,
-            env={**os.environ, "DISPLAY": _get_display_env()},
-        )
-        outputs = []
-        for line in result.stdout.splitlines():
-            if " connected" in line or " disconnected" in line:
-                parts = line.split()
-                name = parts[0]
-                connected = parts[1] == "connected" if len(parts) > 1 else False
-                # Try to get resolution
-                resolution = ""
-                if connected and len(parts) > 2:
-                    for p in parts[2:]:
-                        if "x" in p and p[0].isdigit():
-                            resolution = p.split("+")[0]
-                            break
-                outputs.append({
-                    "name": name,
-                    "connected": connected,
-                    "resolution": resolution,
-                })
-        return outputs
-    except Exception:
-        return []
+    """Query xrandr for available display outputs, trying all X displays."""
+    import glob
+
+    # Collect all possible displays to try
+    displays = set()
+    display_env = os.environ.get("DISPLAY")
+    if display_env:
+        displays.add(display_env)
+    for lock in glob.glob("/tmp/.X*-lock"):
+        try:
+            num = lock.split(".X")[1].split("-lock")[0]
+            displays.add(f":{num}")
+        except (IndexError, ValueError):
+            pass
+    if not displays:
+        displays.add(":0")
+
+    # Try each display, return first one with results
+    all_outputs = []
+    for disp in sorted(displays):
+        try:
+            result = subprocess.run(
+                ["xrandr", "--query"],
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, "DISPLAY": disp},
+            )
+            outputs = _parse_xrandr(result.stdout)
+            if outputs:
+                # Tag outputs with which X display they belong to
+                for o in outputs:
+                    o["display"] = disp
+                all_outputs.extend(outputs)
+        except Exception:
+            continue
+    return all_outputs
 
 
 def _apply_display_settings(output: str, brightness: float) -> bool:
