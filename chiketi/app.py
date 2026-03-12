@@ -319,10 +319,8 @@ class DisplayManager:
                 "--disable-session-crashed-bubble",
                 "--disable-features=TranslateUI",
                 "--noerrdialogs",
-                "--window-size=1024,600",
-                "--window-position=0,0",
+                "--start-fullscreen",
             ]
-            # On Wayland, Chromium may need ozone platform hint
             if self._wayland:
                 chrome_args.append("--ozone-platform=wayland")
             try:

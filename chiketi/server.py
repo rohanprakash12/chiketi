@@ -67,78 +67,30 @@ def _parse_xrandr(stdout: str) -> list[dict]:
     return outputs
 
 
-def _get_gnome_outputs() -> list[dict]:
-    """Get display outputs via GNOME/Mutter DBus (works on Wayland)."""
-    try:
-        env = _get_session_env()
-        # gnome-randr or mutter's DBus interface
-        result = subprocess.run(
-            ["gnome-randr", "query"],
-            capture_output=True, text=True, timeout=5, env=env,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            outputs = []
-            current_name = ""
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if not line.startswith(("├", "│", "└", " ")) and line and "@" not in line:
-                    current_name = line
-                if "associated physical monitors" in line.lower() or "current" in line.lower():
-                    continue
-                # Parse resolution from lines like "1920x1080@60.0"
-                if "@" in line and "x" in line:
-                    res = line.split("@")[0].strip().lstrip("*")
-                    if current_name and res:
-                        outputs.append({
-                            "name": current_name,
-                            "connected": True,
-                            "resolution": res,
-                        })
-                        current_name = ""
-            if outputs:
-                return outputs
-    except FileNotFoundError:
-        pass
-    except Exception:
-        pass
-
-    # Fallback: parse xrandr via XWayland
-    return []
-
-
 def _get_xrandr_outputs() -> list[dict]:
     """Query display outputs, supporting both X11 and Wayland."""
     import glob
-    from chiketi.app import _is_wayland
 
-    # On Wayland, try gnome-randr first
-    if _is_wayland():
-        outputs = _get_gnome_outputs()
-        if outputs:
-            return outputs
-
-    # Build env with session vars
+    # Get full session env (DISPLAY, WAYLAND_DISPLAY, XDG_RUNTIME_DIR)
     env = _get_session_env()
 
-    # Collect all possible X displays to try
-    displays = set()
-    if env.get("DISPLAY"):
-        displays.add(env["DISPLAY"])
-    for lock in glob.glob("/tmp/.X*-lock"):
+    # First try xrandr with the session env (works on X11 and XWayland)
+    try:
+        result = subprocess.run(
+            ["xrandr", "--query"],
+            capture_output=True, text=True, timeout=5, env=env,
+        )
+        outputs = _parse_xrandr(result.stdout)
+        if outputs:
+            return outputs
+    except Exception:
+        pass
+
+    # Try each X display from lock files
+    for lock in sorted(glob.glob("/tmp/.X*-lock")):
         try:
             num = lock.split(".X")[1].split("-lock")[0]
-            if int(num) < 100:  # skip XWayland high-numbered displays
-                displays.add(f":{num}")
-        except (IndexError, ValueError):
-            pass
-    if not displays:
-        displays.add(":0")
-
-    # Try each display
-    all_outputs = []
-    for disp in sorted(displays):
-        try:
-            run_env = {**env, "DISPLAY": disp}
+            run_env = {**env, "DISPLAY": f":{num}"}
             result = subprocess.run(
                 ["xrandr", "--query"],
                 capture_output=True, text=True, timeout=5,
@@ -147,11 +99,12 @@ def _get_xrandr_outputs() -> list[dict]:
             outputs = _parse_xrandr(result.stdout)
             if outputs:
                 for o in outputs:
-                    o["display"] = disp
-                all_outputs.extend(outputs)
+                    o["display"] = f":{num}"
+                return outputs
         except Exception:
             continue
-    return all_outputs
+
+    return []
 
 
 def _apply_display_settings(output: str, brightness: float) -> bool:
