@@ -1,0 +1,7 @@
+{"type": "user", "timestamp": "2026-01-01T10:00:00Z", "message": {"role": "user", "content": "hello"}}
+{"type": "assistant", "timestamp": "2026-01-01T10:00:05Z", "message": {"role": "assistant", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 10}}}
+{"type": "user", "timestamp": "2026-01-02T11:00:00Z", "message": {"role": "user", "content": "again"}}
+{"type": "assistant", "timestamp": "2026-01-02T11:00:05Z", "message": {"role": "assistant", "usage": {"input_tokens": 200, "output_tokens": 75, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 5}}}
+this line is not valid json and must be skipped
+{"type": "summary", "timestamp": "2026-01-02T11:01:00Z", "summary": "no usage here"}
+{"type": "assistant", "timestamp": "2026-01-03T09:00:00Z", "message": {"role": "assistant"}}

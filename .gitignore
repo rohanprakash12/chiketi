@@ -9,3 +9,6 @@ build/
 .claude/
 ~$*
 ui_ideas/
+.pytest_cache/
+.coverage
+htmlcov/

@@ -118,7 +118,7 @@ def _apply_display_settings(output: str, brightness: float) -> bool:
             return False
         subprocess.run(
             args, capture_output=True, timeout=5,
-            env={**os.environ, "DISPLAY": _get_display_env()},
+            env=_get_session_env(),
         )
         _display_output = output
         _display_brightness = brightness

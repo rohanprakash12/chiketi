@@ -10,6 +10,7 @@ dependencies = [
 
 [project.optional-dependencies]
 nvidia = ["nvidia-ml-py>=12.0"]
+dev = ["pytest>=7.0"]
 
 [project.scripts]
 chiketi = "chiketi.__main__:main"
