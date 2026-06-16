@@ -188,15 +188,15 @@ function renderScreenRotationUI() {
   for (const s of screens) {
     const cfg = _serverScreenRotation[s.id] || { enabled: true, duration: 10 };
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 0';
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 0;min-height:44px';
     row.innerHTML =
-      `<label style="display:flex;align-items:center;gap:6px;color:#ccc;flex:1;cursor:pointer">` +
-        `<input type="checkbox" data-screen="${s.id}" class="sr-enable" ${cfg.enabled ? 'checked' : ''} style="accent-color:#0f0;width:16px;height:16px">` +
+      `<label style="display:flex;align-items:center;gap:10px;color:#ccc;flex:1;cursor:pointer;min-height:44px">` +
+        `<input type="checkbox" data-screen="${s.id}" class="sr-enable" ${cfg.enabled ? 'checked' : ''} style="accent-color:#0f0;width:22px;height:22px;flex-shrink:0">` +
         `${s.name}` +
       `</label>` +
       `<input type="number" data-screen="${s.id}" class="sr-duration" value="${cfg.duration}" min="3" max="600" ` +
-        `style="width:60px;background:#111;border:1px solid #333;color:#0f0;padding:4px 6px;border-radius:4px;font-size:13px;text-align:center">` +
-      `<span style="color:#666;font-size:12px">sec</span>`;
+        `style="width:64px;min-height:44px;background:#111;border:1px solid #333;color:#0f0;padding:6px;border-radius:4px;font-size:14px;text-align:center">` +
+      `<span style="color:#9aa0a6;font-size:12px">sec</span>`;
     el.appendChild(row);
   }
 }
