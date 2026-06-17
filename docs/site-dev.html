@@ -3,7 +3,38 @@
 <title>chiketi — retro system monitor</title>
 <link rel="stylesheet" href="site/site.css">
 </head><body>
-<div id="app"><!-- sections injected by build tasks --></div>
+<div id="app">
+
+  <!-- ── sticky nav ── -->
+  <nav class="nav">
+    <div class="nav__brand">
+      <span class="led led--pulse" aria-hidden="true"></span>
+      <span class="nav__wordmark">CHIKETI</span>
+    </div>
+    <div class="nav__links">
+      <a href="#themes">Themes</a>
+      <a href="#appliance">Appliance</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/rohanprakash12/chiketi" aria-label="chiketi on GitHub">GitHub</a>
+    </div>
+  </nav>
+
+  <!-- ── hero ── -->
+  <section id="hero" class="section">
+    <div class="hero-copy">
+      <div class="eyebrow">Retro system monitor</div>
+      <h1>See your machines<br>at a glance.</h1>
+      <p class="hero-sub">Mount a dedicated display, run one command, and your box turns into a glowing status panel. Local rig or remote fleet — 12 hand-built themes, zero cloud.</p>
+      <div class="hero-cta">
+        <a class="btn btn--primary" href="#install">Get started</a>
+        <a class="btn btn--ghost" href="#themes">&#9654; View 12 themes</a>
+      </div>
+      <div class="hero-install"><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi/main/scripts/install.sh | bash</div>
+    </div>
+    <div class="hero-device" aria-hidden="true"><!-- device chassis + live dashboard added in next task --></div>
+  </section>
+
+</div>
 <script src="site/data.js"></script>
 <script src="site/dashboard.js"></script>
 <script src="site/site.js"></script>
