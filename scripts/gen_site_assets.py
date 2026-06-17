@@ -84,9 +84,9 @@ function getScreen1Fn(){
 }
 /* Render theme's primary (System Stats) screen into element id `elId`. */
 function renderThemeInto(elId, family, variant){
-  activeFamily=family; activeVariant=variant;
-  themeColors=((window.SITE_THEMES.families[family]||{})[variant])||null;
-  if(!themeColors) return;
+  var colors=((window.SITE_THEMES.families[family]||{})[variant])||null;
+  if(!colors) return;  // bad/unknown theme: leave global state + current render intact.
+  activeFamily=family; activeVariant=variant; themeColors=colors;
   document.getElementById(elId).innerHTML = getScreen1Fn()(themeColors);
 }
 window.renderThemeInto = renderThemeInto;
@@ -115,6 +115,35 @@ display_css = display_css.replace(
     "  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }\n", "")
 display_css = display_css.replace(
     "  body { cursor: none; }\n", "")
+# SITE-ONLY: the Terminal-family (.t-*) layout uses FIXED PIXELS sized for the
+# 1024px kiosk, so it overflows the ~430px hero device (Panel/Vintage use cqw and
+# scale). For the generated site copy ONLY, convert the .t-* px dimensions to cqw
+# (cqw = px / 1024 * 100). DO NOT touch the product display.css — the real kiosk
+# relies on px + transform-scale. These are targeted, reproducible replacements.
+_T_PX_TO_CQW = [
+    # .t-screen { display: grid; gap: 6px; padding: 6px; ... }
+    ("  .t-screen { display: grid; gap: 6px; padding: 6px; width: 100%; height: 100%; }",
+     "  .t-screen { display: grid; gap: 0.586cqw; padding: 0.586cqw; width: 100%; height: 100%; }"),
+    # .t-panel { padding: 14px 16px; ... }
+    ("    padding: 14px 16px; overflow: hidden;",
+     "    padding: 1.367cqw 1.5625cqw; overflow: hidden;"),
+    # .t-title { font-size: 19px; margin-bottom: 12px; ... }
+    ("    font-size: 19px; margin-bottom: 12px; white-space: nowrap;",
+     "    font-size: 1.855cqw; margin-bottom: 1.172cqw; white-space: nowrap;"),
+    # .t-row { ... gap: 8px; ... font-size: 17px; margin-bottom: 9px; ... }
+    ("    display: flex; align-items: center; gap: 8px;",
+     "    display: flex; align-items: center; gap: 0.781cqw;"),
+    ("    font-size: 17px; margin-bottom: 9px; white-space: nowrap;",
+     "    font-size: 1.66cqw; margin-bottom: 0.879cqw; white-space: nowrap;"),
+    # .t-bar { ... height: 16px; ... font-size: 14px; ... line-height: 16px; }
+    ("    flex: 1; height: 16px; display: flex; border-radius: 1px; overflow: hidden;",
+     "    flex: 1; height: 1.5625cqw; display: flex; border-radius: 1px; overflow: hidden;"),
+    ("    font-size: 14px; font-family: 'Consolas', monospace; line-height: 16px;",
+     "    font-size: 1.367cqw; font-family: 'Consolas', monospace; line-height: 1.5625cqw;"),
+]
+for _old, _new in _T_PX_TO_CQW:
+    assert _old in display_css, "gen_site_assets: .t-* anchor not found: %r" % _old
+    display_css = display_css.replace(_old, _new)
 # Mirror the product (server.py): substitute the url-rewritten fonts.css INTO the
 # __FONTS_CSS__ placeholder in display.css. Concatenating instead would leave the
 # literal token, forming a dead `__FONTS_CSS__ * {...}` selector that voids the reset.

@@ -37,12 +37,20 @@
   }
   window.__setHeroTheme = setTheme;
 
+  // is (f,v) a real theme in the frozen list?
+  function isKnownTheme(f, v) {
+    return window.SITE_THEME_LIST.some(function (t) {
+      return t.family === f && t.variant === v;
+    });
+  }
+
   // default face: Panel/Gold (override with ?t=Family/Variant for verification).
+  // An invalid/malformed ?t= must NOT blank the device — validate, else fall back.
   var def = ['Panel', 'Gold'];
   var q = (location.search.match(/[?&]t=([^&]+)/) || [])[1];
   if (q) {
     var parts = decodeURIComponent(q).split('/');
-    if (parts.length === 2) def = parts;
+    if (parts.length === 2 && isKnownTheme(parts[0], parts[1])) def = parts;
   }
   setTheme(def[0], def[1]);
 })();

@@ -1579,9 +1579,9 @@ function getScreen1Fn(){
 }
 /* Render theme's primary (System Stats) screen into element id `elId`. */
 function renderThemeInto(elId, family, variant){
-  activeFamily=family; activeVariant=variant;
-  themeColors=((window.SITE_THEMES.families[family]||{})[variant])||null;
-  if(!themeColors) return;
+  var colors=((window.SITE_THEMES.families[family]||{})[variant])||null;
+  if(!colors) return;  // bad/unknown theme: leave global state + current render intact.
+  activeFamily=family; activeVariant=variant; themeColors=colors;
   document.getElementById(elId).innerHTML = getScreen1Fn()(themeColors);
 }
 window.renderThemeInto = renderThemeInto;
