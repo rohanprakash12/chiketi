@@ -31,7 +31,31 @@
       </div>
       <div class="hero-install"><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi/main/scripts/install.sh | bash</div>
     </div>
-    <div class="hero-device" aria-hidden="true"><!-- device chassis + live dashboard added in next task --></div>
+    <div class="hero-device">
+      <!-- device chassis framing a live dashboard -->
+      <div class="chassis">
+        <span class="screw screw--tl" aria-hidden="true"></span>
+        <span class="screw screw--tr" aria-hidden="true"></span>
+        <span class="screw screw--bl" aria-hidden="true"></span>
+        <span class="screw screw--br" aria-hidden="true"></span>
+
+        <div class="bezel-strip">
+          <span class="bezel-brand mono">CHIKETI &middot; SYS-MON &middot; v0.2</span>
+          <span class="bezel-leds" aria-hidden="true">
+            <span class="led led--bezel led--green"></span>
+            <span class="led led--bezel led--gold"></span>
+            <span class="led led--bezel led--off"></span>
+          </span>
+        </div>
+
+        <div class="screen">
+          <div class="screen-frame"><div id="hero-display" role="img" aria-label="Live chiketi dashboard preview"></div></div>
+          <div class="glass" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <div class="theme-chips" role="group" aria-label="Switch dashboard theme"><!-- chips injected by site.js --></div>
+    </div>
   </section>
 
 </div>
