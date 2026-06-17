@@ -112,3 +112,46 @@
   // default the gallery to a DIFFERENT face than the hero, for variety at rest.
   setGallery('Vintage', 'Tubes');
 })();
+
+/* ── install: real tabs (keyboard-accessible) + copy buttons ── */
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs .tab'));
+  if (tabs.length) {
+    function activate(tab) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.classList.toggle('active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        var panel = document.getElementById(t.dataset.panel);
+        if (panel) panel.hidden = !on;
+      });
+    }
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { activate(tab); });
+      tab.addEventListener('keydown', function (e) {
+        var next = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = tabs[(i + 1) % tabs.length];
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = tabs[(i - 1 + tabs.length) % tabs.length];
+        if (next) { e.preventDefault(); activate(next); next.focus(); }
+      });
+    });
+  }
+
+  document.querySelectorAll('.cmd__copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.dataset.copy || '';
+      var done = function () {
+        var orig = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function () { btn.textContent = orig; btn.classList.remove('copied'); }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, done);
+      } else {
+        done();
+      }
+    });
+  });
+})();

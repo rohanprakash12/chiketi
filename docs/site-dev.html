@@ -159,6 +159,48 @@
     </div>
   </section>
 
+  <!-- ── install ── -->
+  <section id="install" class="section install">
+    <div class="install__head">
+      <div class="eyebrow">Get running</div>
+      <h2 class="section__title">One command, then a screen.</h2>
+      <p class="section__lead">Grab a 7&Prime; 1024&times;600 display, run the installer, point it at a box.</p>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Choose what to install">
+      <button class="tab active" role="tab" id="tab-chiketi" aria-selected="true" aria-controls="panel-chiketi" data-panel="panel-chiketi" type="button">chiketi</button>
+      <button class="tab" role="tab" id="tab-appliance" aria-selected="false" aria-controls="panel-appliance" data-panel="panel-appliance" type="button" tabindex="-1">appliance</button>
+    </div>
+
+    <div class="tab-panel" id="panel-chiketi" role="tabpanel" aria-labelledby="tab-chiketi" tabindex="0">
+      <p class="tab-panel__lead">Monitor the local machine the display is plugged into.</p>
+      <div class="cmd">
+        <code class="cmd__code mono">curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi/main/scripts/install.sh | bash</code>
+        <button class="cmd__copy" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi/main/scripts/install.sh | bash">Copy</button>
+      </div>
+      <p class="nudge">Tip: grab a 7&Prime; 1024&times;600 display (the GeeekPi panel is the reference) &mdash; but any HDMI screen works.</p>
+      <ol class="steps">
+        <li>Run the one-liner &mdash; it installs Python, pipx, sensors, and chiketi, and detects NVIDIA GPUs.</li>
+        <li>Plug in the display; chiketi launches a full-screen Chromium kiosk.</li>
+        <li>Open <span class="mono">http://&lt;host&gt;:7777</span> on your phone to switch themes and screens.</li>
+      </ol>
+    </div>
+
+    <div class="tab-panel" id="panel-appliance" role="tabpanel" aria-labelledby="tab-appliance" tabindex="0" hidden>
+      <p class="tab-panel__lead">Run on a Raspberry Pi and watch remote servers over SSH &mdash; nothing to install on them.</p>
+      <div class="cmd">
+        <code class="cmd__code mono">curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi-appliance/main/scripts/install.sh | bash</code>
+        <button class="cmd__copy" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi-appliance/main/scripts/install.sh | bash">Copy</button>
+      </div>
+      <p class="nudge">Tip: grab a 7&Prime; 1024&times;600 display for the Pi &mdash; the dashboard renders on its HDMI out.</p>
+      <ol class="steps">
+        <li>Run the one-liner on a Raspberry Pi (or any Debian/Ubuntu box).</li>
+        <li>Run <span class="mono">chiketi-appliance</span>; a browser setup wizard opens on port 7777.</li>
+        <li>Add servers, drop in an SSH key, pick a theme &mdash; then start monitoring.</li>
+      </ol>
+    </div>
+  </section>
+
 </div>
 <script src="site/data.js"></script>
 <script src="site/dashboard.js"></script>
