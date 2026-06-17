@@ -226,7 +226,7 @@ h1, h2, h3, p { margin: 0; }
   margin-top: 20px;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   word-break: break-all;
 }
 .hero-install .prompt { color: var(--teal); user-select: none; }

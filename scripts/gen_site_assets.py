@@ -105,6 +105,16 @@ fonts_css = (UI / "fonts.css").read_text()
 fonts_css = fonts_css.replace("url('/assets/fonts/", "url('../assets/fonts/")
 fonts_css = fonts_css.replace('url("/assets/fonts/', 'url("../assets/fonts/')
 display_css = (UI / "display.css").read_text()
+# display.css is a full-screen KIOSK stylesheet: it sets html/body to a fixed
+# 100vw/100vh, hides overflow, paints the background black, and hides the cursor.
+# Those globals are correct on the kiosk page but BLEED onto the marketing page
+# that @imports this file (non-scrollable, clipped, no cursor). Strip the
+# kiosk-only html/body rule-sets here in the GENERATOR. Keep the `*` reset and
+# all component classes (.t-*, .l-*, .screen-frame, etc.) intact.
+display_css = display_css.replace(
+    "  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }\n", "")
+display_css = display_css.replace(
+    "  body { cursor: none; }\n", "")
 # Mirror the product (server.py): substitute the url-rewritten fonts.css INTO the
 # __FONTS_CSS__ placeholder in display.css. Concatenating instead would leave the
 # literal token, forming a dead `__FONTS_CSS__ * {...}` selector that voids the reset.
