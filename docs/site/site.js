@@ -54,3 +54,61 @@
   }
   setTheme(def[0], def[1]);
 })();
+
+/* ── theme gallery: a SECOND independent display with faceplate swatches ── */
+(function () {
+  var host = document.querySelector('.swatches');
+  if (!host || !window.SITE_THEME_LIST || !window.SITE_THEMES) return;
+
+  function faceColor(f, v) {
+    var fam = (window.SITE_THEMES.families[f]) || {};
+    var t = fam[v];
+    return (t && (t.primary || t.accent)) || '#9aa0a6';
+  }
+
+  // group themes by family, preserving the order in SITE_THEME_LIST.
+  var groups = {}, order = [];
+  window.SITE_THEME_LIST.forEach(function (t) {
+    if (!groups[t.family]) { groups[t.family] = []; order.push(t.family); }
+    groups[t.family].push(t);
+  });
+
+  order.forEach(function (fam) {
+    var wrap = document.createElement('div');
+    wrap.className = 'swatch-group';
+    var label = document.createElement('div');
+    label.className = 'swatch-group__label';
+    label.textContent = fam;
+    wrap.appendChild(label);
+
+    var row = document.createElement('div');
+    row.className = 'swatch-group__row';
+    groups[fam].forEach(function (t) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'swatch';
+      btn.dataset.f = t.family;
+      btn.dataset.v = t.variant;
+      btn.style.background = faceColor(t.family, t.variant);
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', t.family + ' ' + t.variant + ' theme');
+      btn.title = t.family + ' · ' + t.variant;
+      btn.addEventListener('click', function () { setGallery(t.family, t.variant); });
+      row.appendChild(btn);
+    });
+    wrap.appendChild(row);
+    host.appendChild(wrap);
+  });
+
+  function setGallery(f, v) {
+    renderThemeInto('gallery-display', f, v);
+    host.querySelectorAll('.swatch').forEach(function (s) {
+      var on = s.dataset.f === f && s.dataset.v === v;
+      s.classList.toggle('active', on);
+      s.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  // default the gallery to a DIFFERENT face than the hero, for variety at rest.
+  setGallery('Vintage', 'Tubes');
+})();
