@@ -575,6 +575,10 @@ section[id] {
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
   padding: 11px 20px;
   font-family: var(--font-display);
   font-size: 14px;
