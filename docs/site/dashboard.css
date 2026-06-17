@@ -40,8 +40,7 @@
     src: url('../assets/fonts/IBMPlexMono-Regular.ttf') format('truetype');
     font-weight: normal; font-style: normal;
   }
-
-__FONTS_CSS__  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
   body { cursor: none; }
 
