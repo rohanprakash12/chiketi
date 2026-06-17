@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+  body{background:#000;margin:0}
+  .screen-frame{width:1024px;height:600px;container-type:inline-size;position:relative}
+  /* dashboard layout classes the renderers rely on */
+</style>
+<link rel="stylesheet" href="dashboard.css">
+</head><body>
+<div class="screen-frame"><div id="display"></div></div>
+<script src="data.js"></script><script src="dashboard.js"></script>
+<script>
+  // render the theme named in ?t=Family/Variant (default Panel/Gold)
+  var q=(location.search.match(/t=([^&]+)/)||[])[1];
+  var fv=q?decodeURIComponent(q).split('/'):['Panel','Gold'];
+  renderThemeInto('display', fv[0], fv[1]);
+</script>
+</body></html>
