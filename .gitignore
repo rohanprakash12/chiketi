@@ -12,3 +12,4 @@ ui_ideas/
 .pytest_cache/
 .coverage
 htmlcov/
+.superpowers/
