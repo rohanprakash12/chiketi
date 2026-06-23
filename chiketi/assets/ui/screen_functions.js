@@ -163,7 +163,7 @@ function terminalScreen2(c) {
   const procs = m('gpu.processes');
   const llamaStatus = m('llama.status'), llamaHealth = m('llama.health'), llamaModel = m('llama.model');
 
-  const nameStr = gpuName.available ? String(gpuName.value) : 'GPU Not Detected';
+  const nameStr = gpuName.available ? esc(String(gpuName.value)) : 'GPU Not Detected';
   const vramStr = vram.available ? `${vram.value}/${vram.extra.total || '?'} MiB` : 'N/A';
   let tempPowerStr = 'N/A';
   if (gpuTemp.available) {
@@ -179,9 +179,9 @@ function terminalScreen2(c) {
   let procRows = `<div class="t-row" style="color:${c.dim};font-size:12px">PID       Name              VRAM</div>`;
   if (procs.available && Array.isArray(procs.value)) {
     for (const p of procs.value.slice(0, 5)) {
-      const pid = String(p.pid || '').padEnd(10);
-      const name = String(p.name || '').padEnd(18);
-      const mem = (p.vram || p.used_memory || '?') + ' MiB';
+      const pid = esc(String(p.pid || '')).padEnd(10);
+      const name = esc(String(p.name || '')).padEnd(18);
+      const mem = (p.vram_mib || p.vram || p.used_memory || '?') + ' MiB';
       procRows += `<div class="t-row" style="color:${c.primary};font-size:12px">${pid}${name}${mem}</div>`;
     }
   } else {
@@ -244,7 +244,7 @@ function panelGoldScreen1(c) {
   }
 
   const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? String(hostname.value).toUpperCase() : '--';
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
   return `<div class="screen-frame"><div class="l-screen l-2x2" style="background:#000">` +
     lPanel('CORE', GOLD,
       `<div style="display:flex;justify-content:space-around;align-items:center;flex:1">` +
@@ -332,7 +332,7 @@ function panelCoralScreen1(c) {
   const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
   const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
   const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? String(hostname.value).toUpperCase() : '--';
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
   const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
   const anyDanger = temps.some(t => t >= 110);
   const anyOrange = temps.some(t => t >= 90);
@@ -459,7 +459,7 @@ function panelTealScreen1(c) {
   const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
   const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
   const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? String(hostname.value).toUpperCase() : '--';
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
   const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
   const anyDanger = temps.some(t => t >= 110);
   const anyOrange = temps.some(t => t >= 90);
@@ -658,7 +658,7 @@ function scanScreen1(c) {
   const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
   const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
   const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? String(hostname.value).toUpperCase() : '--';
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
   const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
   const anyDanger = temps.some(t => t >= 110);
   const anyOrange = temps.some(t => t >= 90);
@@ -959,7 +959,7 @@ function tubeScreen1(c) {
   const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
   const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
   const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? String(hostname.value).toUpperCase() : '--';
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
   const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
   const anyDanger = temps.some(t => t >= 110);
   const anyOrange = temps.some(t => t >= 90);
@@ -1209,7 +1209,7 @@ function vfdScreen1(c) {
   const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
   const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
   const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? String(hostname.value).toUpperCase() : '--';
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
   const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
   const anyDanger = temps.some(t => t >= 110);
   const anyWarn = temps.some(t => t >= 90);
@@ -1324,7 +1324,7 @@ function vfdScreen2(c) {
   const dateStr = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
 
   const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? String(hostname.value).toUpperCase() : '--';
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
   const content = '<div style="width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1.76cqw;position:relative;z-index:10">' +
     '<div style="color:' + greenDim + ';text-shadow:0 0 3px ' + greenDim + '44;font-size:2.64cqw;font-family:' + F + ';letter-spacing:8px">VFD CHRONOMETER</div>' +
     '<div style="width:85%;height:1px;background:linear-gradient(90deg,transparent,' + green + '33,' + amber + '33,' + blue + '33,transparent)"></div>' +

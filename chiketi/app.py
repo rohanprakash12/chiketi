@@ -57,23 +57,38 @@ def _find_chromium() -> str | None:
 
 
 def _is_wayland() -> bool:
-    """Check if the system is running a Wayland session."""
+    """Check if the current graphical session is Wayland.
+
+    Trusts the session type (env, then loginctl) authoritatively. A bare
+    process-name heuristic is unreliable because gnome-shell/mutter run under
+    both X11 and Wayland, so it's only used as a last resort and limited to
+    Wayland-exclusive compositors.
+    """
     if os.environ.get("WAYLAND_DISPLAY"):
         return True
-    # Check if any user has a Wayland session via loginctl
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session_type == "wayland":
+        return True
+    if session_type == "x11":
+        return False
+    # Ask loginctl for the caller's session type (authoritative).
     try:
         result = subprocess.run(
             ["loginctl", "show-session", "auto", "--property=Type"],
             capture_output=True, text=True, timeout=5,
         )
-        if "wayland" in result.stdout.lower():
+        out = result.stdout.lower()
+        if "type=wayland" in out:
             return True
+        if "type=x11" in out:
+            return False
     except Exception:
         pass
-    # Check for Wayland compositor processes
+    # Last resort: only Wayland-exclusive compositors imply Wayland here.
+    # gnome-shell/mutter are intentionally excluded (they also run on X11).
     try:
         result = subprocess.run(
-            ["pgrep", "-a", "-f", "gnome-shell|kwin_wayland|sway|weston|mutter"],
+            ["pgrep", "-a", "-f", "kwin_wayland|sway|weston|hyprland"],
             capture_output=True, text=True, timeout=5,
         )
         if result.stdout.strip():
@@ -231,7 +246,7 @@ class DisplayManager:
         self._adopt_existing()
 
         if self._wayland:
-            print(f"chiketi: Wayland session detected")
+            print("chiketi: Wayland session detected")
         print(f"chiketi: using DISPLAY={self._display_env}")
         if self._screen_size:
             print(f"chiketi: screen size {self._screen_size[0]}x{self._screen_size[1]}")
@@ -403,7 +418,8 @@ def get_display_manager() -> DisplayManager | None:
 
 
 def run(
-    target_screen: str | None = None,
+    bind_host: str = "0.0.0.0",
+    token: str | None = None,
 ) -> int:
     """Start metric engine, HTTP server, and Chromium kiosk. Returns exit code."""
     global _display_mgr
@@ -412,21 +428,25 @@ def run(
     engine = MetricEngine()
     engine.start()
 
-    # Start control panel HTTP server (with metrics access)
     from chiketi.server import start_server, set_metrics_source, CONTROL_PORT
+    display_url = f"http://localhost:{CONTROL_PORT}/display"
+
+    # Create the display manager up front so start_server() adopts it instead
+    # of constructing a second one (which would re-probe the session twice).
+    _display_mgr = DisplayManager(display_url)
+
+    # Start control panel HTTP server (with metrics access)
     set_metrics_source(engine.get_latest)
     try:
-        start_server()
+        start_server(bind_host=bind_host, token=token)
     except OSError as exc:
         print(f"chiketi: control server failed to bind: {exc}", file=sys.stderr)
         return 1
 
-    display_url = f"http://localhost:{CONTROL_PORT}/display"
     print(f"chiketi: server running on http://localhost:{CONTROL_PORT}/")
     print(f"chiketi: display at {display_url}")
 
-    # Create display manager and auto-start
-    _display_mgr = DisplayManager(display_url)
+    # Auto-start the kiosk
     if _display_mgr._chromium:
         _display_mgr.turn_on()
     else:

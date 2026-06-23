@@ -10,7 +10,7 @@ dependencies = [
 
 [project.optional-dependencies]
 nvidia = ["nvidia-ml-py>=12.0"]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "ruff>=0.6"]
 
 [project.scripts]
 chiketi = "chiketi.__main__:main"
@@ -24,3 +24,13 @@ find = {include = ["chiketi", "chiketi.*"]}
 
 [tool.setuptools.package-data]
 chiketi = ["assets/**/*"]
+
+[tool.pytest.ini_options]
+# Only collect the real test suite; scripts/ holds standalone tools like
+# font_test.py (a pygame harness) that match pytest's *_test.py glob but
+# aren't tests and pull in non-dev deps.
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# Imports must follow the sys.path.insert that makes `chiketi` importable.
+"scripts/gen_site_assets.py" = ["E402"]

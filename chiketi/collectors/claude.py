@@ -7,7 +7,7 @@ import json
 import os
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime
 
 from chiketi.collectors.base import MetricCollector, MetricValue
 
@@ -25,6 +25,9 @@ class ClaudeCollector(MetricCollector):
         # All-time cache (refreshed every 60s)
         self._alltime_cache: dict | None = None
         self._alltime_ts: float = 0.0
+        # Per-file scan cache: path -> {"sig": (mtime, size), "stats": {...}}.
+        # Unchanged files are skipped on re-scan instead of re-read in full.
+        self._file_cache: dict[str, dict] = {}
         # Current session tracking
         self._session_file: str = ""
         self._session_pos: int = 0  # file position for incremental reads
@@ -111,21 +114,59 @@ class ClaudeCollector(MetricCollector):
         return metrics
 
     def _scan_all_sessions(self) -> dict:
-        """Scan all JSONL session files for aggregate stats."""
+        """Aggregate stats across all JSONL session files.
+
+        Each file is scanned only when its (mtime, size) signature changes;
+        unchanged files are served from the per-file cache. This keeps the 60s
+        refresh cheap even with a large session history, since typically only
+        the active session file has grown.
+        """
+        seen: set[str] = set()
+        for project_dir in glob.glob(os.path.join(_PROJECTS_DIR, "*")):
+            for fpath in glob.glob(os.path.join(project_dir, "*.jsonl")):
+                seen.add(fpath)
+                try:
+                    st = os.stat(fpath)
+                except OSError:
+                    continue
+                sig = (st.st_mtime, st.st_size)
+                cached = self._file_cache.get(fpath)
+                if cached and cached["sig"] == sig:
+                    continue  # unchanged since last scan
+                stats = {
+                    "input": 0, "output": 0, "cache_write": 0, "cache_read": 0,
+                    "msgs_user": 0, "msgs_assistant": 0,
+                    "earliest": None, "latest": None,
+                }
+                try:
+                    self._scan_file(fpath, stats)
+                except Exception:
+                    pass
+                self._file_cache[fpath] = {"sig": sig, "stats": stats}
+
+        # Drop cache entries for files that no longer exist.
+        for gone in set(self._file_cache) - seen:
+            del self._file_cache[gone]
+
+        # Aggregate per-file stats into grand totals.
         totals = {
             "input": 0, "output": 0, "cache_write": 0, "cache_read": 0,
             "msgs_user": 0, "msgs_assistant": 0,
             "earliest": None, "latest": None,
             "session_count": 0,
         }
-
-        for project_dir in glob.glob(os.path.join(_PROJECTS_DIR, "*")):
-            for fpath in glob.glob(os.path.join(project_dir, "*.jsonl")):
-                totals["session_count"] += 1
-                try:
-                    self._scan_file(fpath, totals)
-                except Exception:
-                    pass
+        for entry in self._file_cache.values():
+            s = entry["stats"]
+            for k in ("input", "output", "cache_write", "cache_read",
+                      "msgs_user", "msgs_assistant"):
+                totals[k] += s[k]
+            totals["session_count"] += 1
+            if s["earliest"] and (totals["earliest"] is None
+                                  or s["earliest"] < totals["earliest"]):
+                totals["earliest"] = s["earliest"]
+            if s["latest"] and (totals["latest"] is None
+                                or s["latest"] > totals["latest"]):
+                totals["latest"] = s["latest"]
 
         # Calculate days active
         if totals["earliest"] and totals["latest"]:

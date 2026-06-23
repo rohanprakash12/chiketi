@@ -2,7 +2,9 @@
 Frozen snapshot — re-run when themes/panel_spec/renderers change.
 Run: chiketi/.venv/bin/python scripts/gen_site_assets.py
 """
-import json, pathlib, sys
+import json
+import pathlib
+import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from chiketi.panel_spec import web_spec
@@ -69,9 +71,9 @@ shim = r"""
 var metrics = window.SITE_METRICS;
 var activeFamily = null, activeVariant = null, themeColors = null;
 function m(key){ if(!metrics||!metrics[key]) return {value:null,available:false,unit:'',extra:{}}; return metrics[key]; }
-function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return suffix? d.value+suffix : String(d.value); }
+function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc(suffix? d.value+suffix : String(d.value)); }
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
-  return String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,''); }
+  return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
 function getScreen1Fn(){
   var isPanel=activeFamily==='Panel', isVintage=activeFamily==='Vintage';
   if(isPanel && activeVariant==='Teal') return panelTealScreen1;

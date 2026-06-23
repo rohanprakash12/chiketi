@@ -15,7 +15,7 @@ Built for the GeeekPi 7" (1024x600) but works on any HDMI display.
 ## Features
 
 - **12 themed dashboards** across 3 theme families — Panel, Terminal (hacker/retro), and Vintage (tubes/VFD/scanlines)
-- **3 rotating screens** — System stats, GPU/AI monitor, Claude Code usage
+- **3 rotating screens** — System stats, a theme-specific second screen (GPU/AI monitor on Terminal themes, a clock on Panel/Vintage), and Claude Code usage
 - **Remote control panel** — Switch themes, toggle screens, adjust rotation from your phone at `http://<host>:7777`
 - **Display on/off toggle** — Turn the dashboard on/off from the control panel, restoring the console when off
 - **Live metrics** — CPU, memory, disk, network, GPU (NVIDIA), fan speeds, Claude Code token usage
@@ -76,8 +76,11 @@ chiketi --theme Panel/Gold
 # Custom rotation interval
 chiketi --rotate-interval 15
 
-# Target a specific display
-chiketi --screen HDMI
+# Restrict the control server to localhost (default binds the LAN)
+chiketi --bind 127.0.0.1
+
+# Require a shared secret on control actions
+chiketi --token s3cret   # then open http://<host>:7777/?token=s3cret
 ```
 
 The dashboard launches Chromium in kiosk mode on the detected display and starts the control panel server on port 7777.
@@ -113,7 +116,7 @@ Six color variants: **hacker** (green), **cyan**, **amber**, **phosphor**, **red
 ## Screens
 
 1. **System Stats** — CPU usage/temp, memory, disk, network throughput, fan speeds
-2. **GPU/AI Monitor** — GPU utilization, VRAM, power, clocks, CUDA processes
+2. **Theme-specific** — Terminal themes show a **GPU/AI Monitor** (GPU utilization, VRAM, power, clocks, CUDA processes); Panel and Vintage themes show a **Clock**
 3. **Claude Code** — Token usage by type, messages, monthly averages, session stats, live token rate sparkline
 
 ## Architecture
@@ -164,10 +167,15 @@ sudo modprobe nct6775  # or your chipset's module
 | CLI flag | Default | Description |
 |----------|---------|-------------|
 | `--theme` | `Panel/Gold` | Initial theme (`Panel/Gold`, `Terminal/hacker`, `Vintage/VFD`, etc.) |
-| `--rotate-interval` | `10` | Seconds between screen auto-rotation |
-| `--screen` | auto-detect | Target display by name substring (e.g. `HDMI`) |
+| `--rotate-interval` | `10` | Default seconds between screen auto-rotation (per-screen durations override) |
+| `--bind` | `0.0.0.0` | Host to bind the control server to (use `127.0.0.1` for localhost only) |
+| `--token` | _none_ | Shared secret required on control actions; clients pass it via `?token=…` (or the `CHIKETI_TOKEN` env var) |
 
 All settings can also be changed at runtime via the control panel.
+
+> **Security:** the control server assumes a trusted LAN — it binds `0.0.0.0`
+> with open CORS and no auth by default. Use `--bind 127.0.0.1` and/or `--token`
+> to harden exposure.
 
 ## Development
 

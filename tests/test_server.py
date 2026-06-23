@@ -103,6 +103,7 @@ class TestApplyDisplaySettings:
         with mock.patch.object(server, "_get_session_env",
                                return_value={"DISPLAY": ":0"}), \
                 mock.patch.object(server, "subprocess") as msub:
+            msub.run.return_value.returncode = 0
             result = _apply_display_settings("HDMI-1", 0.8)
         assert result is True
         msub.run.assert_called_once()
@@ -174,3 +175,125 @@ class TestLiveRoutes:
             with pytest.raises(urllib.error.HTTPError) as ei:
                 urllib.request.urlopen(srv.url("/no/such/route"), timeout=5)
             assert ei.value.code == 404
+
+
+class TestControlPlane:
+    """Token auth, outputs gating, partial POSTs, failure propagation, bounds."""
+
+    def teardown_method(self):
+        server._get_metrics = None
+        server._AUTH_TOKEN = None
+        server._XRANDR_CACHE = []
+        server._XRANDR_CACHE_TS = 0.0
+        server._screen_rotation = {}
+        server._display_output = ""
+
+    def _post(self, srv, path, body, headers=None):
+        data = json.dumps(body).encode()
+        req = urllib.request.Request(
+            srv.url(path), data=data, method="POST",
+            headers={"Content-Type": "application/json", **(headers or {})},
+        )
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_token_required_on_post(self):
+        server._AUTH_TOKEN = "secret"
+        with _LiveServer() as srv:
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                self._post(srv, "/api/display", {})
+            assert ei.value.code == 403
+
+    def test_token_accepted_on_post(self):
+        server._AUTH_TOKEN = "secret"
+        with _LiveServer() as srv:
+            resp = self._post(srv, "/api/display", {},
+                              {"X-Chiketi-Token": "secret"})
+            assert resp.status == 200
+
+    def test_display_get_omits_outputs_by_default(self):
+        with mock.patch.object(
+            server, "_query_xrandr_outputs",
+            return_value=[{"name": "HDMI-1", "connected": True, "resolution": ""}],
+        ):
+            with _LiveServer() as srv:
+                with urllib.request.urlopen(srv.url("/api/display"), timeout=5) as resp:
+                    data = json.loads(resp.read())
+        assert "outputs" not in data          # kiosk path doesn't shell out
+        assert "default_duration" in data
+
+    def test_display_get_includes_outputs_when_requested(self):
+        with mock.patch.object(
+            server, "_query_xrandr_outputs",
+            return_value=[{"name": "HDMI-1", "connected": True, "resolution": ""}],
+        ):
+            with _LiveServer() as srv:
+                with urllib.request.urlopen(
+                        srv.url("/api/display?outputs=1"), timeout=5) as resp:
+                    data = json.loads(resp.read())
+        assert [o["name"] for o in data["outputs"]] == ["HDMI-1"]
+
+    def test_partial_post_does_not_validate_output(self):
+        # A display_on-only POST must not be rejected by stale/empty xrandr.
+        server._display_output = "HDMI-1"
+        with mock.patch.object(server, "_query_xrandr_outputs", return_value=[]):
+            with _LiveServer() as srv:
+                resp = self._post(srv, "/api/display", {"display_on": False})
+                assert resp.status == 200
+
+    def test_unknown_output_rejected(self):
+        with mock.patch.object(
+            server, "_query_xrandr_outputs",
+            return_value=[{"name": "HDMI-1", "connected": True, "resolution": ""}],
+        ):
+            with _LiveServer() as srv:
+                with pytest.raises(urllib.error.HTTPError) as ei:
+                    self._post(srv, "/api/display", {"output": "DP-9"})
+                assert ei.value.code == 400
+
+    def test_apply_failure_reported(self):
+        with mock.patch.object(
+            server, "_query_xrandr_outputs",
+            return_value=[{"name": "HDMI-1", "connected": True, "resolution": ""}],
+        ), mock.patch.object(server, "_apply_display_settings", return_value=False):
+            with _LiveServer() as srv:
+                resp = self._post(srv, "/api/display",
+                                  {"output": "HDMI-1", "brightness": 1.0})
+                data = json.loads(resp.read())
+        assert data["applied"] is False
+
+    def test_rotation_duration_clamped(self):
+        with _LiveServer() as srv:
+            resp = self._post(
+                srv, "/api/display",
+                {"screen_rotation": {"screen1": {"enabled": True, "duration": 9999}}})
+            data = json.loads(resp.read())
+        assert data["screen_rotation"]["screen1"]["duration"] == 600
+
+    def test_rotation_long_key_rejected(self):
+        with _LiveServer() as srv:
+            resp = self._post(
+                srv, "/api/display",
+                {"screen_rotation": {"x" * 65: {"duration": 10}}})
+            data = json.loads(resp.read())
+        assert data["screen_rotation"] == {}
+
+
+class TestXrandrCache:
+    def teardown_method(self):
+        server._XRANDR_CACHE = []
+        server._XRANDR_CACHE_TS = 0.0
+
+    def test_cached_within_ttl(self):
+        with mock.patch.object(server, "_query_xrandr_outputs",
+                               return_value=[{"name": "HDMI-1"}]) as q:
+            a = server._get_xrandr_outputs()
+            b = server._get_xrandr_outputs()
+        assert a == b == [{"name": "HDMI-1"}]
+        assert q.call_count == 1               # second call served from cache
+
+    def test_force_requeries(self):
+        with mock.patch.object(server, "_query_xrandr_outputs",
+                               return_value=[{"name": "HDMI-1"}]) as q:
+            server._get_xrandr_outputs()
+            server._get_xrandr_outputs(force=True)
+        assert q.call_count == 2

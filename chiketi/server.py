@@ -6,16 +6,27 @@ import json
 import os
 import subprocess
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import time
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
 from chiketi.config import TIMING
 from chiketi.themes import (
     get_active_theme, get_active_family, set_active_theme,
-    get_families, THEMES,
+    get_families,
 )
 from chiketi.panel_spec import web_spec
 
 CONTROL_PORT = 7777
+
+# Maximum number of screen-rotation entries accepted from a POST body.
+# Bounds memory growth from arbitrary client-supplied screen ids.
+_MAX_SCREEN_ROTATION = 32
+
+# Optional shared-secret token. When set (via start_server), POST/control
+# requests must supply it in the X-Chiketi-Token header. GET telemetry stays
+# open. None = no auth (trusted-LAN default).
+_AUTH_TOKEN: str | None = None
 
 # Module-level metrics getter — set by app.py after engine starts
 _get_metrics = None
@@ -70,7 +81,27 @@ def _parse_xrandr(stdout: str) -> list[dict]:
     return outputs
 
 
-def _get_xrandr_outputs() -> list[dict]:
+# Cache for xrandr output discovery. Querying shells out to `xrandr --query`
+# (up to a 5s timeout), so the kiosk's frequent /api/display polls must not
+# trigger it every time. Results are cached with a TTL and only re-queried on
+# expiry or an explicit refresh (the control panel's "scan displays").
+_XRANDR_CACHE: list[dict] = []
+_XRANDR_CACHE_TS: float = 0.0
+_XRANDR_TTL_S: float = 20.0
+
+
+def _get_xrandr_outputs(force: bool = False) -> list[dict]:
+    """Return display outputs from cache, re-querying on TTL expiry or force."""
+    global _XRANDR_CACHE, _XRANDR_CACHE_TS
+    now = time.monotonic()
+    if not force and _XRANDR_CACHE_TS and (now - _XRANDR_CACHE_TS) < _XRANDR_TTL_S:
+        return _XRANDR_CACHE
+    _XRANDR_CACHE = _query_xrandr_outputs()
+    _XRANDR_CACHE_TS = now
+    return _XRANDR_CACHE
+
+
+def _query_xrandr_outputs() -> list[dict]:
     """Query display outputs, supporting both X11 and Wayland."""
     import glob
 
@@ -119,10 +150,12 @@ def _apply_display_settings(output: str, brightness: float) -> bool:
             args.extend(["--output", output, "--brightness", str(brightness)])
         else:
             return False
-        subprocess.run(
+        result = subprocess.run(
             args, capture_output=True, timeout=5,
             env=_get_session_env(),
         )
+        if result.returncode != 0:
+            return False
         _display_output = output
         _display_brightness = brightness
         return True
@@ -154,11 +187,14 @@ def _serialize_metrics() -> dict:
 
 class ControlHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if self.path == "/" or self.path == "/index.html":
+        parsed = urlparse(self.path)
+        route = parsed.path
+        query = parse_qs(parsed.query)
+        if route == "/" or route == "/index.html":
             self._serve_ui()
-        elif self.path == "/display":
+        elif route == "/display":
             self._serve_display()
-        elif self.path == "/api/themes":
+        elif route == "/api/themes":
             families = {}
             for family_name, themes in get_families().items():
                 families[family_name] = {
@@ -179,29 +215,40 @@ class ControlHandler(BaseHTTPRequestHandler):
                 "active_variant": get_active_theme().name,
                 "families": families,
             })
-        elif self.path == "/api/metrics":
+        elif route == "/api/metrics":
             self._json_response(_serialize_metrics())
-        elif self.path == "/api/health":
+        elif route == "/api/health":
             self._json_response({"status": "ok"})
-        elif self.path == "/api/display":
+        elif route == "/api/display":
             from chiketi.app import get_display_manager
             mgr = get_display_manager()
-            self._json_response({
+            payload = {
                 "current_output": _display_output,
                 "brightness": _display_brightness,
                 "width": _display_width,
                 "height": _display_height,
                 "screen_rotation": _screen_rotation,
+                "default_duration": TIMING.rotate_interval_s,
                 "display_on": mgr.is_on if mgr else False,
-                "outputs": _get_xrandr_outputs(),
-            })
-        elif self.path.startswith("/assets/fonts/"):
+            }
+            # Output discovery shells out to xrandr — only the control panel
+            # needs it (?outputs=1). The kiosk poll omits it and stays cheap.
+            # ?refresh=1 forces a re-query for the "scan displays" button.
+            if query.get("outputs", ["0"])[0] == "1":
+                force = query.get("refresh", ["0"])[0] == "1"
+                payload["outputs"] = _get_xrandr_outputs(force=force)
+            self._json_response(payload)
+        elif route.startswith("/assets/fonts/"):
             self._serve_font()
         else:
             self.send_error(404)
 
     def do_POST(self) -> None:
-        path = self.path
+        # Optional shared-secret gate on state-changing requests.
+        if _AUTH_TOKEN and self.headers.get("X-Chiketi-Token") != _AUTH_TOKEN:
+            self.send_error(403, "Forbidden")
+            return
+        path = urlparse(self.path).path
         if path.startswith("/api/theme/"):
             rest = path.split("/api/theme/", 1)[1]
             # Support both /api/theme/family/variant and /api/theme/variant
@@ -223,14 +270,17 @@ class ControlHandler(BaseHTTPRequestHandler):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length)) if length else {}
-                output = body.get("output", _display_output)
+                # output is only acted on when explicitly present, so power- or
+                # rotation-only POSTs aren't rejected/re-applied off stale state.
+                output = body.get("output") or None
                 brightness = float(body.get("brightness", _display_brightness))
                 brightness = max(0.3, min(2.0, brightness))
-                # Validate output against known xrandr outputs
-                valid_outputs = {o["name"] for o in _get_xrandr_outputs()}
-                if output and output not in valid_outputs:
-                    self.send_error(400, f"Unknown output: {output}")
-                    return
+                # Validate output only when the request explicitly targets one.
+                if output:
+                    valid_outputs = {o["name"] for o in _get_xrandr_outputs()}
+                    if output not in valid_outputs:
+                        self.send_error(400, f"Unknown output: {output}")
+                        return
                 # Display resolution
                 if "width" in body and "height" in body:
                     _display_width = max(320, min(3840, int(body["width"])))
@@ -240,6 +290,12 @@ class ControlHandler(BaseHTTPRequestHandler):
                     sr = body["screen_rotation"]
                     if isinstance(sr, dict):
                         for sid, cfg in sr.items():
+                            # Bound growth: cap entry count and key length.
+                            if (len(_screen_rotation) >= _MAX_SCREEN_ROTATION
+                                    and sid not in _screen_rotation):
+                                continue
+                            if not isinstance(sid, str) or len(sid) > 64:
+                                continue
                             if isinstance(cfg, dict):
                                 _screen_rotation[sid] = {
                                     "enabled": bool(cfg.get("enabled", True)),
@@ -253,17 +309,23 @@ class ControlHandler(BaseHTTPRequestHandler):
                         mgr.turn_on()
                     else:
                         mgr.turn_off()
-                # Apply xrandr if output specified
+                # Apply xrandr only when an output was explicitly requested.
+                applied = None
                 if output:
-                    _apply_display_settings(output, brightness)
-                self._json_response({
+                    applied = _apply_display_settings(output, brightness)
+                resp = {
                     "current_output": _display_output,
                     "brightness": _display_brightness,
                     "width": _display_width,
                     "height": _display_height,
                     "screen_rotation": _screen_rotation,
+                    "default_duration": TIMING.rotate_interval_s,
                     "display_on": mgr.is_on if mgr else False,
-                })
+                }
+                # Surface xrandr failure instead of a misleading bare 200.
+                if applied is not None:
+                    resp["applied"] = applied
+                self._json_response(resp)
             except Exception as e:
                 self.send_error(400, str(e))
         else:
@@ -316,17 +378,29 @@ class ControlHandler(BaseHTTPRequestHandler):
         pass  # Silence request logging
 
 
-def start_server() -> None:
-    """Start the control panel server in a daemon thread."""
-    # Ensure a DisplayManager exists even if app.run() was not used
-    from chiketi.app import get_display_manager, DisplayManager, _display_mgr
+def start_server(bind_host: str = "0.0.0.0", token: str | None = None) -> None:
+    """Start the control panel server in a daemon thread.
+
+    bind_host defaults to 0.0.0.0 so the panel is reachable from other LAN
+    devices (e.g. a phone); set 127.0.0.1 to restrict to localhost. The server
+    assumes a trusted LAN — pass a token (or set CHIKETI_TOKEN) to require an
+    X-Chiketi-Token header on state-changing POST requests.
+    """
+    global _AUTH_TOKEN
+    _AUTH_TOKEN = token or os.environ.get("CHIKETI_TOKEN") or None
+
+    # Ensure a DisplayManager exists even if app.run() was not used. In the
+    # normal app.run() path the manager is created first, so this is a no-op.
+    from chiketi.app import get_display_manager, DisplayManager
     import chiketi.app as _app_mod
     if get_display_manager() is None:
         _app_mod._display_mgr = DisplayManager(
             f"http://localhost:{CONTROL_PORT}/display"
         )
-    HTTPServer.allow_reuse_address = True
-    server = HTTPServer(("0.0.0.0", CONTROL_PORT), ControlHandler)
+    # ThreadingHTTPServer: a slow xrandr/subprocess call on one request must
+    # not block the kiosk's metrics/theme polls.
+    ThreadingHTTPServer.allow_reuse_address = True
+    server = ThreadingHTTPServer((bind_host, CONTROL_PORT), ControlHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 

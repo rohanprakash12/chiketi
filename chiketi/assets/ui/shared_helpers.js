@@ -1,3 +1,13 @@
+/* Escape dynamic metric text before it lands in an innerHTML template.
+   Metrics come from local telemetry (hostname, model/process names), so this
+   is defense-in-depth against a stray '<' breaking the layout. */
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 function tBar(c, pct) {
   if (pct == null) return '';
   pct = Math.max(0, Math.min(100, pct));

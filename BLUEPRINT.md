@@ -23,8 +23,11 @@ color palette; Python only collects data and serves the static UI assets.
 **Reference hardware:**
 - Display: GeeekPi 7" 1024×600 on HDMI (acts as a normal HDMI monitor)
 - Host: Ubuntu Linux, NVIDIA GPU optional
-- Multi-monitor: the dashboard targets the dedicated display, leaving the
-  primary desktop untouched.
+- Multi-monitor: intended for a dedicated single-display host. DisplayManager
+  detects the first connected screen's size via xrandr and launches Chromium
+  there; it does not pin Chromium to a specific output, so a multi-monitor
+  desktop may land it on the wrong screen unless the display has its own X
+  server / session.
 
 ## Project Structure
 
@@ -167,7 +170,9 @@ Every collector subclasses `MetricCollector` and returns
 Three rotating screens, rendered per theme family in `screen_functions.js`:
 
 1. **System Stats** — CPU/RAM/disk donuts or bars, thermals, network, host info.
-2. **GPU / AI Monitor** — GPU utilization, VRAM, power, clocks; local-LLM status.
+2. **Theme-specific** — Terminal themes render a **GPU / AI Monitor** (GPU
+   utilization, VRAM, power, clocks; local-LLM status); Panel and Vintage
+   themes render a **Clock**.
 3. **Claude Code Usage** — token usage by type, messages, session stats, live
    token-rate sparkline.
 
@@ -192,9 +197,10 @@ Each theme exposes a palette (`primary`, `accent`, `background`, `panel`,
 - **Control panel** (`/`) lets a phone/laptop switch themes, toggle individual
   screens with custom rotation durations, set brightness, and turn the display
   on/off — all via the `/api/*` routes.
-- **Multi-monitor targeting** picks the dedicated display (the 1024×600
-  signature, or a `--screen NAME` substring) and leaves the primary desktop
-  alone.
+- **Display detection** reads the first connected output's resolution from
+  xrandr and sizes the Chromium window to it. There is no per-output targeting,
+  so the kiosk is best run on a host whose only (or primary) display is the
+  dedicated panel — or one where the panel has its own X server / session.
 
 ## Key Decisions
 

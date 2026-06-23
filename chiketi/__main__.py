@@ -18,16 +18,24 @@ def main() -> None:
         help="Seconds between auto-rotation (default: 10)",
     )
     parser.add_argument(
-        "--screen",
-        type=str,
-        default=None,
-        help="Target screen name substring (e.g. 'HDMI'). Sets DISPLAY if needed.",
-    )
-    parser.add_argument(
         "--theme",
         type=str,
         default=None,
         help="Theme to use (e.g. 'Panel/Gold', 'Terminal/hacker'). Default: Panel/Gold.",
+    )
+    parser.add_argument(
+        "--bind",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind the control server to. Default: 0.0.0.0 (LAN-reachable). "
+             "Use 127.0.0.1 to restrict to localhost.",
+    )
+    parser.add_argument(
+        "--token",
+        type=str,
+        default=None,
+        help="Optional shared secret required on control POSTs (X-Chiketi-Token "
+             "header). Can also be set via the CHIKETI_TOKEN env var.",
     )
 
     args = parser.parse_args()
@@ -44,7 +52,7 @@ def main() -> None:
 
     from chiketi.app import run
 
-    sys.exit(run(target_screen=args.screen))
+    sys.exit(run(bind_host=args.bind, token=args.token))
 
 
 if __name__ == "__main__":
