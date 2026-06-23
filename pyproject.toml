@@ -10,7 +10,7 @@ dependencies = [
 
 [project.optional-dependencies]
 nvidia = ["nvidia-ml-py>=12.0"]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "ruff>=0.6"]
 
 [project.scripts]
 chiketi = "chiketi.__main__:main"
@@ -24,3 +24,7 @@ find = {include = ["chiketi", "chiketi.*"]}
 
 [tool.setuptools.package-data]
 chiketi = ["assets/**/*"]
+
+[tool.ruff.lint.per-file-ignores]
+# Imports must follow the sys.path.insert that makes `chiketi` importable.
+"scripts/gen_site_assets.py" = ["E402"]

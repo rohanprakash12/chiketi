@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from chiketi import themes
 from chiketi.themes import (
     THEMES,
     Theme,

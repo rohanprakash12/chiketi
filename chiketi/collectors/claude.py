@@ -7,7 +7,7 @@ import json
 import os
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime
 
 from chiketi.collectors.base import MetricCollector, MetricValue
 

@@ -181,7 +181,7 @@ function terminalScreen2(c) {
     for (const p of procs.value.slice(0, 5)) {
       const pid = esc(String(p.pid || '')).padEnd(10);
       const name = esc(String(p.name || '')).padEnd(18);
-      const mem = (p.vram || p.used_memory || '?') + ' MiB';
+      const mem = (p.vram_mib || p.vram || p.used_memory || '?') + ' MiB';
       procRows += `<div class="t-row" style="color:${c.primary};font-size:12px">${pid}${name}${mem}</div>`;
     }
   } else {

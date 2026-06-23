@@ -246,7 +246,7 @@ class DisplayManager:
         self._adopt_existing()
 
         if self._wayland:
-            print(f"chiketi: Wayland session detected")
+            print("chiketi: Wayland session detected")
         print(f"chiketi: using DISPLAY={self._display_env}")
         if self._screen_size:
             print(f"chiketi: screen size {self._screen_size[0]}x{self._screen_size[1]}")

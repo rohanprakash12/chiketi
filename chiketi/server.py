@@ -13,7 +13,7 @@ from urllib.parse import urlparse, parse_qs
 from chiketi.config import TIMING
 from chiketi.themes import (
     get_active_theme, get_active_family, set_active_theme,
-    get_families, THEMES,
+    get_families,
 )
 from chiketi.panel_spec import web_spec
 
@@ -270,14 +270,17 @@ class ControlHandler(BaseHTTPRequestHandler):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length)) if length else {}
-                output = body.get("output", _display_output)
+                # output is only acted on when explicitly present, so power- or
+                # rotation-only POSTs aren't rejected/re-applied off stale state.
+                output = body.get("output") or None
                 brightness = float(body.get("brightness", _display_brightness))
                 brightness = max(0.3, min(2.0, brightness))
-                # Validate output against known xrandr outputs
-                valid_outputs = {o["name"] for o in _get_xrandr_outputs()}
-                if output and output not in valid_outputs:
-                    self.send_error(400, f"Unknown output: {output}")
-                    return
+                # Validate output only when the request explicitly targets one.
+                if output:
+                    valid_outputs = {o["name"] for o in _get_xrandr_outputs()}
+                    if output not in valid_outputs:
+                        self.send_error(400, f"Unknown output: {output}")
+                        return
                 # Display resolution
                 if "width" in body and "height" in body:
                     _display_width = max(320, min(3840, int(body["width"])))
@@ -306,10 +309,11 @@ class ControlHandler(BaseHTTPRequestHandler):
                         mgr.turn_on()
                     else:
                         mgr.turn_off()
-                # Apply xrandr if output specified
+                # Apply xrandr only when an output was explicitly requested.
+                applied = None
                 if output:
-                    _apply_display_settings(output, brightness)
-                self._json_response({
+                    applied = _apply_display_settings(output, brightness)
+                resp = {
                     "current_output": _display_output,
                     "brightness": _display_brightness,
                     "width": _display_width,
@@ -317,7 +321,11 @@ class ControlHandler(BaseHTTPRequestHandler):
                     "screen_rotation": _screen_rotation,
                     "default_duration": TIMING.rotate_interval_s,
                     "display_on": mgr.is_on if mgr else False,
-                })
+                }
+                # Surface xrandr failure instead of a misleading bare 200.
+                if applied is not None:
+                    resp["applied"] = applied
+                self._json_response(resp)
             except Exception as e:
                 self.send_error(400, str(e))
         else:

@@ -285,8 +285,10 @@ document.getElementById('applySettings').addEventListener('click', async functio
     if (res.ok) {
       const data = await res.json();
       updatePreviewAspectRatio(data.width, data.height);
-      document.getElementById('settingsStatus').textContent = 'Settings applied';
-      document.getElementById('settingsStatus').style.color = '#00ff41';
+      const failed = data.applied === false;
+      document.getElementById('settingsStatus').textContent =
+        failed ? 'Saved, but display change failed' : 'Settings applied';
+      document.getElementById('settingsStatus').style.color = failed ? '#ffaa00' : '#00ff41';
     } else {
       document.getElementById('settingsStatus').textContent = 'Failed to apply';
       document.getElementById('settingsStatus').style.color = '#ff4444';

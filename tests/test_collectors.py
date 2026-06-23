@@ -5,7 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
 
 import chiketi.collectors.cpu as cpu_mod
 import chiketi.collectors.disk as disk_mod
@@ -14,7 +13,6 @@ import chiketi.collectors.llm as llm_mod
 import chiketi.collectors.memory as mem_mod
 import chiketi.collectors.network as net_mod
 import chiketi.collectors.system as sys_mod
-from chiketi.collectors.base import MetricValue
 from chiketi.collectors.claude import ClaudeCollector
 from chiketi.collectors.cpu import CpuCollector
 from chiketi.collectors.disk import DiskCollector

@@ -1,7 +1,5 @@
 """Font size test — displays sample text at sizes 12–36 on the GeeekPi display."""
 
-import os
-import sys
 
 import pygame
 
