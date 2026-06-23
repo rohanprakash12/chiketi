@@ -79,9 +79,15 @@ class LlmCollector(MetricCollector):
     # ------------------------------------------------------------------
 
     def _detect_backend(self) -> str | None:
-        """Detect which LLM backend is running. Cache result for 10s."""
+        """Detect which LLM backend is running. Cache result (incl. None) for 10s.
+
+        Caching the negative result matters: with no backend running, every
+        collect cycle would otherwise repeat a full process scan plus three
+        HTTP probes (each up to a 1s timeout).
+        """
         now = time.monotonic()
-        if self._backend and (now - self._backend_check_time) < 10:
+        # _backend_check_time == 0.0 means "never checked yet".
+        if self._backend_check_time and (now - self._backend_check_time) < 10:
             return self._backend
 
         # Check by process name first (fast)

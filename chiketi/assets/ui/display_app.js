@@ -25,6 +25,8 @@ let pauseUntil = 0;
 let lastRotate = Date.now();
 const PAUSE_MS = __PAUSE_S__ * 1000;
 let screenRotation = {}; // {id: {enabled, duration}}
+let defaultDuration = 10; // server-provided default (--rotate-interval)
+let rotateTimer = null;
 
 /* ── Data helpers ── */
 function m(key) {
@@ -34,13 +36,13 @@ function m(key) {
 function mv(key, suffix) {
   const d = m(key);
   if (!d.available) return 'N/A';
-  return suffix ? d.value + suffix : String(d.value);
+  return esc(suffix ? d.value + suffix : String(d.value));
 }
 
 function cleanModel() {
   const d = m('llama.model');
   if (!d.available) return '--';
-  return String(d.value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, '').replace(/_/g, ' ').replace(/-$/, '');
+  return esc(String(d.value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, '').replace(/_/g, ' ').replace(/-$/, ''));
 }
 
 /* ── Shared rendering helpers ── */
@@ -67,24 +69,32 @@ function getScreenRegistry(c) {
   return screens;
 }
 
-function renderDisplay() {
-  if (!themeColors || !activeFamily) return;
+/* Build the list of enabled screens as lightweight metadata (no HTML).
+   Only the currently-visible screen's renderer runs, in renderDisplay(). */
+function buildEnabledScreens() {
   const c = themeColors;
   const allScreens = getScreenRegistry(c);
-  // Filter to enabled screens
-  enabledScreens = allScreens.filter(s => {
+  let list = allScreens.filter(s => {
     const cfg = screenRotation[s.id];
     return !cfg || cfg.enabled !== false;
   }).map(s => {
     const cfg = screenRotation[s.id];
-    return { id: s.id, name: s.name, html: s.fn(c), duration: (cfg && cfg.duration) || 10 };
+    return { id: s.id, name: s.name, fn: s.fn, duration: (cfg && cfg.duration) || defaultDuration };
   });
-  if (enabledScreens.length === 0) {
+  if (list.length === 0) {
     // Fallback: show first screen if all disabled
-    enabledScreens = [{ id: allScreens[0].id, name: allScreens[0].name, html: allScreens[0].fn(c), duration: 10 }];
+    const s0 = allScreens[0];
+    list = [{ id: s0.id, name: s0.name, fn: s0.fn, duration: defaultDuration }];
   }
+  return list;
+}
+
+function renderDisplay() {
+  if (!themeColors || !activeFamily) return;
+  enabledScreens = buildEnabledScreens();
   if (currentScreenIdx >= enabledScreens.length) currentScreenIdx = 0;
-  document.getElementById('display').innerHTML = enabledScreens[currentScreenIdx].html;
+  // Render only the visible screen, not every enabled one.
+  document.getElementById('display').innerHTML = enabledScreens[currentScreenIdx].fn(themeColors);
 }
 
 /* ── Polling ── */
@@ -101,6 +111,7 @@ async function poll() {
 
     // Apply per-screen rotation config
     if (displayData.screen_rotation) screenRotation = displayData.screen_rotation;
+    if (typeof displayData.default_duration === 'number') defaultDuration = displayData.default_duration;
 
     const newFamily = themeData.active_family;
     const newVariant = themeData.active_variant;
@@ -113,33 +124,37 @@ async function poll() {
     themeColors = (themeData.families[activeFamily] || {})[activeVariant];
 
     renderDisplay();
+    scheduleRotate();
   } catch(e) { /* retry next poll */ }
 }
 
-/* ── Auto-rotate (per-screen durations) ── */
-function tick() {
-  const now = Date.now();
-  if (enabledScreens.length > 1 && now > pauseUntil) {
-    const currentDuration = (enabledScreens[currentScreenIdx] || {}).duration || 10;
-    if (now - lastRotate >= currentDuration * 1000) {
-      currentScreenIdx = (currentScreenIdx + 1) % enabledScreens.length;
-      lastRotate = now;
-      renderDisplay();
-    }
-  }
-  requestAnimationFrame(tick);
+/* ── Auto-rotate: schedule a single timer for the next rotation instead of
+   polling every animation frame (idle CPU/GPU on the Pi between rotations). ── */
+function scheduleRotate() {
+  if (rotateTimer) { clearTimeout(rotateTimer); rotateTimer = null; }
+  if (enabledScreens.length <= 1) return;
+  const durationMs = ((enabledScreens[currentScreenIdx] || {}).duration || defaultDuration) * 1000;
+  // Next rotation is `durationMs` after the last one, but never before any
+  // active manual-pause window expires.
+  const target = Math.max(lastRotate + durationMs, pauseUntil);
+  rotateTimer = setTimeout(onRotate, Math.max(0, target - Date.now()));
+}
+function onRotate() {
+  currentScreenIdx = (currentScreenIdx + 1) % (enabledScreens.length || 1);
+  lastRotate = Date.now();
+  renderDisplay();
+  scheduleRotate();
 }
 
 /* ── Keyboard shortcuts ── */
 document.addEventListener('keydown', (e) => {
   const n = enabledScreens.length || 1;
-  if (e.key >= '1' && e.key <= '9') { currentScreenIdx = Math.min(parseInt(e.key) - 1, n - 1); pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); }
-  else if (e.key === ' ') { e.preventDefault(); currentScreenIdx = (currentScreenIdx + 1) % n; pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); }
+  if (e.key >= '1' && e.key <= '9') { currentScreenIdx = Math.min(parseInt(e.key) - 1, n - 1); pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); scheduleRotate(); }
+  else if (e.key === ' ') { e.preventDefault(); currentScreenIdx = (currentScreenIdx + 1) % n; pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); scheduleRotate(); }
   else if (e.key === 'Escape') { window.close(); }
 });
 
 /* ── Start ── */
 poll();
 setInterval(poll, 2500);
-requestAnimationFrame(tick);
 </script>

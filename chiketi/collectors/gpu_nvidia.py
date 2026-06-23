@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+import time
+
 from chiketi.collectors.base import MetricCollector, MetricValue
 
 _nvml_initialized = False
+_nvml_last_attempt = 0.0
+_NVML_RETRY_S = 30.0
 
 
 def _ensure_nvml() -> bool:
-    global _nvml_initialized
+    """Init NVML once. On failure, throttle retries so a GPU-less host doesn't
+    re-import pynvml and call nvmlInit() on every collect cycle. A later-loaded
+    driver is still picked up after the retry window."""
+    global _nvml_initialized, _nvml_last_attempt
     if _nvml_initialized:
         return True
+    now = time.monotonic()
+    if _nvml_last_attempt and (now - _nvml_last_attempt) < _NVML_RETRY_S:
+        return False
+    _nvml_last_attempt = now
     try:
         import pynvml
         pynvml.nvmlInit()

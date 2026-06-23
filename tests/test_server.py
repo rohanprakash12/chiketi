@@ -103,6 +103,7 @@ class TestApplyDisplaySettings:
         with mock.patch.object(server, "_get_session_env",
                                return_value={"DISPLAY": ":0"}), \
                 mock.patch.object(server, "subprocess") as msub:
+            msub.run.return_value.returncode = 0
             result = _apply_display_settings("HDMI-1", 0.8)
         assert result is True
         msub.run.assert_called_once()

@@ -1,5 +1,17 @@
 <script>
 const API = window.location.origin;
+// Optional shared secret, taken from this page's ?token=… and sent on every
+// control POST. Harmless when the server has no token configured.
+const TOKEN = new URLSearchParams(window.location.search).get('token');
+function post(path, body) {
+  const headers = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (TOKEN) headers['X-Chiketi-Token'] = TOKEN;
+  return fetch(API + path, {
+    method: 'POST', headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
 const PANEL_SPEC = __PANEL_SPEC_JSON__;
 let currentData = null, metrics = null;
 let selectedFamily = null, selectedVariant = null;
@@ -12,13 +24,13 @@ function m(key) {
 function mv(key, suffix) {
   const d = m(key);
   if (!d.available) return 'N/A';
-  return suffix ? d.value + suffix : String(d.value);
+  return esc(suffix ? d.value + suffix : String(d.value));
 }
 
 function cleanModel() {
   const d = m('llama.model');
   if (!d.available) return '--';
-  return String(d.value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, '').replace(/_/g, ' ').replace(/-$/, '');
+  return esc(String(d.value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, '').replace(/_/g, ' ').replace(/-$/, ''));
 }
 
 function switchTab(tab) {
@@ -122,7 +134,7 @@ function renderScreens() {
 
 async function selectTheme(family, variant) {
   try {
-    const res = await fetch(API + '/api/theme/' + family + '/' + variant, { method: 'POST' });
+    const res = await post('/api/theme/' + family + '/' + variant);
     if (res.ok) { await loadThemes(); setStatus('Theme: ' + family + '/' + variant, true); }
   } catch(e) { setStatus('Failed to set theme', false); }
 }
@@ -139,13 +151,14 @@ loadThemes();
 let _outputsCache = [];
 async function loadSettings() {
   try {
-    const res = await fetch(API + '/api/display');
+    const res = await fetch(API + '/api/display?outputs=1');
     const data = await res.json();
     _outputsCache = (data.outputs || []).filter(o => o.connected);
     populateOutputs(_outputsCache, data.current_output);
     document.getElementById('brightnessSlider').value = data.brightness || 1.0;
     document.getElementById('brightnessVal').textContent = (data.brightness || 1.0).toFixed(1);
     _serverScreenRotation = data.screen_rotation || {};
+    _serverDefaultDuration = data.default_duration || 10;
     renderScreenRotationUI();
     updatePowerToggle(data.display_on || false);
     updateResDisplay();
@@ -179,6 +192,7 @@ function parseResolution(res) {
   return m ? { w: parseInt(m[1]), h: parseInt(m[2]) } : null;
 }
 let _serverScreenRotation = {};
+let _serverDefaultDuration = 10;
 function renderScreenRotationUI() {
   const el = document.getElementById('screenRotationList');
   el.innerHTML = '';
@@ -186,7 +200,7 @@ function renderScreenRotationUI() {
   if (!c) return;
   const screens = getScreenRegistry(c);
   for (const s of screens) {
-    const cfg = _serverScreenRotation[s.id] || { enabled: true, duration: 10 };
+    const cfg = _serverScreenRotation[s.id] || { enabled: true, duration: _serverDefaultDuration };
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 0;min-height:44px';
     row.innerHTML =
@@ -205,7 +219,7 @@ function getScreenRotationFromUI() {
   document.querySelectorAll('.sr-enable').forEach(cb => {
     const id = cb.dataset.screen;
     const dur = document.querySelector(`.sr-duration[data-screen="${id}"]`);
-    result[id] = { enabled: cb.checked, duration: parseInt(dur.value) || 10 };
+    result[id] = { enabled: cb.checked, duration: parseInt(dur.value) || _serverDefaultDuration };
   });
   return result;
 }
@@ -232,11 +246,7 @@ function updatePowerToggle(isOn) {
 document.getElementById('powerToggle').addEventListener('click', async function() {
   const newState = !_displayOn;
   try {
-    const res = await fetch(API + '/api/display', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ display_on: newState }),
-    });
+    const res = await post('/api/display', { display_on: newState });
     if (res.ok) {
       const data = await res.json();
       updatePowerToggle(data.display_on);
@@ -254,7 +264,7 @@ document.getElementById('brightnessSlider').addEventListener('input', function()
 });
 document.getElementById('scanDisplays').addEventListener('click', async function() {
   try {
-    const res = await fetch(API + '/api/display');
+    const res = await fetch(API + '/api/display?outputs=1&refresh=1');
     const data = await res.json();
     _outputsCache = (data.outputs || []).filter(o => o.connected);
     populateOutputs(_outputsCache, data.current_output);
@@ -271,11 +281,7 @@ document.getElementById('applySettings').addEventListener('click', async functio
   };
   if (dims) { body.width = dims.w; body.height = dims.h; }
   try {
-    const res = await fetch(API + '/api/display', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
-    });
+    const res = await post('/api/display', body);
     if (res.ok) {
       const data = await res.json();
       updatePreviewAspectRatio(data.width, data.height);
