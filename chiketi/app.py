@@ -25,10 +25,14 @@ class MetricEngine(threading.Thread):
         super().__init__()
         self._collectors: list[MetricCollector] = get_collectors()
         self._latest: dict[str, MetricValue] = {}
-        self._running = True
+        # NOT named _stop: threading.Thread already defines a private _stop()
+        # method that join() calls internally, and shadowing it with an Event
+        # makes join() raise TypeError: 'Event' object is not callable.
+        self._stop_event = threading.Event()
 
     def run(self) -> None:
-        while self._running:
+        while not self._stop_event.is_set():
+            started = time.monotonic()
             data: dict[str, MetricValue] = {}
             for collector in self._collectors:
                 try:
@@ -38,13 +42,41 @@ class MetricEngine(threading.Thread):
                     print(f"chiketi: collector {type(collector).__name__} failed: {exc}",
                           file=sys.stderr)
             self._latest = data
-            time.sleep(TIMING.collect_interval_ms / 1000)
+            # Sleep the remainder of the interval rather than a full interval
+            # on top of collection time -- otherwise the real period is
+            # collect_interval + however long the collectors took. Event.wait
+            # is interruptible, so stop() no longer waits out a whole sleep.
+            interval = TIMING.collect_interval_ms / 1000
+            self._stop_event.wait(max(0.0, interval - (time.monotonic() - started)))
 
     def stop(self) -> None:
-        self._running = False
+        self._stop_event.set()
 
     def get_latest(self) -> dict[str, MetricValue]:
         return self._latest
+
+
+def _profile_dir() -> str | None:
+    """Chromium profile directory owned by chiketi.
+
+    Without a dedicated profile, launching Chromium while the user already has
+    a browser open makes the new process hand its window to the running one and
+    exit immediately. ``self._proc.poll()`` then reports the kiosk as dead,
+    which breaks ``is_on`` and makes ``turn_off()`` a no-op.
+
+    Returns None (after warning) when the directory cannot be created, so a
+    read-only or full HOME degrades to the old shared-profile behaviour
+    instead of raising out of ``turn_on()``.
+    """
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    path = os.path.join(base, "chiketi", "chromium-profile")
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as exc:
+        print(f"chiketi: cannot create Chromium profile dir {path}: {exc}",
+              file=sys.stderr)
+        return None
+    return path
 
 
 def _find_chromium() -> str | None:
@@ -132,6 +164,11 @@ def _get_graphical_session_env() -> dict[str, str]:
                         prop_dict[k] = v
                 if prop_dict.get("Type") not in ("x11", "wayland"):
                     continue
+                # Only adopt a session owned by this user. loginctl reports
+                # every session on the box; without this filter a multi-user
+                # machine can hand us another login's DISPLAY.
+                if str(prop_dict.get("User", "")) != str(uid):
+                    continue
                 # Found a graphical session — get its env vars
                 # Try reading from /proc of a process in that session
                 sess_leader = subprocess.run(
@@ -141,9 +178,13 @@ def _get_graphical_session_env() -> dict[str, str]:
                 leader_pid = sess_leader.stdout.strip().split("=")[-1]
                 if leader_pid and leader_pid.isdigit():
                     candidate = _read_env_from_proc(int(leader_pid))
-                    if candidate:
-                        # Merge into env but keep scanning if missing XAUTHORITY
-                        env.update(candidate)
+                    if candidate.get("DISPLAY") or candidate.get("WAYLAND_DISPLAY"):
+                        # Take one session's variables as an indivisible set.
+                        # Merging across sessions could pair session A's
+                        # DISPLAY with session B's XAUTHORITY, which is not a
+                        # usable pair. First usable session wins.
+                        env = candidate
+                        break
             except Exception:
                 continue
     except Exception:
@@ -174,7 +215,12 @@ def _get_graphical_session_env() -> dict[str, str]:
                 # Otherwise save as fallback
                 if not best:
                     best = proc_env
-            except (PermissionError, FileNotFoundError, ProcessLookupError):
+            # OSError, not the three subclasses only: os.stat/open on a
+            # live /proc tree can also raise NotADirectoryError or a bare
+            # OSError (EIO, unmapped ESRCH). Those used to escape to the
+            # outer handler, which abandons the whole scan instead of
+            # skipping one process.
+            except OSError:
                 continue
     except Exception:
         pass
@@ -223,7 +269,11 @@ def _detect_display() -> str:
                 # Skip XWayland high-numbered displays
                 if int(num) < 100:
                     return f":{num}"
-        except (ValueError, IndexError):
+        # OSError included: glob-then-open is a race (the lock can vanish)
+        # and a root-owned lock is unreadable. Without it, one bad lock file
+        # propagated out of _detect_display() into DisplayManager.__init__
+        # and aborted startup before the server ever bound.
+        except (OSError, ValueError, IndexError):
             continue
 
     return ":0"
@@ -294,12 +344,20 @@ class DisplayManager:
             )
             marker = f"--app={self._url}"
             for line in result.stdout.strip().splitlines():
-                if marker in line:
+                if marker not in line:
+                    continue
+                # Guard per line: pgrep can list a pid that exits before the
+                # kill probe, and a malformed line has no integer pid. Either
+                # used to abort the whole scan, so a second, live kiosk
+                # further down the list was never adopted.
+                try:
                     pid = int(line.split()[0])
                     os.kill(pid, 0)
-                    self._adopted_pid = pid
-                    print(f"chiketi: adopted existing display (pid {pid})")
-                    return
+                except (OSError, ValueError, IndexError):
+                    continue
+                self._adopted_pid = pid
+                print(f"chiketi: adopted existing display (pid {pid})")
+                return
         except Exception:
             pass
 
@@ -358,6 +416,14 @@ class DisplayManager:
                 self._chromium,
                 "--kiosk",
                 f"--app={self._url}",
+            ]
+            # Own profile: guarantees Chromium starts a browser process we
+            # control instead of delegating the window to an already-running
+            # default-profile instance and exiting straight away.
+            profile = _profile_dir()
+            if profile:
+                chrome_args.append(f"--user-data-dir={profile}")
+            chrome_args += [
                 "--no-first-run",
                 "--disable-translate",
                 "--disable-infobars",
@@ -394,12 +460,26 @@ class DisplayManager:
                     pass
                 self._adopted_pid = None
             if self._proc is not None and self._proc.poll() is None:
+                # terminate()/kill() raise OSError when the child is already
+                # reaped or no longer ours to signal; that used to escape
+                # turn_off(), which runs inside the SIGTERM handler and from
+                # the /api/display POST path. Both waits are bounded: the
+                # original post-SIGKILL wait() had no timeout and would block
+                # forever while holding self._lock, deadlocking is_on() and
+                # therefore every display request.
                 try:
                     self._proc.terminate()
                     self._proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self._proc.kill()
-                    self._proc.wait()
+                    try:
+                        self._proc.kill()
+                        self._proc.wait(timeout=5)
+                    except (OSError, subprocess.TimeoutExpired) as exc:
+                        print(f"chiketi: could not reap kiosk process: {exc}",
+                              file=sys.stderr)
+                except OSError as exc:
+                    print(f"chiketi: could not signal kiosk process: {exc}",
+                          file=sys.stderr)
                 print("chiketi: display OFF")
             self._proc = None
             # Switch to console (X11 only — on Wayland, closing Chromium
@@ -415,6 +495,21 @@ _display_mgr: DisplayManager | None = None
 
 def get_display_manager() -> DisplayManager | None:
     return _display_mgr
+
+
+def _safe_turn_off(mgr: DisplayManager | None) -> None:
+    """Best-effort kiosk shutdown that never raises.
+
+    Called from the SIGTERM handler, where an exception would replace the
+    SystemExit that actually terminates the process -- leaving chiketi
+    running after a `systemctl stop`.
+    """
+    if mgr is None:
+        return
+    try:
+        mgr.turn_off()
+    except Exception as exc:
+        print(f"chiketi: display shutdown failed: {exc}", file=sys.stderr)
 
 
 def run(
@@ -441,6 +536,7 @@ def run(
         start_server(bind_host=bind_host, token=token)
     except OSError as exc:
         print(f"chiketi: control server failed to bind: {exc}", file=sys.stderr)
+        engine.stop()
         return 1
 
     print(f"chiketi: server running on http://localhost:{CONTROL_PORT}/")
@@ -455,7 +551,7 @@ def run(
 
     # Keep running until interrupted
     def _handle_term(signum, frame):
-        _display_mgr.turn_off()
+        _safe_turn_off(_display_mgr)
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, _handle_term)
@@ -465,6 +561,6 @@ def run(
     except (KeyboardInterrupt, SystemExit):
         pass
 
-    _display_mgr.turn_off()
+    _safe_turn_off(_display_mgr)
     engine.stop()
     return 0
