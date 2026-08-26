@@ -131,7 +131,7 @@ const CLEAN_TAGS = {};
   metrics = FIX.FULL;
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    entry.fns.concat([claudeScreen3]).forEach(function (fn) {
+    entry.fns.concat([claudeScreen3, panelGoldGpuScreen]).forEach(function (fn) {
       if (CLEAN_TAGS[fn.name]) return;
       try {
         CLEAN_TAGS[fn.name] = tokenize(fn(colors)).tags;
@@ -182,7 +182,7 @@ for (const fixtureName of Object.keys(FIX)) {
   metrics = FIX[fixtureName];
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3]);
+    const fns = entry.fns.concat([claudeScreen3, panelGoldGpuScreen]);
     fns.forEach(function (fn, i) {
       const label = entry.family + '/' + entry.variant + ' screen' + (i + 1) + ' (' + fn.name + ')';
       let html;
@@ -202,9 +202,35 @@ for (const fixtureName of Object.keys(FIX)) {
       // attribute text remains present (and harmless) once escaped, and some
       // renderers uppercase metrics first, so matching 'onerror=' both misses
       // uppercase leaks and false-positives on correctly-escaped output.
-      if (fixtureName === 'HOSTILE') {
+      if (fixtureName === 'HOSTILE' || fixtureName === 'GPU_HOSTILE') {
         const leak = leakReason(fn.name, html);
         if (leak) fail(fixtureName, label, 'unescaped metric reached output -- ' + leak);
+      }
+
+      // A driver that exposes no utilisation must not render as 0%. The
+      // viewer cannot tell that apart from a genuinely idle card, and the
+      // whole point of carrying nulls through the collector is to say
+      // "unknown" rather than to invent a number.
+      if (fixtureName === 'GPU_SPARSE' && fn.name === 'panelGoldGpuScreen') {
+        if (/>\s*0%\s*</.test(html)) {
+          fail(fixtureName, label, 'absent utilisation rendered as 0%');
+        }
+        if (!/--/.test(html)) {
+          fail(fixtureName, label, 'no absent-value marker for a driver that reports nothing');
+        }
+      }
+
+      // The empty state has to say why it is empty.
+      if (fixtureName === 'GPU_NONE' && fn.name === 'panelGoldGpuScreen' &&
+          !/NO GPU DETECTED/.test(html)) {
+        fail(fixtureName, label, 'no-GPU state does not explain itself');
+      }
+
+      // More cards than the grid holds: declare the overflow, never truncate
+      // silently. GPU_MANY carries seven.
+      if (fixtureName === 'GPU_MANY' && fn.name === 'panelGoldGpuScreen' &&
+          !/\+3 MORE NOT SHOWN/.test(html)) {
+        fail(fixtureName, label, 'cards dropped from the grid without saying so');
       }
 
       // The LLM panel title must follow llama.backend, not a hardcoded
@@ -253,7 +279,7 @@ const STRING_KEYS = Object.keys(FIX.FULL).filter(function (k) {
 for (const key of STRING_KEYS) {
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3]);
+    const fns = entry.fns.concat([claudeScreen3, panelGoldGpuScreen]);
     fns.forEach(function (fn, i) {
       metrics = Object.assign({}, FIX.FULL);
       metrics[key] = Object.assign({}, FIX.FULL[key], { value: PAYLOAD });

@@ -67,6 +67,10 @@ function getScreenRegistry(c) {
   else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'Clock',fn:scanScreen2}];
   else screens = [{id:'screen1',name:'System Stats',fn:terminalScreen1},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
   screens.push({id:'screen3',name:'Claude Usage',fn:claudeScreen3});
+  // Adaptive: the screen picks its own density from gpu.count, so a
+  // single-card box and a four-card rig both read correctly with no
+  // configuration. Switch it off in Settings on a machine with no GPU.
+  screens.push({id:'screen4',name:'GPU',fn:panelGoldGpuScreen});
   return screens;
 }
 

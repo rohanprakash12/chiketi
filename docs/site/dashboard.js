@@ -119,14 +119,29 @@ function donut(pct, label, ringColor, size, sw, font, opts) {
   // 1024px kiosk (the control-panel preview and mobile), colliding with the
   // SECONDARY bar below. At 1024px this resolves to the original px size, so
   // the actual kiosk display is unchanged.
-  const cq = (size / 1024 * 100).toFixed(3);
   // Gold uses anticlockwise (scale(-1,1)), Coral/Teal use clockwise (rotate(-90))
   const xform = opts.anticlockwise
     ? `translate(${size}, 0) scale(-1, 1) rotate(-90 ${cx} ${cy})`
     : `rotate(-90 ${cx} ${cy})`;
+  // Opt-in tick ring. Off by default so every existing caller is unchanged.
+  let ticks = '';
+  if (opts.ticks) {
+    for (let i = 0; i < 36; i++) {
+      const a = i * 10 * Math.PI / 180, maj = i % 3 === 0;
+      const r1 = r + sw / 2 + 3, r2 = r + sw / 2 + (maj ? 9 : 5);
+      ticks += `<line x1="${(cx + r1 * Math.cos(a)).toFixed(1)}" y1="${(cy + r1 * Math.sin(a)).toFixed(1)}"` +
+        ` x2="${(cx + r2 * Math.cos(a)).toFixed(1)}" y2="${(cy + r2 * Math.sin(a)).toFixed(1)}"` +
+        ` stroke="${ringColor}" stroke-width="${maj ? 1.6 : 0.9}" opacity="${maj ? 0.75 : 0.35}"/>`;
+    }
+  }
+  // The tick ring sits outside the circle radius, so the viewBox has to grow
+  // or the outer ticks are clipped at the svg edge.
+  const pad = opts.ticks ? 11 : 0;
+  const vb = `${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`;
+  const cqv = ((size + pad * 2) / 1024 * 100).toFixed(3);
   return `<div style="text-align:center">` +
-    `<div style="color:${labelColor};font-size:${opts.labelSize||'2.34cqw'};font-family:${font};font-weight:${labelFW};letter-spacing:1px;margin-bottom:2px;text-transform:uppercase">${label}</div>` +
-    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="width:${cq}cqw;height:${cq}cqw;max-width:100%;display:block;margin:0 auto">` +
+    (label ? `<div style="color:${labelColor};font-size:${opts.labelSize||'2.34cqw'};font-family:${font};font-weight:${labelFW};letter-spacing:1px;margin-bottom:2px;text-transform:uppercase">${label}</div>` : '') +
+    `<svg width="${size}" height="${size}" viewBox="${vb}" style="width:${cqv}cqw;height:${cqv}cqw;max-width:100%;display:block;margin:0 auto">` + ticks +
       `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${bgRing}" stroke-width="${sw}"/>` +
       `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${ringColor}" stroke-width="${sw}" ` +
         `stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="${linecap}" ` +
@@ -1625,6 +1640,335 @@ function claudeScreen3(c) {
     '<div style="display:flex;height:100%;padding:12px 16px;gap:0;box-sizing:border-box">' +
       left + right +
     '</div></div>';
+}
+
+/* ── GPU screen ──────────────────────────────────────────────────────────
+ * One screen, three densities, chosen from how many cards the collector
+ * actually found. The same build has to read correctly on a single-card
+ * workstation and on a four-card rig, and nobody should have to configure
+ * which. Authored in px against the 1024x600 kiosk, emitted in cqw so the
+ * control-panel preview and a phone scale with the frame.
+ *
+ *   1 card   layout A - both gauges, load bars, per-process VRAM
+ *   2 cards  layout B - a gauge and a bar stack each
+ *   3+       layout C - compact 2x2 tiles
+ *   0        an honest empty state; the screen can be switched off in Settings
+ */
+
+/* px -> cqw against the 1024px kiosk width. */
+function gq(px) { return (px / 1024 * 100).toFixed(3) + 'cqw'; }
+
+const GPU_F = "'Chakra Petch', sans-serif";
+const GPU_LABEL = '#d8d8d8';   /* mid-greys disappear on a cheap 7" panel */
+const GPU_DIM = '#9a9a9a';
+
+function gpuVendorColor(vendor) {
+  const C = PANEL_SPEC.colors;
+  if (vendor === 'NVIDIA') return C.green || '#B9C92F';
+  if (vendor === 'AMD') return C.red || '#BF0F0F';
+  if (vendor === 'Intel') return C.blue || '#165FC5';
+  return GOLD;
+}
+
+/* A value the driver never reported is shown as absent. Printing 0 where the
+   card said nothing is a lie the renderer cannot take back. */
+function gpuVal(v, suffix) {
+  if (v === null || v === undefined || (typeof v === 'number' && !isFinite(v))) return '--';
+  return esc(String(v)) + (suffix || '');
+}
+
+function gpuNum(v) {
+  return (typeof v === 'number' && isFinite(v)) ? v : 0;
+}
+
+/* Spine-and-title region: the Bridge Station vocabulary, one per section. */
+function gpuRegion(x, y, w, h, title, color, right, body, justify) {
+  const SW = 12;
+  return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
+    `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
+      `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
+    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${GPU_F};` +
+      `font-size:${gq(16)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
+      `text-shadow:0 0 ${gq(10)} ${color}99;white-space:nowrap">${title}</div>` +
+    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${color};font-family:${GPU_F};` +
+      `font-size:${gq(13)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
+      `opacity:0.85;white-space:nowrap">${right}</div>` : '') +
+    `<div style="position:absolute;left:${gq(SW + 16)};top:${gq(32)};right:0;bottom:${gq(6)};` +
+      `display:flex;flex-direction:column;justify-content:${justify || 'space-between'};` +
+      `overflow:hidden">${body}</div></div>`;
+}
+
+/* Segmented bar. A non-zero reading always lights at least one cell: a real
+   but sub-1% value rendered as a wholly empty bar reads as broken, not small. */
+function gpuSegBar(pct, color, w, h, cells, gap) {
+  const p = Math.max(0, Math.min(100, gpuNum(pct)));
+  const cw = (w - gap * (cells - 1)) / cells;
+  let n = Math.round(cells * p / 100);
+  if (n === 0 && p > 0) n = 1;
+  let html = `<div style="display:flex;gap:${gq(gap)};align-items:center">`;
+  for (let i = 0; i < cells; i++) {
+    html += `<div style="width:${gq(cw)};height:${gq(h)};flex-shrink:0;` +
+      (i < n ? `background:${color};box-shadow:0 0 ${gq(6)} ${color}aa` :
+               `background:#161616;border:1px solid #202020`) + `"></div>`;
+  }
+  return html + `</div>`;
+}
+
+function gpuKv(label, value, color, valPx, labPx) {
+  return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:${gq(12)}">` +
+    `<span style="color:${GPU_LABEL};font-family:${GPU_F};font-size:${gq(labPx || 13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em;white-space:nowrap">${label}</span>` +
+    `<span style="color:${color};font-family:${GPU_F};font-size:${gq(valPx || 22)};font-weight:700;` +
+      `font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 ${gq(8)} ${color}99">${value}</span></div>`;
+}
+
+/* A readout bound to the width of its own bar. Letting it span the flex row
+   pushed the number to the far edge, where it read as labelling the next
+   column rather than the bar beneath it. */
+function gpuMetered(label, value, pct, color, w, cells, valPx, labPx) {
+  return `<div style="width:${gq(w)}">` + gpuKv(label, value, color, valPx, labPx) +
+    gpuSegBar(pct, color, w, valPx && valPx < 20 ? 8 : 11, cells, 3) + `</div>`;
+}
+
+/* sysfs reports real RPM, NVML only a duty percentage. Show whichever the card
+   actually gave rather than inventing a conversion between them. */
+function gpuFanText(card) {
+  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return gpuVal(card.fan_rpm) + ' RPM';
+  if (card.fan !== null && card.fan !== undefined) return gpuVal(card.fan, '%');
+  return '--';
+}
+
+function gpuFanRpm(card) {
+  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return gpuNum(card.fan_rpm);
+  if (card.fan !== null && card.fan !== undefined) return Math.round(gpuNum(card.fan) / 100 * 2400);
+  return 0;
+}
+
+function gpuPowerPct(card) {
+  const p = card.power, lim = card.power_limit;
+  if (typeof p !== 'number' || typeof lim !== 'number' || lim <= 0) return 0;
+  return Math.round(p / lim * 100);
+}
+
+/* Percentage of a limit, as TEXT. A card that reported no power at all has no
+   percentage either -- rendering the 0 that gpuPowerPct returns for the bar
+   would state a draw of zero watts, which is not what the driver said. */
+function gpuPowerPctText(card) {
+  const p = card.power, lim = card.power_limit;
+  if (typeof p !== 'number' || typeof lim !== 'number' || lim <= 0) return '--';
+  return Math.round(p / lim * 100) + '%';
+}
+
+function gpuName(card) {
+  return esc(String(card.short_name || card.name || 'GPU ' + gpuNum(card.index)));
+}
+
+function gpuTempColor(card) {
+  return (card.temp === null || card.temp === undefined) ? GPU_DIM : _thermColor(card.temp);
+}
+
+/* Donut with its caption BELOW the ring. The shared donut() puts the label
+   above, which overflows the top of a vertically-centred region and gets
+   clipped by its overflow:hidden. */
+function gpuGauge(pct, caption, color, size, sw, opts) {
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(4)}">` +
+    donut(pct, '', color, size, sw, GPU_F, opts) +
+    `<div style="color:${GPU_LABEL};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
+      `line-height:1;text-transform:uppercase;letter-spacing:0.22em">${caption}</div></div>`;
+}
+
+/* ── layout A: one card, everything ── */
+function gpuLayoutSingle(card) {
+  const col = gpuVendorColor(card.vendor);
+  const tc = gpuTempColor(card);
+  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
+                 critColor: '#fff', linecap: 'butt', valSize: gq(44), labelSize: gq(13),
+                 labelColor: GPU_LABEL};
+
+  const head = `<div style="position:absolute;left:${gq(24)};top:${gq(16)};right:${gq(24)};` +
+    `display:flex;align-items:center;gap:${gq(14)};font-family:${GPU_F}">` +
+    `<span style="font-size:${gq(11)};font-weight:700;color:#000;background:${col};` +
+      `padding:${gq(2)} ${gq(9)};border-radius:2px;text-transform:uppercase;letter-spacing:0.22em;` +
+      `box-shadow:0 0 ${gq(12)} ${col}88">${esc(String(card.vendor || 'GPU'))}</span>` +
+    `<span style="color:#fff;font-size:${gq(27)};font-weight:700;text-shadow:0 0 ${gq(10)} ${col}99;` +
+      `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${gpuName(card)}</span>` +
+    `<span style="flex:1"></span>` +
+    `<span style="color:${GPU_LABEL};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
+      `letter-spacing:0.22em;white-space:nowrap">${gpuVal(card.driver)} &nbsp;|&nbsp; ${gpuVal(card.bus_id)}</span></div>`;
+
+  const utilBody = (card.util === null || card.util === undefined)
+    ? `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${gpuVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${gpuGauge(gpuNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
+
+  const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
+    ? `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${gpuVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${gpuGauge(gpuNum(card.vram_percent), 'VRAM', TEAL, 152, 11, dOpts)}</div>`;
+
+  const procs = asList({available: true, value: card.processes});
+  let procBody, procRight;
+  if (procs.length) {
+    procBody = '';
+    for (let i = 0; i < Math.min(3, procs.length); i++) {
+      const pr = procs[i] || {};
+      const tot = gpuNum(card.vram_total);
+      const pct = tot > 0 ? Math.round(gpuNum(pr.vram_mib) / tot * 100) : 0;
+      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${GPU_F}">` +
+        `<span style="color:#fff;font-size:${gq(17)};font-weight:700;width:${gq(118)};overflow:hidden;` +
+          `text-overflow:ellipsis;white-space:nowrap">${esc(String(pr.name || '?'))}</span>` +
+        `<span style="color:${GPU_DIM};font-size:${gq(13)};width:${gq(54)}">${gpuVal(pr.pid)}</span>` +
+        gpuSegBar(pct, TEAL, 560, 13, 30, 3) +
+        `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700;width:${gq(74)};text-align:right;` +
+          `font-variant-numeric:tabular-nums">${gpuVal(pr.vram_mib)}M</span></div>`;
+    }
+    procRight = procs.length + ' ACTIVE';
+  } else {
+    // NVML is the only source with per-process VRAM. Say that, rather than
+    // leaving a box that looks like it failed to load.
+    procBody = `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em">PER-PROCESS VRAM NOT EXPOSED BY ${gpuVal(card.driver).toUpperCase()}</div>`;
+    procRight = 'UNAVAILABLE';
+  }
+
+  return head +
+    gpuRegion(24, 62, 300, 240, 'PROCESSOR', col, '', utilBody, 'center') +
+    gpuRegion(348, 62, 300, 240, 'MEMORY', TEAL, '', vramBody, 'center') +
+    gpuRegion(672, 62, 328, 240, 'TELEMETRY', GOLD, '',
+      gpuKv('TEMP', gpuVal(card.temp, '°C'), tc, 30) +
+      gpuKv('POWER', gpuVal(card.power) + ` <span style="font-size:${gq(16)};color:${GPU_DIM}">/ ${gpuVal(card.power_limit)} W</span>`, AMBER, 30) +
+      gpuKv('CORE', gpuVal(card.clock_gpu) + ` <span style="font-size:${gq(16)};color:${GPU_DIM}">/ ${gpuVal(card.clock_gpu_max)} MHz</span>`, '#e6e6e6', 26) +
+      gpuKv('MEMORY', gpuVal(card.clock_mem) + ` <span style="font-size:${gq(16)};color:${GPU_DIM}">MHz</span>`, '#e6e6e6', 26),
+      'space-around') +
+    gpuRegion(24, 312, 624, 116, 'LOAD', col, '',
+      gpuMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), AMBER, 596, 34, 14, 12) +
+      gpuMetered('MEMORY CONTROLLER', gpuVal(card.mem_util, '%'), gpuNum(card.mem_util), TEAL, 596, 34, 14, 12),
+      'space-around') +
+    gpuRegion(672, 312, 328, 116, 'COOLING', tc, '',
+      `<div style="display:flex;align-items:center;gap:${gq(18)}">` +
+        fanIcon(tc, gq(54), gpuFanRpm(card)) +
+        `<div><div style="color:#fff;font-family:${GPU_F};font-size:${gq(30)};font-weight:700;` +
+          `font-variant-numeric:tabular-nums;text-shadow:0 0 ${gq(8)} ${tc}99">${gpuFanText(card)}</div>` +
+        `<div style="color:${GPU_LABEL};font-family:${GPU_F};font-size:${gq(12)};font-weight:700;` +
+          `text-transform:uppercase;letter-spacing:0.22em">FAN</div></div></div>`, 'center') +
+    gpuRegion(24, 446, 976, 132, 'PROCESSES', TEAL, procRight, procBody, 'space-around');
+}
+
+/* ── layout B: two cards ── */
+function gpuCardPanel(card, x, y, w, h) {
+  const col = gpuVendorColor(card.vendor);
+  const tc = gpuTempColor(card);
+  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
+                 critColor: '#fff', linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
+
+  const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
+    gpuMetered('VRAM', gpuVal(card.vram_used) + ` <span style="font-size:${gq(15)};color:${GPU_DIM}">/ ${gpuVal(card.vram_total)} MiB</span>`,
+               gpuNum(card.vram_percent), TEAL, 330, 26, 23, 13) +
+    gpuMetered('POWER', gpuVal(card.power) + ` <span style="font-size:${gq(15)};color:${GPU_DIM}">/ ${gpuVal(card.power_limit)} W</span>`,
+               gpuPowerPct(card), AMBER, 330, 26, 23, 13) +
+    gpuMetered('MEM CTRL', gpuVal(card.mem_util, '%'), gpuNum(card.mem_util), GOLD, 330, 26, 23, 13) +
+    `</div>`;
+
+  // Fixed width, not flex:1. Stretching this column ran its labels back
+  // underneath the bars in the middle column.
+  const right = `<div style="width:${gq(236)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
+    gpuKv('TEMP', gpuVal(card.temp, '°C'), tc, 26) +
+    gpuKv('CORE', gpuVal(card.clock_gpu) + ` <span style="font-size:${gq(14)};color:${GPU_DIM}">MHz</span>`, '#e6e6e6', 22) +
+    `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(30), gpuFanRpm(card)) +
+      `<span style="color:#e6e6e6;font-family:${GPU_F};font-size:${gq(17)};font-weight:700;` +
+      `text-shadow:0 0 ${gq(6)} ${tc}99">${gpuFanText(card)}</span></div></div>`;
+
+  const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
+    donut(gpuNum(card.util), '', col, 138, 10, GPU_F, dOpts) +
+    stats + `<div style="flex:1"></div>` + right + `</div>`;
+
+  return gpuRegion(x, y, w, h, gpuName(card), col,
+    gpuVal(card.driver) + ' &nbsp;|&nbsp; ' + gpuVal(card.bus_id), inner, 'center');
+}
+
+/* ── layout C: three or more ── */
+function gpuTile(card, x, y, w, h) {
+  const col = gpuVendorColor(card.vendor);
+  const tc = gpuTempColor(card);
+  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
+                 critColor: '#fff', linecap: 'butt', valSize: gq(29), labelSize: gq(11)};
+  // Used keeps a decimal at every magnitude -- rounding 18.3 to 18 on a 24G
+  // card throws away the only digit that moves. The total is a fixed board
+  // spec, so an integer is right there.
+  const gibUsed = function (mib) { return (gpuNum(mib) / 1024).toFixed(1); };
+  const gibTotal = function (mib) { return Math.round(gpuNum(mib) / 1024); };
+
+  const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
+    gpuMetered('VRAM', gibUsed(card.vram_used) + ` <span style="font-size:${gq(12)};color:${GPU_DIM}">/ ${gibTotal(card.vram_total)} G</span>`,
+               gpuNum(card.vram_percent), TEAL, 214, 20, 19, 11) +
+    gpuMetered('POWER', gpuVal(card.power) + ` <span style="font-size:${gq(12)};color:${GPU_DIM}">/ ${gpuVal(card.power_limit)} W</span>`,
+               gpuPowerPct(card), AMBER, 214, 20, 19, 11) + `</div>`;
+
+  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${GPU_F}">` +
+    fanIcon(tc, gq(24), gpuFanRpm(card)) +
+    `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700">${gpuVal(card.temp, '°C')}</span>` +
+    `<span style="flex:1"></span>` +
+    `<span style="color:${GPU_LABEL};font-size:${gq(11)};font-weight:700;text-transform:uppercase;` +
+      `letter-spacing:0.22em;white-space:nowrap">${gpuVal(card.clock_gpu)} MHz</span></div>`;
+
+  const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
+    donut(gpuNum(card.util), '', col, 104, 8, GPU_F, dOpts) + stack + `</div>` + footer;
+
+  return gpuRegion(x, y, w, h, gpuName(card), col, gpuVal(card.util, '%'), inner, 'center');
+}
+
+function gpuHeader(cards) {
+  let watts = 0, anyPower = false;
+  for (const c of cards) {
+    if (typeof c.power === 'number' && isFinite(c.power)) { watts += c.power; anyPower = true; }
+  }
+  const total = anyPower ? ` &nbsp;|&nbsp; ${Math.round(watts)} W TOTAL` : '';
+  return `<div style="position:absolute;left:${gq(24)};top:${gq(14)};right:${gq(24)};` +
+    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${GPU_F}">` +
+    `<span style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
+      `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</span>` +
+    `<span style="flex:1"></span>` +
+    `<span style="color:${GPU_LABEL};font-size:${gq(13)};font-weight:700;text-transform:uppercase;` +
+      `letter-spacing:0.22em">${cards.length} CARD${cards.length === 1 ? '' : 'S'}${total}</span></div>`;
+}
+
+function panelGoldGpuScreen(c) {
+  const cards = asList(m('gpu.cards'));
+  const frame = (body) => `<div class="screen-frame"><div style="position:relative;width:100%;` +
+    `height:100%;background:#000;font-family:${GPU_F};overflow:hidden">${body}</div></div>`;
+
+  if (!cards.length) {
+    // A machine with no card the collector can read. Say so plainly; the
+    // screen can be switched off in Settings > Screen Rotation.
+    return frame(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;` +
+      `align-items:center;justify-content:center;gap:${gq(10)}">` +
+      `<div style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
+        `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</div>` +
+      `<div style="color:${GPU_DIM};font-size:${gq(15)};font-weight:700;text-transform:uppercase;` +
+        `letter-spacing:0.22em">NO GPU DETECTED</div></div>`);
+  }
+
+  if (cards.length === 1) return frame(gpuLayoutSingle(cards[0]));
+
+  if (cards.length === 2) {
+    return frame(gpuHeader(cards) +
+      gpuCardPanel(cards[0], 24, 52, 976, 254) +
+      gpuCardPanel(cards[1], 24, 324, 976, 254));
+  }
+
+  const pos = [[24, 52], [516, 52], [24, 322], [516, 322]];
+  let body = gpuHeader(cards);
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    body += gpuTile(cards[i], pos[i][0], pos[i][1], 484, 248);
+  }
+  // Beyond four the grid has no room; say what is not shown rather than
+  // silently truncating the list.
+  if (cards.length > 4) {
+    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${GPU_DIM};` +
+      `font-family:${GPU_F};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
+      `letter-spacing:0.22em">+${cards.length - 4} MORE NOT SHOWN</div>`;
+  }
+  return frame(body);
 }
 
 

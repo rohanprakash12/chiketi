@@ -50,6 +50,8 @@ const FULL = {
   'gpu.clock_gpu': mval(2400, 'MHz', { max: 2600 }),
   'gpu.clock_mem': mval(10500, 'MHz', { max: 10501 }),
   'gpu.processes': mval([{ pid: 1234, name: 'llama-server', vram_mib: 7000 }]),
+  'gpu.count': mval(1),
+  'gpu.cards': mval([gpuCard()], '', { count: 1 }),
   'llama.status': mval('Running'),
   'llama.backend': mval('llama.cpp'),
   'llama.health': mval('ok'),
@@ -83,6 +85,102 @@ const FULL = {
 };
 
 // Nothing collected yet: every m() lookup misses.
+/* One entry of gpu.cards, in the exact shape chiketi.collectors.gpu emits.
+   Overrides let a fixture null out individual fields the way a driver that
+   does not implement them does. */
+function gpuCard(over) {
+  return Object.assign({
+    index: 0, source: 'nvml', vendor: 'NVIDIA', driver: 'nvidia',
+    bus_id: '0000:01:00.0',
+    name: 'AD102 [GeForce RTX 4090]', short_name: 'GeForce RTX 4090',
+    util: 97, mem_util: 58,
+    vram_used: 18734, vram_total: 24564, vram_percent: 76.3,
+    temp: 67, power: 389, power_limit: 450, fan: 62, fan_rpm: null,
+    clock_gpu: 2520, clock_gpu_max: 2520, clock_mem: 10501, clock_mem_max: 10501,
+    processes: [{ pid: 41207, name: 'python3', vram_mib: 17980 },
+                { pid: 3312, name: 'ollama', vram_mib: 610 },
+                { pid: 2201, name: 'Xorg', vram_mib: 144 }]
+  }, over || {});
+}
+
+const AMD_CARD = {
+  index: 1, source: 'sysfs', vendor: 'AMD', driver: 'amdgpu',
+  bus_id: '0000:03:00.0',
+  name: 'Navi 31 [Radeon RX 7900 XT/7900 XTX/7900M]',
+  short_name: 'Radeon RX 7900 XT',
+  util: 73, mem_util: 41, vram_used: 9100, vram_total: 24560, vram_percent: 37.1,
+  temp: 61, power: 211, power_limit: 355, fan: 50, fan_rpm: 1450,
+  clock_gpu: 1800, clock_gpu_max: 2482, clock_mem: 1249, clock_mem_max: 1249,
+  processes: []
+};
+
+function withCards(cards) {
+  const o = Object.assign({}, FULL);
+  o['gpu.count'] = mval(cards.length);
+  o['gpu.cards'] = mval(cards, '', { count: cards.length });
+  return o;
+}
+
+// The three densities the screen selects between, plus the empty case.
+const GPU_NONE = (function () { return withCards([]); })();
+const GPU_DUAL = (function () { return withCards([gpuCard(), AMD_CARD]); })();
+const GPU_QUAD = (function () {
+  return withCards([
+    gpuCard(), AMD_CARD,
+    Object.assign({}, AMD_CARD, { index: 2, short_name: 'Radeon RX 6700',
+      bus_id: '0000:04:00.0', util: 12, mem_util: 4, vram_used: 1200,
+      vram_total: 12288, vram_percent: 9.8, temp: 39, power: 28,
+      fan: 0, fan_rpm: 0, clock_gpu: 500, clock_gpu_max: 2321 }),
+    Object.assign({}, AMD_CARD, { index: 3, short_name: 'Radeon RX 7800 XT',
+      bus_id: '0000:06:00.0', util: 44, vram_total: 16384, temp: 52, power: 140 })
+  ]);
+})();
+// More cards than the grid has room for: the overflow must be declared, not
+// silently dropped.
+const GPU_MANY = (function () {
+  const cards = [];
+  for (let i = 0; i < 7; i++) {
+    cards.push(Object.assign({}, AMD_CARD, { index: i, bus_id: '0000:0' + i + ':00.0' }));
+  }
+  return withCards(cards);
+})();
+
+// A driver that implements almost nothing -- i915/xe expose neither
+// utilisation nor VRAM through sysfs. Every one of these must render as
+// absent, never as a zero the viewer would read as "idle".
+const GPU_SPARSE = (function () {
+  return withCards([{
+    index: 0, source: 'sysfs', vendor: 'Intel', driver: 'i915',
+    bus_id: '0000:05:00.0', name: 'DG2 [Arc A770]', short_name: 'Arc A770',
+    util: null, mem_util: null, vram_used: null, vram_total: null,
+    vram_percent: null, temp: 48, power: null, power_limit: null,
+    fan: null, fan_rpm: null, clock_gpu: 1650, clock_gpu_max: 2400,
+    clock_mem: null, clock_mem_max: null, processes: []
+  }]);
+})();
+
+// Hostile strings INSIDE the card objects and their process lists. The
+// top-level HOSTILE sweep cannot reach these -- gpu.cards is a list of
+// objects, not a string -- and card names come from pci.ids and process
+// names from the OS, so neither is ours to trust.
+const XSS = '<img src=x onerror=alert(1)>';
+const GPU_HOSTILE = (function () {
+  return withCards([
+    gpuCard({ name: XSS, short_name: XSS, vendor: XSS, driver: XSS, bus_id: XSS,
+              processes: [{ pid: XSS, name: XSS, vram_mib: XSS }] }),
+    Object.assign({}, AMD_CARD, { short_name: XSS, driver: XSS, bus_id: XSS })
+  ]);
+})();
+
+// available:true with a value that is not a list. A collector returning None
+// for a field it normally fills must not crash the renderer.
+const GPU_MALFORMED = (function () {
+  const o = Object.assign({}, FULL);
+  o['gpu.cards'] = mval(null);
+  o['gpu.count'] = mval(3);
+  return o;
+})();
+
 const EMPTY = {};
 
 // Every metric flagged unavailable (collector caught an exception).
@@ -138,4 +236,6 @@ const OLLAMA = (function () {
   return o;
 })();
 
-module.exports = { FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA };
+module.exports = { FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA,
+                   GPU_NONE, GPU_DUAL, GPU_QUAD, GPU_MANY, GPU_SPARSE,
+                   GPU_HOSTILE, GPU_MALFORMED };
