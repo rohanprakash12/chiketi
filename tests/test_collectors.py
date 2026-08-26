@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from types import SimpleNamespace
 from unittest import mock
@@ -876,3 +877,409 @@ class TestClaudeMalformedUsageShapes:
         c._update_current_session()
         assert c._session_stats["output"] == 17
         assert c._session_stats["msgs_assistant"] == 3
+
+
+class TestLlmMalformedResponses:
+    """Any service squatting on 8080/11434/8000 can return these shapes.
+
+    LlmCollector.collect() must never raise: an escape costs every llama.*
+    metric for the cycle (MetricEngine replaces _latest wholesale), and the
+    fault is deterministic, so it costs them every cycle.
+    """
+
+    def _collect(self, backend, responses, procs=()):
+        col = LlmCollector()
+
+        def fake_get(url, timeout=2):
+            for suffix, payload in responses.items():
+                if url.endswith(suffix):
+                    return payload
+            return None
+
+        with mock.patch.object(col, "_detect_backend", return_value=backend), \
+             mock.patch.object(llm_mod.psutil, "process_iter",
+                               return_value=iter(list(procs))), \
+             mock.patch.object(llm_mod, "_http_get_json", side_effect=fake_get):
+            return col.collect()
+
+    # ---------------- llama.cpp ----------------
+
+    def test_slots_items_are_not_dicts(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": ["busy", 3, None, ["nested"]],
+        })
+        assert m["llama.status"].value == "Running"
+        assert m["llama.active_slots"].value == 0
+
+    def test_slot_rate_is_a_string(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": [{"state": 1, "predicted_per_second": "41.5"}],
+        })
+        assert m["llama.tok_per_sec"].value == 41.5
+
+    def test_slot_rate_is_unparseable(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": [{"state": 1, "predicted_per_second": "fast"}],
+        })
+        assert "llama.tok_per_sec" not in m
+
+    def test_slot_rate_is_nan(self):
+        """json.loads accepts bare NaN; it must never reach a metric."""
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": [{"state": 1, "predicted_per_second": float("nan")}],
+        })
+        assert "llama.tok_per_sec" not in m
+
+    def test_n_ctx_is_a_string(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": [{"state": 1, "n_ctx": "8192"}],
+        })
+        assert m["llama.context"].value == 8192
+
+    def test_n_ctx_is_an_object(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": [{"state": 1, "n_ctx": {"len": 4096}}],
+        })
+        assert "llama.context" not in m
+
+    def test_next_token_items_are_not_dicts(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": [{"state": 1, "id": 0, "next_token": ["tok", 7]}],
+        })
+        assert m["llama.status"].value == "Running"
+
+    def test_unhashable_slot_id(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": [{"state": 1, "id": ["a", "b"], "next_token": [{"n_decoded": 5}]}],
+        })
+        assert m["llama.active_slots"].value == 1
+
+    def test_health_status_is_an_object(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": {"code": 500}},
+            "/slots": [],
+        })
+        # A dict here renders as "[object Object]" on the dashboard.
+        assert isinstance(m["llama.health"].value, str)
+        assert "object" not in m["llama.health"].value
+
+    def test_slots_is_an_object_not_a_list(self):
+        m = self._collect("llama_cpp", {
+            "/health": {"status": "ok"},
+            "/slots": {"error": "not found"},
+        })
+        assert "llama.active_slots" not in m
+
+    def test_n_decoded_is_a_string(self):
+        col = LlmCollector()
+        clock = _Clock()
+        slots = [{"state": 1, "id": 0, "next_token": [{"n_decoded": "10"}]}]
+
+        def fake_get(url, timeout=2):
+            if url.endswith("/health"):
+                return {"status": "ok"}
+            if url.endswith("/slots"):
+                return slots
+            return None
+
+        with mock.patch.object(col, "_detect_backend", return_value="llama_cpp"), \
+             mock.patch.object(llm_mod.psutil, "process_iter",
+                               side_effect=lambda *a, **k: iter([])), \
+             mock.patch.object(llm_mod.time, "monotonic", clock), \
+             mock.patch.object(llm_mod, "_http_get_json", side_effect=fake_get):
+            col.collect()
+            slots[0]["next_token"] = [{"n_decoded": "30"}]
+            clock.advance(2.0)
+            m = col.collect()
+        assert m["llama.tok_per_sec"].value == 10.0  # 20 tokens over 2s
+
+    # ---------------- ollama ----------------
+
+    def test_ollama_models_is_not_a_list(self):
+        m = self._collect("ollama", {"/api/ps": {"models": {"llama3": {}}},
+                                     "/api/tags": {"models": []}})
+        assert m["llama.status"].value == "Idle"
+
+    def test_ollama_model_entries_are_not_dicts(self):
+        m = self._collect("ollama", {"/api/ps": {"models": ["llama3:8b"]},
+                                     "/api/tags": {"models": []}})
+        assert m["llama.status"].value == "Idle"
+
+    def test_ollama_details_is_not_a_dict(self):
+        m = self._collect("ollama", {
+            "/api/ps": {"models": [{"model": "llama3:8b", "details": "Q4_K_M"}]},
+        })
+        assert m["llama.status"].value == "Running"
+        assert "llama.quant" not in m
+
+    def test_ollama_size_vram_is_a_string(self):
+        m = self._collect("ollama", {
+            "/api/ps": {"models": [{"model": "x", "size_vram": "5242880"}]},
+        })
+        assert m["llama.vram"].value == 5
+
+    def test_ollama_size_vram_is_garbage(self):
+        m = self._collect("ollama", {
+            "/api/ps": {"models": [{"model": "x", "size_vram": "lots"}]},
+        })
+        assert "llama.vram" not in m
+
+    def test_ollama_model_name_is_an_object(self):
+        m = self._collect("ollama", {
+            "/api/ps": {"models": [{"model": {"name": "llama3"}}]},
+        })
+        assert isinstance(m["llama.model"].value, str)
+        assert "object" not in m["llama.model"].value
+
+    def test_ollama_context_length_is_an_object(self):
+        m = self._collect("ollama", {
+            "/api/ps": {"models": [{"model": "x", "context_length": {"n": 8192}}]},
+        })
+        assert "llama.context" not in m
+
+    # ---------------- vLLM ----------------
+
+    def test_vllm_data_is_not_a_list(self):
+        m = self._collect("vllm", {"/v1/models": {"data": "mistral-7b"}})
+        assert m["llama.status"].value == "Idle"
+
+    def test_vllm_data_entries_are_not_dicts(self):
+        m = self._collect("vllm", {"/v1/models": {"data": ["mistral-7b", 5]}})
+        assert m["llama.status"].value == "Idle"
+
+    def test_vllm_model_id_is_an_object(self):
+        m = self._collect("vllm", {"/v1/models": {"data": [{"id": {"n": "x"}}]}})
+        assert isinstance(m["llama.model"].value, str)
+        assert "object" not in m["llama.model"].value
+
+    # ---------------- blanket ----------------
+
+    @pytest.mark.parametrize("payload", [
+        None, [], {}, "string", 42, True, [[]], [{"id": {}}], {"models": None},
+        {"data": {}}, {"status": []}, [{"n_ctx": []}], {"models": [[]]},
+        {"models": [{"details": []}]}, [{"next_token": {}}],
+        [{"next_token": [[]]}], [{"predicted_per_second": {}}],
+    ])
+    @pytest.mark.parametrize("backend", ["llama_cpp", "ollama", "vllm"])
+    def test_never_raises_on_any_shape(self, backend, payload):
+        col = LlmCollector()
+        with mock.patch.object(col, "_detect_backend", return_value=backend), \
+             mock.patch.object(llm_mod.psutil, "process_iter",
+                               side_effect=lambda *a, **k: iter([])), \
+             mock.patch.object(llm_mod, "_http_get_json", return_value=payload):
+            m = col.collect()
+        assert isinstance(m, dict)
+        for key, val in m.items():
+            assert isinstance(key, str)
+            assert not isinstance(val.value, (dict, set)), key
+
+
+class TestLlmUntrustedTransport:
+    """The backend ports are plain localhost HTTP: anything can bind them.
+
+    These cover the transport layer rather than JSON shape -- a hostile
+    response must not be able to hang or exhaust the single MetricEngine
+    thread, which would freeze every metric, not just llama.*.
+    """
+
+    @staticmethod
+    def _serve(handler_cls):
+        import socketserver
+        srv = socketserver.TCPServer(("127.0.0.1", 0), handler_cls)
+        srv.allow_reuse_address = True
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, srv.server_address[1]
+
+    def test_drip_feed_response_is_bounded_by_timeout(self):
+        """urlopen's timeout bounds each socket op, not the whole response.
+
+        A server sending one byte per second keeps resetting it; measured 41s
+        on a 21-byte body before the fix.
+        """
+        import http.server
+
+        class Drip(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'[{"n_ctx":123}]'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                for b in body:
+                    try:
+                        self.wfile.write(bytes([b]))
+                        self.wfile.flush()
+                    except Exception:
+                        return
+                    time.sleep(0.5)
+
+            def log_message(self, *a):
+                pass
+
+        srv, port = self._serve(Drip)
+        try:
+            started = time.monotonic()
+            result = llm_mod._http_get_json(f"http://127.0.0.1:{port}/x", timeout=1)
+            elapsed = time.monotonic() - started
+        finally:
+            srv.shutdown()
+        assert result is None
+        assert elapsed < 3.0, f"drip-feed held the collector for {elapsed:.1f}s"
+
+    def test_slow_headers_are_bounded_by_timeout(self):
+        """urlopen() reads status line + headers BEFORE returning.
+
+        That phase is bounded only by the per-socket-operation timeout, so a
+        server dribbling header bytes held a collect() for 20.8s against a 2s
+        timeout. No deadline inside the body-read loop can help, because
+        control never reaches it.
+        """
+        import socket as _socket
+
+        srv = _socket.socket()
+        srv.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(4)
+        port = srv.getsockname()[1]
+
+        def dribble():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            try:
+                conn.recv(4096)
+                for byte in b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\n":
+                    conn.sendall(bytes([byte]))
+                    time.sleep(0.3)
+                conn.sendall(b"{}")
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+        threading.Thread(target=dribble, daemon=True).start()
+        try:
+            started = time.monotonic()
+            result = llm_mod._http_get_json(f"http://127.0.0.1:{port}/x", timeout=1)
+            elapsed = time.monotonic() - started
+        finally:
+            srv.close()
+        assert result is None
+        assert elapsed < 3.0, f"slow headers held the collector for {elapsed:.1f}s"
+
+    def test_sustained_hangs_do_not_accumulate_threads(self):
+        """Abandoned workers are capped, so a persistent attacker cannot
+        spawn one thread per collect cycle for as long as it stays up."""
+        import socket as _socket
+
+        srv = _socket.socket()
+        srv.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(32)
+        port = srv.getsockname()[1]
+
+        def stall():
+            while True:
+                try:
+                    conn, _ = srv.accept()
+                except OSError:
+                    return
+                try:
+                    conn.recv(4096)
+                except Exception:
+                    conn.close()
+
+        threading.Thread(target=stall, daemon=True).start()
+        before = threading.active_count()
+        try:
+            for _ in range(20):
+                llm_mod._http_get_json(f"http://127.0.0.1:{port}/x", timeout=0.2)
+            grew = threading.active_count() - before
+        finally:
+            srv.close()
+        assert grew <= llm_mod._MAX_INFLIGHT, f"threads grew by {grew}"
+
+    def test_oversized_response_is_capped(self):
+        import http.server
+
+        class Huge(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"[" + b"0," * 700000 + b"0]"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except Exception:
+                    pass
+
+            def log_message(self, *a):
+                pass
+
+        srv, port = self._serve(Huge)
+        try:
+            result = llm_mod._http_get_json(f"http://127.0.0.1:{port}/x", timeout=5)
+        finally:
+            srv.shutdown()
+        assert result is None, "body over the 1MiB cap should be refused"
+
+
+class TestLlmNumericCoercion:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            int("9" * 400),          # OverflowError: int too large for float
+            int("-" + "9" * 400),
+            "9" * 400,               # float() returns inf for the string form
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            True, False, None,
+            [1], {"a": 1}, "abc", "",
+        ],
+    )
+    def test_hostile_values_return_none_never_raise(self, value):
+        assert llm_mod._num(value) is None
+
+    @pytest.mark.parametrize("value,expected", [(42, 42.0), ("3.5", 3.5), (0, 0.0)])
+    def test_valid_values_still_convert(self, value, expected):
+        assert llm_mod._num(value) == expected
+
+    def test_untrusted_text_is_length_capped(self):
+        assert len(llm_mod._text("x" * 1_000_000)) == llm_mod._MAX_TEXT_CHARS
+        assert llm_mod._text("ok") == "ok"
+
+
+class TestLlmInflightPermits:
+    """A leaked permit permanently disables HTTP probing for the process."""
+
+    def test_thread_start_failure_releases_the_permit(self, monkeypatch):
+        # Hermetic: other transport tests deliberately leave workers hung, so
+        # the module-level semaphore may legitimately have no free permits.
+        fresh = threading.BoundedSemaphore(llm_mod._MAX_INFLIGHT)
+        monkeypatch.setattr(llm_mod, "_inflight", fresh)
+
+        with mock.patch("threading.Thread") as thread_cls:
+            thread_cls.return_value.start.side_effect = RuntimeError(
+                "can't start new thread"
+            )
+            for _ in range(10):
+                assert llm_mod._http_get_json("http://127.0.0.1:1/x", timeout=0.1) is None
+
+        # All permits must still be available.
+        taken = []
+        try:
+            for _ in range(llm_mod._MAX_INFLIGHT):
+                assert fresh.acquire(blocking=False), "permit leaked"
+                taken.append(True)
+        finally:
+            for _ in taken:
+                fresh.release()

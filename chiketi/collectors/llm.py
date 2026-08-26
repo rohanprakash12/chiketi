@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import threading
 import time
 import urllib.request
 
@@ -25,6 +27,11 @@ _PROC_PATTERNS = {
     "vllm": ("vllm",),
 }
 
+# Untrusted-response limits. The backend endpoints are plain localhost HTTP:
+# anything can bind those ports, so treat every response as hostile input.
+_MAX_RESPONSE_BYTES = 1024 * 1024
+_MAX_TEXT_CHARS = 512
+
 _QUANT_RE = re.compile(r"[_-](Q\d\w*(?:_[A-Z0-9]+)*)\b", re.IGNORECASE)
 
 
@@ -34,13 +41,147 @@ def _extract_quant(filename: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _dicts(value: object) -> list[dict]:
+    """Keep only the dict entries of a JSON array; [] for anything else.
+
+    Nothing on localhost:8080/11434/8000 is under our control -- any service
+    squatting on those ports answers with whatever shape it likes, and every
+    escaping exception costs a whole cycle of llama.* metrics.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _num(value: object) -> float | None:
+    """Coerce a JSON scalar to a finite float, or None if it is not numeric.
+
+    bool is rejected so JSON `true` does not silently become 1.0, and
+    NaN/Infinity are rejected because json.loads accepts them literally and
+    they serialise straight back out as invalid JSON the renderers print as
+    "NaN".
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            num = float(value)
+        except OverflowError:
+            # A JSON integer of ~309+ digits cannot be represented as a float.
+            # Python raises rather than returning inf (which is what the string
+            # branch does), so this needs its own guard.
+            return None
+    elif isinstance(value, str):
+        try:
+            num = float(value.strip())
+        except (ValueError, OverflowError):
+            return None
+    else:
+        return None
+    return num if math.isfinite(num) else None
+
+
+def _int(value: object) -> int | None:
+    """Coerce a JSON scalar to an int, or None if it is not numeric."""
+    num = _num(value)
+    return None if num is None else int(num)
+
+
+def _text(value: object, default: str = "") -> str:
+    """Flatten a JSON scalar to a string; containers become the default.
+
+    A dict or list reaching a string-valued metric renders on the dashboard
+    as "[object Object]".
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value[:_MAX_TEXT_CHARS]
+    if isinstance(value, (int, float, bool)):
+        return str(value)[:_MAX_TEXT_CHARS]
+    return default
+
+
+# Abandoned in-flight requests, bounded. A slow-header attacker can make each
+# request outlive its deadline, so refuse to start new ones past this many
+# rather than accumulating threads for as long as the hostile service is up.
+_MAX_INFLIGHT = 4
+_inflight = threading.BoundedSemaphore(_MAX_INFLIGHT)
+
+
 def _http_get_json(url: str, timeout: float = 2) -> dict | list | None:
-    """GET a URL and return parsed JSON, or None on failure."""
+    """GET a URL and return parsed JSON within `timeout`, or None.
+
+    Runs the request on a daemon worker and abandons it at the deadline.
+    urlopen() reads the status line and all headers BEFORE returning, bounded
+    only by the per-socket-operation timeout -- so a server dribbling header
+    bytes holds the call for time linear in the header size (measured 20.8s
+    against a 2s timeout). No deadline inside the body loop can help, because
+    control never reaches it. The collectors share one MetricEngine thread, so
+    that freezes all 62 metrics, not just llama.*.
+
+    The abandoned worker unwinds on its own once the peer stops feeding it.
+    """
+    if not _inflight.acquire(blocking=False):
+        return None                      # too many already hung; skip this cycle
+    box: list = []
+
+    def _run() -> None:
+        try:
+            box.append(_http_get_json_blocking(url, timeout))
+        except Exception:
+            box.append(None)
+        finally:
+            _inflight.release()
+
+    try:
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+    except Exception:
+        # Thread.start() can raise under system-wide thread exhaustion, after
+        # the permit is taken but before _run's finally can give it back.
+        # Leaking it would permanently disable HTTP probing for the life of
+        # the process once all four drained.
+        _inflight.release()
+        return None
+    worker.join(timeout)
+    return box[0] if box else None
+
+
+def _http_get_json_blocking(url: str, timeout: float = 2) -> dict | list | None:
+    """GET a URL and return parsed JSON, or None on failure.
+
+    urlopen's timeout bounds each socket operation, not the whole response, so
+    a server dripping one byte at a time keeps resetting it -- a measured 41s
+    hang on a 21-byte body. The collectors run on a single MetricEngine
+    thread, so that freezes every metric, not just llama.*. Read in bounded
+    chunks against a wall-clock deadline, and cap the total so a fast
+    multi-gigabyte body cannot exhaust memory either.
+    """
+    deadline = time.monotonic() + timeout
     try:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if resp.status == 200:
-                return json.loads(resp.read())
+            if resp.status != 200:
+                return None
+            chunks: list[bytes] = []
+            size = 0
+            while size <= _MAX_RESPONSE_BYTES:
+                if time.monotonic() > deadline:
+                    return None
+                want = min(65536, _MAX_RESPONSE_BYTES + 1 - size)
+                # read1() returns as soon as ANY data is available; plain
+                # read(n) blocks until it has all n bytes (or EOF), so a slow
+                # server keeps the deadline check below from ever running.
+                reader = getattr(resp, "read1", None)
+                chunk = reader(want) if reader is not None else resp.read(want)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+            else:
+                return None          # hit the cap without EOF: oversized body
+            return json.loads(b"".join(chunks))
     except Exception:
         pass
     return None
@@ -225,7 +366,7 @@ class LlmCollector(MetricCollector):
             # Reuse the /health response fetched above rather than re-probing.
             if http_alive:
                 metrics[self._key("health")] = MetricValue(
-                    value=health.get("status", "unknown")
+                    value=_text(health.get("status"), "unknown") or "unknown"
                 )
             else:
                 metrics[self._key("health")] = MetricValue(value="no response")
@@ -233,23 +374,28 @@ class LlmCollector(MetricCollector):
             # Slots endpoint
             slots = _http_get_json(f"http://localhost:{port}/slots")
             if isinstance(slots, list):
-                active = [s for s in slots if s.get("state") != 0]
+                # Only dict entries are usable; a list of strings or numbers
+                # made `s.get(...)` raise AttributeError.
+                slot_items = _dicts(slots)
+                active = [s for s in slot_items if s.get("state") != 0]
                 metrics[self._key("active_slots")] = MetricValue(
-                    value=len(active), extra={"total": len(slots)}
+                    value=len(active), extra={"total": len(slot_items)}
                 )
-                if slots and "n_ctx" in slots[0]:
-                    metrics[self._key("context")] = MetricValue(
-                        value=slots[0]["n_ctx"]
-                    )
+                if slot_items:
+                    n_ctx = _int(slot_items[0].get("n_ctx"))
+                    if n_ctx is not None:
+                        metrics[self._key("context")] = MetricValue(value=n_ctx)
 
                 # Tokens per second
                 tok_sec: float | None = None
-                for s in slots:
+                for s in slot_items:
                     for key in (
                         "predicted_per_second",
                         "t_token_generation_per_second",
                     ):
-                        val = s.get(key)
+                        # _num, not a bare `val > 0`: a string rate raised
+                        # TypeError comparing str to int.
+                        val = _num(s.get(key))
                         if val is not None and val > 0:
                             tok_sec = val
                             break
@@ -262,12 +408,16 @@ class LlmCollector(MetricCollector):
                     dt = now - self._prev_time if self._prev_time else 0
                     cur_decoded: dict[int, int] = {}
                     total_new_tokens = 0
-                    for s in slots:
+                    for s in slot_items:
                         sid = s.get("id", 0)
+                        # A list/dict slot id is unhashable and blew up the
+                        # cur_decoded[sid] assignment.
+                        if not isinstance(sid, (int, str)):
+                            continue
                         nd = 0
                         nt = s.get("next_token")
-                        if isinstance(nt, list) and nt:
-                            nd = nt[0].get("n_decoded", 0)
+                        if isinstance(nt, list) and nt and isinstance(nt[0], dict):
+                            nd = _int(nt[0].get("n_decoded")) or 0
                         cur_decoded[sid] = nd
                         if dt > 0 and sid in self._prev_decoded:
                             delta = nd - self._prev_decoded[sid]
@@ -316,32 +466,36 @@ class LlmCollector(MetricCollector):
         ps_data = _http_get_json(f"{base}/api/ps")
         models_running: list[dict] = []
         if isinstance(ps_data, dict):
-            models_running = ps_data.get("models", [])
+            # `models` is not necessarily a list of dicts; anything else used
+            # to reach models_running[0].get(...) and raise.
+            models_running = _dicts(ps_data.get("models"))
 
         if models_running:
             metrics[self._key("status")] = MetricValue(value="Running")
             metrics[self._key("health")] = MetricValue(value="ok")
 
             model_info = models_running[0]
-            model_name = model_info.get("model", "")
+            model_name = _text(model_info.get("model"))
             metrics[self._key("model")] = MetricValue(value=model_name)
 
             # Extract quant from model details if available
-            details = model_info.get("details", {})
-            quant = details.get("quantization_level", "")
+            details = model_info.get("details")
+            details_map = details if isinstance(details, dict) else {}
+            quant = _text(details_map.get("quantization_level"))
             if quant:
                 metrics[self._key("quant")] = MetricValue(value=quant)
 
             # size_vram is resident VRAM, not a token count. It used to be
             # written to llama.context, which every other backend fills with
             # a context length -- a straight mislabel. Give it its own key.
-            size_vram = model_info.get("size_vram", 0)
+            size_vram = _num(model_info.get("size_vram"))
             if size_vram:
                 metrics[self._key("vram")] = MetricValue(
                     value=round(size_vram / (1024 * 1024)), unit="MiB"
                 )
-            details_map = details if isinstance(details, dict) else {}
-            ctx = model_info.get("context_length") or details_map.get("context_length")
+            ctx = _int(model_info.get("context_length"))
+            if ctx is None:
+                ctx = _int(details_map.get("context_length"))
             if ctx:
                 metrics[self._key("context")] = MetricValue(value=ctx)
         else:
@@ -370,11 +524,13 @@ class LlmCollector(MetricCollector):
         # /v1/models endpoint
         models_data = _http_get_json(f"{base}/v1/models")
         if isinstance(models_data, dict):
-            model_list = models_data.get("data", [])
+            # Same shape guard as Ollama: `data` is only usable when it is a
+            # list of dicts.
+            model_list = _dicts(models_data.get("data"))
             if model_list:
                 metrics[self._key("status")] = MetricValue(value="Running")
                 metrics[self._key("health")] = MetricValue(value="ok")
-                model_id = model_list[0].get("id", "")
+                model_id = _text(model_list[0].get("id"))
                 metrics[self._key("model")] = MetricValue(value=model_id)
             else:
                 metrics[self._key("status")] = MetricValue(value="Idle")
