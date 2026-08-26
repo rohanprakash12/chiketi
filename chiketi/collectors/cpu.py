@@ -22,6 +22,17 @@ class CpuCollector(MetricCollector):
     def collect(self) -> dict[str, MetricValue]:
         metrics: dict[str, MetricValue] = {}
 
+        # One sensors_temperatures() read per cycle, shared by the CPU-temp
+        # and motherboard-temp blocks below. It is a full sysfs walk and used
+        # to be performed twice. Broad except: the call does not exist at all
+        # on some platforms (AttributeError) and raises OSError/psutil errors
+        # elsewhere; an empty map degrades to "unavailable", which is exactly
+        # what each block already does on failure.
+        try:
+            temps = psutil.sensors_temperatures()
+        except Exception:
+            temps = {}
+
         # Overall usage
         try:
             usage = psutil.cpu_percent(interval=None)
@@ -37,8 +48,9 @@ class CpuCollector(MetricCollector):
             metrics[self._key("per_core")] = MetricValue(available=False)
 
         # Temperature (Linux via psutil sensors)
+        # Keeps its own try around the *parsing* so a surprise sensor shape
+        # here cannot take the motherboard block down with it.
         try:
-            temps = psutil.sensors_temperatures()
             temp_val: float | None = None
             for chip in ("coretemp", "k10temp", "cpu_thermal"):
                 if chip in temps and temps[chip]:
@@ -57,7 +69,6 @@ class CpuCollector(MetricCollector):
 
         # Motherboard temperature
         try:
-            temps = psutil.sensors_temperatures()
             mb_temp: float | None = None
             for chip in ("acpitz", "nct6775", "nct6776", "nct6779", "it8688", "it8792"):
                 if chip in temps and temps[chip]:

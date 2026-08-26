@@ -55,6 +55,13 @@ class LlmCollector(MetricCollector):
 
     namespace = "llama"
 
+    # A cached generation rate is only meaningful for a short while after the
+    # last observation; beyond this it is a stale number that never decays.
+    _TOK_SEC_TTL_S = 15.0
+    # Full process_iter(["pid","name","cmdline"]) walks measured ~86ms over
+    # 276 processes. The collect cycle is 1.5s, so cache the result.
+    _PROC_CACHE_TTL_S = 10.0
+
     def __init__(self) -> None:
         super().__init__()
         self._backend: str | None = None
@@ -63,6 +70,27 @@ class LlmCollector(MetricCollector):
         self._prev_decoded: dict[int, int] = {}
         self._prev_time: float = 0.0
         self._last_tok_sec: float | None = None
+        self._last_tok_sec_time: float = 0.0
+        # llama-server process scan cache
+        self._procs_cache: list[dict] = []
+        self._procs_cache_time: float = 0.0
+
+    def _fresh_tok_sec(self) -> float | None:
+        """Return the cached token rate only while it is recent.
+
+        Without this the last observed rate was reported forever after
+        generation stopped, so an idle server showed a busy tok/s figure.
+        """
+        if self._last_tok_sec is None or not self._last_tok_sec_time:
+            return None
+        if (time.monotonic() - self._last_tok_sec_time) > self._TOK_SEC_TTL_S:
+            return None
+        return self._last_tok_sec
+
+    def _note_tok_sec(self, value: float) -> None:
+        """Record an observed generation rate together with its timestamp."""
+        self._last_tok_sec = value
+        self._last_tok_sec_time = time.monotonic()
 
     def collect(self) -> dict[str, MetricValue]:
         backend = self._detect_backend()
@@ -137,11 +165,8 @@ class LlmCollector(MetricCollector):
     # llama.cpp collection (original logic preserved)
     # ------------------------------------------------------------------
 
-    def _collect_llama_cpp(self) -> dict[str, MetricValue]:
-        metrics: dict[str, MetricValue] = {}
-        port = _DEFAULTS["llama_cpp"]["port"]
-
-        # Detect llama-server processes
+    def _scan_llama_processes(self) -> list[dict]:
+        """Walk every process looking for llama-server. Expensive; cached."""
         procs: list[dict] = []
         try:
             for proc in psutil.process_iter(["pid", "name", "cmdline"]):
@@ -154,10 +179,40 @@ class LlmCollector(MetricCollector):
                             model = cmdline[i + 1].rsplit("/", 1)[-1]
                             break
                     procs.append({"pid": proc.info["pid"], "model": model})
+        # Broad on purpose: process_iter can raise psutil.NoSuchProcess,
+        # psutil.AccessDenied, OSError, or (on a /proc race) almost anything
+        # mid-iteration. MetricCollector.collect() must never raise, and a
+        # partial list beats losing every llama.* metric for this cycle.
         except Exception:
             pass
+        return procs
 
-        running = len(procs) > 0
+    def _llama_processes(self) -> list[dict]:
+        """Cached view of _scan_llama_processes()."""
+        now = time.monotonic()
+        # _procs_cache_time == 0.0 means "never scanned yet".
+        if self._procs_cache_time and (now - self._procs_cache_time) < self._PROC_CACHE_TTL_S:
+            return list(self._procs_cache)
+        procs = self._scan_llama_processes()
+        self._procs_cache = list(procs)
+        self._procs_cache_time = now
+        return procs
+
+    def _collect_llama_cpp(self) -> dict[str, MetricValue]:
+        metrics: dict[str, MetricValue] = {}
+        port = _DEFAULTS["llama_cpp"]["port"]
+
+        procs = self._llama_processes()
+
+        # A backend can be discovered by HTTP probe alone (containerised
+        # llama-server, a renamed binary, a reverse proxy). Treat a responding
+        # /health endpoint as running: deriving `running` purely from the
+        # process scan made such a server report "Stopped" and skipped every
+        # telemetry call below.
+        health = _http_get_json(f"http://localhost:{port}/health")
+        http_alive = isinstance(health, dict)
+        running = bool(procs) or http_alive
+
         metrics[self._key("status")] = MetricValue(
             value="Running" if running else "Stopped"
         )
@@ -167,9 +222,8 @@ class LlmCollector(MetricCollector):
         )
 
         if running:
-            # Health endpoint
-            health = _http_get_json(f"http://localhost:{port}/health")
-            if health and isinstance(health, dict):
+            # Reuse the /health response fetched above rather than re-probing.
+            if http_alive:
                 metrics[self._key("health")] = MetricValue(
                     value=health.get("status", "unknown")
                 )
@@ -223,9 +277,14 @@ class LlmCollector(MetricCollector):
                     self._prev_time = now
                     if dt > 0.5 and total_new_tokens > 0:
                         tok_sec = total_new_tokens / dt
-                        self._last_tok_sec = tok_sec
-                    elif self._last_tok_sec is not None:
-                        tok_sec = self._last_tok_sec
+                        self._note_tok_sec(tok_sec)
+                    else:
+                        # Only reuse the cached rate while it is still fresh,
+                        # otherwise an idle server keeps reporting the last
+                        # busy figure indefinitely.
+                        tok_sec = self._fresh_tok_sec()
+                else:
+                    self._note_tok_sec(tok_sec)
 
                 if tok_sec is not None:
                     metrics[self._key("tok_per_sec")] = MetricValue(
@@ -273,12 +332,18 @@ class LlmCollector(MetricCollector):
             if quant:
                 metrics[self._key("quant")] = MetricValue(value=quant)
 
-            # Context size from model size_vram or details
+            # size_vram is resident VRAM, not a token count. It used to be
+            # written to llama.context, which every other backend fills with
+            # a context length -- a straight mislabel. Give it its own key.
             size_vram = model_info.get("size_vram", 0)
             if size_vram:
-                metrics[self._key("context")] = MetricValue(
-                    value=f"{size_vram // (1024*1024)}MB VRAM"
+                metrics[self._key("vram")] = MetricValue(
+                    value=round(size_vram / (1024 * 1024)), unit="MiB"
                 )
+            details_map = details if isinstance(details, dict) else {}
+            ctx = model_info.get("context_length") or details_map.get("context_length")
+            if ctx:
+                metrics[self._key("context")] = MetricValue(value=ctx)
         else:
             # Ollama running but no models loaded
             tags = _http_get_json(f"{base}/api/tags")
