@@ -487,3 +487,33 @@ class TestNvmlCardShape:
         assert cards[0]["short_name"] == "GeForce RTX 3090 Ti"
         assert cards[0]["vendor"] == "NVIDIA"
         assert cards[0]["source"] == "nvml"
+
+    def test_both_sources_produce_the_same_card_shape(self, drm, monkeypatch):
+        """gpu.cards is public API. A consumer indexing card["fan_rpm"] should
+        not have to know which source found the card -- an early version
+        omitted the key on NVML cards and KeyError'd a caller."""
+        from chiketi.collectors.gpu_nvidia import GpuNvidiaCollector
+        col = GpuNvidiaCollector()
+        monkeypatch.setattr("chiketi.collectors.gpu_nvidia._ensure_nvml", lambda: True)
+
+        class FakeNvml:
+            NVML_TEMPERATURE_GPU = 0
+            NVML_CLOCK_GRAPHICS = 0
+            NVML_CLOCK_MEM = 1
+            @staticmethod
+            def nvmlDeviceGetCount(): return 1
+            @staticmethod
+            def nvmlDeviceGetHandleByIndex(i): return object()
+            @staticmethod
+            def nvmlDeviceGetName(h): return "NVIDIA GeForce RTX 3090 Ti"
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        monkeypatch.setitem(__import__("sys").modules, "pynvml", FakeNvml())
+        nvml_card = col.read_cards()[0]
+
+        make_card(drm, 0, vendor="0x1002", attrs=AMD_ATTRS, hwmon=AMD_HWMON)
+        (sysfs_card,) = read_sysfs_cards(drm)
+
+        missing = set(sysfs_card) - set(nvml_card)
+        assert not missing, f"NVML cards lack keys the sysfs cards have: {sorted(missing)}"

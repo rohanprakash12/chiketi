@@ -194,6 +194,13 @@ class GpuNvidiaCollector(MetricCollector):
             # these the screen header renders "-- | <bus id>" on a real card.
             card["driver"] = "nvidia"
             card["short_name"] = short_name(card.get("name")) or card.get("name")
+            # Keys the sysfs reader always sets. Both sources must produce the
+            # same shape: gpu.cards is public API, and a consumer indexing
+            # card["fan_rpm"] should not have to know which source found it.
+            # NVML reports fan as a duty percentage only, never a tachometer
+            # reading, so None here is the honest value rather than a gap.
+            card.setdefault("fan_rpm", None)
+            card.setdefault("vendor_id", "0x10de")
             cards.append(card)
         return cards
 
