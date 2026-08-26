@@ -202,6 +202,15 @@ All settings can also be changed at runtime via the control panel.
 > `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and, on the
 > HTML pages, `X-Frame-Options: DENY`.
 >
+> Requests are also rejected unless the `Host` header names this machine the
+> way you would reach it: an IP literal (your LAN address, or a Tailscale
+> `100.64/10` one), `localhost`, a single-label hostname, or a private DNS zone
+> (`.local`, `.ts.net`, `.lan`, `.internal`, `.home.arpa`). This closes DNS
+> rebinding, where a page you visit points its own domain at your LAN address —
+> the `Origin` check alone cannot see that, because the attacker controls the
+> name and so `Origin` and `Host` agree. It needs no configuration: a public
+> domain is the one thing you never type to reach your own panel.
+>
 > If the LAN is not trusted: `--bind 127.0.0.1` keeps it local, and `--token`
 > (or `CHIKETI_TOKEN`) requires a shared secret on every control action. Neither
 > is on by default.
@@ -221,7 +230,7 @@ Headless test suite (no display/GPU/network needed — collectors and the HTTP
 server are exercised with mocks and an ephemeral-port server):
 
 ```bash
-pytest -q                        # 401 tests
+pytest -q                        # 400+ tests
 node tests/js/render_harness.js  # every renderer against hostile payloads
 ./scripts/check_js.sh            # syntax-check the inlined UI JavaScript
 ```

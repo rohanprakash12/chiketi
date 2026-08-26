@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import json
+import math
 import os
 import subprocess
 import threading
@@ -12,7 +15,7 @@ from urllib.parse import urlparse, parse_qs
 
 from chiketi.config import TIMING
 from chiketi.themes import (
-    get_active_theme, get_active_family, set_active_theme,
+    get_active_theme, set_active_theme,
     get_families,
 )
 from chiketi.panel_spec import web_spec
@@ -43,6 +46,12 @@ _get_metrics = None
 # cap check is a check-then-insert, and width/height are a composite write.
 # RLock, so a path that already holds it can call a helper that re-takes it.
 _STATE_LOCK = threading.RLock()
+
+# Serialises snapshot-and-write as one unit. _persist() used to snapshot under
+# _STATE_LOCK and then write after releasing it, so two concurrent requests
+# could write their snapshots out of order and leave the saved file describing
+# an older state than the live one.
+_PERSIST_LOCK = threading.Lock()
 
 # Display configuration
 _display_output: str = ""  # empty = auto/default
@@ -191,6 +200,103 @@ def _apply_display_settings(output: str, brightness: float) -> bool:
         return False
 
 
+
+def _num(value, field):
+    """A real, finite number. Rejects bool (True is an int in Python), NaN,
+    infinity, and strings that merely look boolean."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a number, not a boolean")
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{field} is not a number") from None
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{field} is not a number")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{field} must be finite")
+    return value
+
+
+def _flag(value, field):
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be true or false")
+    return value
+
+
+def _validate_display_body(body: dict, current_brightness: float) -> dict:
+    """Turn a POST body into a fully-validated candidate, or raise ValueError.
+
+    Nothing here touches live state. The handler used to validate and mutate
+    interleaved, so a body whose later field was bad returned 400 having
+    already committed the earlier ones -- a request could be rejected and
+    still change your brightness.
+    """
+    c: dict = {}
+
+    if "brightness" in body:
+        c["brightness"] = max(0.3, min(2.0, _num(body["brightness"], "brightness")))
+    else:
+        c["brightness"] = current_brightness
+
+    if "width" in body or "height" in body:
+        if not ("width" in body and "height" in body):
+            raise ValueError("width and height must be given together")
+        c["width"] = int(max(320, min(3840, _num(body["width"], "width"))))
+        c["height"] = int(max(200, min(2160, _num(body["height"], "height"))))
+
+    if "screen_rotation" in body:
+        sr = body["screen_rotation"]
+        if not isinstance(sr, dict):
+            raise ValueError("screen_rotation must be an object")
+        clean: dict = {}
+        for sid, cfg in sr.items():
+            if not isinstance(sid, str) or not sid or len(sid) > 64:
+                raise ValueError("screen_rotation ids must be strings of 1-64 chars")
+            if not isinstance(cfg, dict):
+                raise ValueError(f"screen_rotation[{sid}] must be an object")
+            clean[sid] = {
+                "enabled": _flag(cfg.get("enabled", True), f"screen_rotation[{sid}].enabled"),
+                "duration": int(max(3, min(600, _num(cfg.get("duration", 10),
+                                                     f"screen_rotation[{sid}].duration")))),
+            }
+        c["screen_rotation"] = clean
+
+    if "display_on" in body:
+        c["display_on"] = _flag(body["display_on"], "display_on")
+
+    out = body.get("output") or None
+    if out is not None and not isinstance(out, str):
+        raise ValueError("output must be a string")
+    c["output"] = out
+    return c
+
+
+def _active_theme_key() -> str:
+    """'Family/Variant' snapshotted from a single Theme object."""
+    t = get_active_theme()
+    return f"{t.family}/{t.name}"
+
+
+def _token_matches(supplied: str | None) -> bool:
+    """Constant-time token compare that cannot raise.
+
+    hmac.compare_digest rejects str arguments containing non-ASCII with a
+    TypeError, and the header is attacker-controlled: a token header of
+    "s\u00e9cret" killed the handler thread and dropped the connection with
+    zero bytes. Comparing bytes has no such restriction.
+    """
+    if _AUTH_TOKEN is None:
+        return True
+    try:
+        given = (supplied or "").encode("utf-8", "surrogatepass")
+        expected = _AUTH_TOKEN.encode("utf-8", "surrogatepass")
+    except Exception:
+        return False
+    return hmac.compare_digest(given, expected)
+
+
 def _origin_allowed(origin: str, host_header: str) -> bool:
     """Allow same-origin and null/absent Origin; reject everything else.
 
@@ -199,8 +305,14 @@ def _origin_allowed(origin: str, host_header: str) -> bool:
     Requests with no Origin (curl, scripts, non-browser clients) are allowed so
     nothing that works today breaks.
     """
-    if not origin or origin == "null":
+    if not origin:
         return True
+    # "null" is NOT the same as absent. A sandboxed iframe sends Origin: null,
+    # so allowing it hands the CSRF bypass back to any page that embeds one.
+    # Real non-browser clients (curl, scripts) send no Origin header at all,
+    # which is still allowed above - so rejecting null breaks nothing.
+    if origin == "null":
+        return False
     try:
         parsed = urlparse(origin)
     except ValueError:
@@ -213,6 +325,66 @@ def _origin_allowed(origin: str, host_header: str) -> bool:
         return False
     # Compare host:port against the Host header the client used to reach us.
     return parsed.netloc == host_header
+
+
+# Host values that can only ever name this machine on a network the user
+# controls. A DNS-rebinding attacker must serve the page from a registrable
+# public domain (evil.example), so it can never produce one of these.
+_LOCAL_HOST_SUFFIXES = (
+    ".local",      # mDNS / avahi - chiketi.local
+    ".ts.net",     # Tailscale MagicDNS - box.tail1234.ts.net
+    ".internal",   # common private-zone convention
+    ".lan",        # common router-assigned zone
+    ".home.arpa",  # RFC 8375, the reserved name for home networks
+)
+_LOCAL_HOST_NAMES = ("localhost", "localhost.localdomain", "")
+
+
+def _split_host_port(host_header: str) -> str | None:
+    """Hostname out of a Host header, port and IPv6 brackets removed.
+
+    None means the header is malformed and no rule should be applied to it.
+    """
+    host = (host_header or "").strip().lower()
+    if host.startswith("["):
+        # "[::1]:7777" -> "::1". An unclosed bracket is malformed, not local.
+        end = host.find("]")
+        return host[1:end] if end > 1 else None
+    if "[" in host or "]" in host:
+        return None
+    return host.split(":", 1)[0]
+
+
+def _host_allowed(host_header: str) -> bool:
+    """Reject Host values that only a DNS-rebinding attacker would send.
+
+    The Origin check below asks "does Origin match Host?", which a rebinding
+    attacker satisfies trivially: they control the DNS name, so both headers
+    say evil.example and agree. What they cannot do is make the victim's
+    browser send a Host that is a bare IP or a private-zone name - that would
+    require the user to type it.
+
+    So: allow IP literals (covers the LAN address and Tailscale's 100.64/10),
+    localhost, and private DNS zones. Reject registrable public domains. Every
+    way a user actually reaches this panel is on the allowed side, which is
+    why this needs no configuration and no flag.
+    """
+    host = _split_host_port(host_header)
+    if host is None:
+        return False
+    if host in _LOCAL_HOST_NAMES:
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        # Not an IP literal - fall through to the name rules.
+        pass
+    # A bare single-label name ("chiketi", "myserver") cannot be a public
+    # domain, so it cannot be the rebinding vector either.
+    if "." not in host:
+        return True
+    return host.endswith(_LOCAL_HOST_SUFFIXES)
 
 
 def _display_payload(display_on: bool) -> dict:
@@ -284,17 +456,24 @@ def _persist() -> None:
     """
     try:
         from chiketi.state import save_state
-        with _STATE_LOCK:
-            snapshot = {
-                "theme": _persisted_theme or
-                f"{get_active_family()}/{get_active_theme().name}",
-                "screen_rotation": {k: dict(v) for k, v in _screen_rotation.items()},
-                "brightness": _display_brightness,
-                "output": _display_output,
-                "width": _display_width,
-                "height": _display_height,
-            }
-        save_state(snapshot)
+        with _PERSIST_LOCK:
+            with _STATE_LOCK:
+                snapshot = {
+                    # One object, not two calls: get_active_family() and
+                    # get_active_theme() read the same module global
+                    # separately, so a theme change landing between them
+                    # yields a family and a variant from different themes.
+                    "theme": _persisted_theme or _active_theme_key(),
+                    "screen_rotation": {k: dict(v)
+                                        for k, v in _screen_rotation.items()},
+                    "brightness": _display_brightness,
+                    "output": _display_output,
+                    "width": _display_width,
+                    "height": _display_height,
+                }
+            # Inside _PERSIST_LOCK on purpose: writing outside it would let two
+            # requests reorder their snapshots on disk.
+            save_state(snapshot)
     except Exception:
         pass
 
@@ -374,6 +553,12 @@ class ControlHandler(BaseHTTPRequestHandler):
             return None
 
     def do_GET(self) -> None:
+        # Rebinding guard, applied to reads too: /api/metrics carries the
+        # hostname, LAN IP, MAC and token usage, so the disclosure half of the
+        # attack needs no POST at all.
+        if not _host_allowed(self.headers.get("Host", "")):
+            self.send_error(403, "Host not allowed")
+            return
         parsed = self._parse_target()
         if parsed is None:
             return
@@ -384,6 +569,8 @@ class ControlHandler(BaseHTTPRequestHandler):
         elif route == "/display":
             self._serve_display()
         elif route == "/api/themes":
+            # snapshot once; family and variant must describe the same theme
+            _theme = get_active_theme()
             families = {}
             for family_name, themes in get_families().items():
                 families[family_name] = {
@@ -400,8 +587,8 @@ class ControlHandler(BaseHTTPRequestHandler):
                     for t in themes
                 }
             self._json_response({
-                "active_family": get_active_family(),
-                "active_variant": get_active_theme().name,
+                "active_family": _theme.family,
+                "active_variant": _theme.name,
                 "families": families,
             })
         elif route == "/api/metrics":
@@ -430,13 +617,16 @@ class ControlHandler(BaseHTTPRequestHandler):
         # a browser treats them as "simple requests" and skips the preflight.
         # Rejecting a mismatched Origin is what stops any page the user visits
         # from flipping the theme or killing the display on their LAN.
+        if not _host_allowed(self.headers.get("Host", "")):
+            self.send_error(403, "Host not allowed")
+            return
         if not _origin_allowed(
             self.headers.get("Origin", ""), self.headers.get("Host", "")
         ):
             self.send_error(403, "Cross-origin request rejected")
             return
         # Optional shared-secret gate on state-changing requests.
-        if _AUTH_TOKEN and self.headers.get("X-Chiketi-Token") != _AUTH_TOKEN:
+        if _AUTH_TOKEN and not _token_matches(self.headers.get("X-Chiketi-Token")):
             self.send_error(403, "Forbidden")
             return
         parsed = self._parse_target()
@@ -458,12 +648,13 @@ class ControlHandler(BaseHTTPRequestHandler):
                     # Canonical family/variant, so a short-name POST
                     # ("hacker") is stored in the same form as everything else.
                     _persisted_theme = (
-                        f"{get_active_family()}/{get_active_theme().name}"
+                        _active_theme_key()
                     )
                 _persist()
+                _theme = get_active_theme()
                 self._json_response({
-                    "active_family": get_active_family(),
-                    "active_variant": get_active_theme().name,
+                    "active_family": _theme.family,
+                    "active_variant": _theme.name,
                 })
             else:
                 self.send_error(400, f"Unknown theme: {key}")
@@ -474,55 +665,46 @@ class ControlHandler(BaseHTTPRequestHandler):
             if body is None:
                 return
             try:
-                # output is only acted on when explicitly present, so power- or
-                # rotation-only POSTs aren't rejected/re-applied off stale state.
-                output = body.get("output") or None
                 with _STATE_LOCK:
-                    brightness = float(body.get("brightness", _display_brightness))
-                brightness = max(0.3, min(2.0, brightness))
-                # Validate output only when the request explicitly targets one.
-                # Outside _STATE_LOCK: this can shell out to xrandr.
+                    current_brightness = _display_brightness
+                # Validate the WHOLE request before touching anything.
+                try:
+                    cand = _validate_display_body(body, current_brightness)
+                except ValueError as exc:
+                    self.send_error(400, str(exc))
+                    return
+                output = cand["output"]
+                brightness = cand["brightness"]
+                # Output validation can shell out to xrandr, so it stays
+                # outside the lock - and still before any mutation.
                 if output:
                     valid_outputs = {o["name"] for o in _get_xrandr_outputs()}
                     if output not in valid_outputs:
                         self.send_error(400, f"Unknown output: {output}")
                         return
+                    if (len(cand.get("screen_rotation", {})) > _MAX_SCREEN_ROTATION):
+                        self.send_error(400, "too many screen_rotation entries")
+                        return
+                # Everything validated: commit as one atomic step.
                 with _STATE_LOCK:
-                    # Store brightness whether or not xrandr can apply it.
-                    # It used to be assigned only inside _apply_display_settings'
-                    # `if output:` branch, so with no connected output (headless,
-                    # Wayland) the slider silently reverted on the next reload
-                    # while the panel still said "Settings applied".
                     if "brightness" in body:
-                        _display_brightness = brightness
-                    # Display resolution -- a composite write; both halves must
-                    # land before a concurrent reader snapshots them.
-                    if "width" in body and "height" in body:
-                        _display_width = max(320, min(3840, int(body["width"])))
-                        _display_height = max(200, min(2160, int(body["height"])))
-                    # Per-screen rotation settings
-                    if "screen_rotation" in body:
-                        sr = body["screen_rotation"]
-                        if isinstance(sr, dict):
-                            for sid, cfg in sr.items():
-                                # Bound growth: cap entry count and key length.
-                                # check-then-insert, so it must be atomic.
-                                if (len(_screen_rotation) >= _MAX_SCREEN_ROTATION
-                                        and sid not in _screen_rotation):
-                                    continue
-                                if not isinstance(sid, str) or len(sid) > 64:
-                                    continue
-                                if isinstance(cfg, dict):
-                                    _screen_rotation[sid] = {
-                                        "enabled": bool(cfg.get("enabled", True)),
-                                        "duration": max(3, min(600, int(cfg.get("duration", 10)))),
-                                    }
+                        _display_brightness = cand["brightness"]
+                    if "width" in cand:
+                        _display_width = cand["width"]
+                        _display_height = cand["height"]
+                    if "screen_rotation" in cand:
+                        merged = dict(_screen_rotation)
+                        for sid, cfg in cand["screen_rotation"].items():
+                            if len(merged) >= _MAX_SCREEN_ROTATION and sid not in merged:
+                                continue
+                            merged[sid] = cfg
+                        _screen_rotation = merged
                 # Display power toggle. mgr.turn_on/turn_off/is_on all take
                 # DisplayManager._lock, so they stay outside _STATE_LOCK.
                 from chiketi.app import get_display_manager
                 mgr = get_display_manager()
-                if "display_on" in body and mgr:
-                    if body["display_on"]:
+                if "display_on" in cand and mgr:
+                    if cand["display_on"]:
                         mgr.turn_on()
                     else:
                         mgr.turn_off()
@@ -553,7 +735,8 @@ class ControlHandler(BaseHTTPRequestHandler):
         # reached us on. A wildcard let any site the user visited read the
         # telemetry (hostname, IP, MAC, Claude usage) off their LAN.
         origin = self.headers.get("Origin", "")
-        if origin and _origin_allowed(origin, self.headers.get("Host", "")):
+        host = self.headers.get("Host", "")
+        if origin and _host_allowed(host) and _origin_allowed(origin, host):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -569,8 +752,15 @@ class ControlHandler(BaseHTTPRequestHandler):
         if os.path.isfile(fpath):
             with open(fpath, "rb") as f:
                 body = f.read()
+            # The directory also holds the OFL licence texts and a README,
+            # which must not be labelled font/ttf.
+            ctype = "font/ttf"
+            if fname.endswith(".txt"):
+                ctype = "text/plain; charset=utf-8"
+            elif fname.endswith(".md"):
+                ctype = "text/markdown; charset=utf-8"
             self.send_response(200)
-            self.send_header("Content-Type", "font/ttf")
+            self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", "public, max-age=86400")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

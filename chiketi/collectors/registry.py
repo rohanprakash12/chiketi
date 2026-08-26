@@ -7,6 +7,7 @@ from chiketi.collectors.cpu import CpuCollector
 from chiketi.collectors.memory import MemoryCollector
 from chiketi.collectors.disk import DiskCollector
 from chiketi.collectors.network import NetworkCollector
+from chiketi.collectors.ping import PingCollector
 from chiketi.collectors.system import SystemCollector
 from chiketi.collectors.gpu_nvidia import GpuNvidiaCollector
 from chiketi.collectors.llm import LlmCollector
@@ -21,6 +22,7 @@ def get_collectors() -> list[MetricCollector]:
         CpuCollector(),
         DiskCollector(),
         NetworkCollector(),
+        PingCollector(),
     ]
 
     # GPU - nvidia (no-ops when NVML is unavailable)

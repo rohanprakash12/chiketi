@@ -1,8 +1,32 @@
 <script>
 const API = window.location.origin;
-// Optional shared secret, taken from this page's ?token=… and sent on every
-// control POST. Harmless when the server has no token configured.
-const TOKEN = new URLSearchParams(window.location.search).get('token');
+/* Optional shared secret, sent on every control POST. Harmless when the server
+   has no token configured.
+
+   Read from the URL FRAGMENT (#token=…) in preference to the query string, and
+   stripped from the address bar immediately. A query string lands in browser
+   history, in any screenshot of the address bar, and in the Referer header of
+   anything the page later links to; a fragment is never sent to a server, and
+   removing it stops it being bookmarked by accident. ?token=… is still read so
+   existing links keep working. */
+const TOKEN = (function () {
+  var fromHash = new URLSearchParams(
+    (window.location.hash || '').replace(/^#/, '')).get('token');
+  var fromQuery = new URLSearchParams(window.location.search).get('token');
+  var tok = fromHash || fromQuery;
+  if (tok) {
+    try {
+      sessionStorage.setItem('chiketi.token', tok);
+    } catch (e) { /* private mode: keep it in memory only */ }
+    try {
+      history.replaceState(null, '', window.location.pathname);
+    } catch (e) { /* nothing else to do; the value is already in memory */ }
+  }
+  if (!tok) {
+    try { tok = sessionStorage.getItem('chiketi.token'); } catch (e) { tok = null; }
+  }
+  return tok;
+})();
 function post(path, body) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';

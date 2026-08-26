@@ -163,14 +163,25 @@ def load_state() -> dict:
         # json.load. Both hang the boot path, and a hang is not catchable --
         # strictly worse than any exception. Only a regular file is read, and
         # only up to a cap, which also bounds the memory a huge file can take.
-        st = os.stat(path)                      # follows symlinks, as open does
-        if not stat.S_ISREG(st.st_mode):
-            return _defaults()
-        if st.st_size > _MAX_STATE_BYTES:
-            return _defaults()
-        with open(path, encoding="utf-8") as fh:
-            blob = fh.read(_MAX_STATE_BYTES + 1)
-        if len(blob) > _MAX_STATE_BYTES:        # grew between stat and read
+        # Open FIRST, then fstat the descriptor. stat-then-open leaves a
+        # window in which the path can be swapped for a FIFO between the two
+        # calls, and the open would then block forever. O_NONBLOCK makes even
+        # that open return immediately, and fstat describes the object we
+        # actually hold rather than whatever the name pointed at a moment ago.
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                return _defaults()
+            if st.st_size > _MAX_STATE_BYTES:
+                return _defaults()
+            with os.fdopen(fd, encoding="utf-8", errors="replace") as fh:
+                fd = None                      # fdopen owns it now
+                blob = fh.read(_MAX_STATE_BYTES + 1)
+        finally:
+            if fd is not None:
+                os.close(fd)
+        if len(blob) > _MAX_STATE_BYTES:        # grew between fstat and read
             return _defaults()
         raw = json.loads(blob)
         if not isinstance(raw, dict):
@@ -209,6 +220,18 @@ def save_state(state: dict) -> bool:
                 fh.flush()
                 os.fsync(fh.fileno())  # durable before the rename, not after
             os.replace(tmp, path)
+            # fsync the DIRECTORY too. Without it the rename can still be in
+            # the page cache when power is cut, so a durable file arrives
+            # under a name that was never committed - which is exactly the
+            # failure mode a Pi kiosk hits on an abrupt power loss.
+            try:
+                dfd = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(dfd)
+                finally:
+                    os.close(dfd)
+            except Exception:
+                pass          # best effort: some filesystems refuse this
             return True
         except Exception:
             # Broad: anything from the write path (OSError, RecursionError,

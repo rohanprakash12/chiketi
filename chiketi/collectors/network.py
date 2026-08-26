@@ -65,11 +65,14 @@ class NetworkCollector(MetricCollector):
             ip = _get_primary_ip()
             if ip:
                 metrics[self._key("ip")] = MetricValue(value=ip)
+                # iface was already resolved below for the MAC/speed lookups;
+                # emit it so the UI can name the link it is describing.
                 # One net_if_addrs() snapshot serves both the interface lookup
                 # and the MAC lookup; it used to be walked twice.
                 addrs = psutil.net_if_addrs()
                 iface = _get_iface_for_ip(ip, addrs)
                 if iface:
+                    metrics[self._key("iface")] = MetricValue(value=iface)
                     # MAC address
                     for addr in addrs.get(iface, []):
                         if addr.family == psutil.AF_LINK:
@@ -82,10 +85,12 @@ class NetworkCollector(MetricCollector):
                     else:
                         metrics[self._key("speed")] = MetricValue(available=False, unit="Mbps")
                 else:
+                    metrics[self._key("iface")] = MetricValue(available=False)
                     metrics[self._key("mac")] = MetricValue(available=False)
                     metrics[self._key("speed")] = MetricValue(available=False, unit="Mbps")
             else:
                 metrics[self._key("ip")] = MetricValue(available=False)
+                metrics[self._key("iface")] = MetricValue(available=False)
                 metrics[self._key("mac")] = MetricValue(available=False)
                 metrics[self._key("speed")] = MetricValue(available=False, unit="Mbps")
         # Broad: a collector must never raise (see MetricCollector.collect).
@@ -94,6 +99,7 @@ class NetworkCollector(MetricCollector):
         # else escape and cost the caller every other metric in this cycle.
         except Exception:
             metrics[self._key("ip")] = MetricValue(available=False)
+            metrics[self._key("iface")] = MetricValue(available=False)
             metrics[self._key("mac")] = MetricValue(available=False)
             metrics[self._key("speed")] = MetricValue(available=False, unit="Mbps")
 

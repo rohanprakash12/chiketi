@@ -6,6 +6,7 @@ import json
 import os
 import threading
 import time
+import types
 from types import SimpleNamespace
 from unittest import mock
 
@@ -19,6 +20,7 @@ import chiketi.collectors.gpu_nvidia as gpu_mod
 import chiketi.collectors.llm as llm_mod
 import chiketi.collectors.memory as mem_mod
 import chiketi.collectors.network as net_mod
+import chiketi.collectors.ping as ping_mod
 import chiketi.collectors.system as sys_mod
 from chiketi.collectors.claude import ClaudeCollector
 from chiketi.collectors.cpu import CpuCollector
@@ -1283,3 +1285,209 @@ class TestLlmInflightPermits:
         finally:
             for _ in taken:
                 fresh.release()
+
+
+class TestPingParsing:
+    @pytest.mark.parametrize(
+        "line,want",
+        [
+            ("64 bytes from 1.2.3.4: icmp_seq=1 ttl=64 time=0.510 ms", 0.510),
+            ("64 bytes from 1.2.3.4: icmp_seq=1 ttl=64 time=12 ms", 12.0),
+            ("64 bytes from 1.2.3.4: icmp_seq=1 ttl=64 time<1 ms", 1.0),
+            ("", None),
+            ("no reply", None),
+            ("time=abc ms", None),
+            ("time=99999999 ms", None),   # implausible: we misread, not a slow link
+        ],
+    )
+    def test_parse_rtt(self, line, want):
+        assert ping_mod._parse_rtt(line) == want
+
+    @pytest.mark.parametrize(
+        "out,want",
+        [
+            ("default via 192.168.16.1 dev enp1s0 proto static metric 100", "192.168.16.1"),
+            ("default via fe80::1 dev eth0", "fe80::1"),
+            ("10.0.0.0/8 dev eth0 scope link", None),
+            ("", None),
+        ],
+    )
+    def test_parse_gateway(self, out, want):
+        assert ping_mod._parse_gateway(out) == want
+
+
+class TestPingCollector:
+    """collect() must never block: the probe lives on its own thread."""
+
+    def teardown_method(self):
+        for c in getattr(self, "_made", []):
+            c.stop()
+
+    def _collector(self):
+        c = ping_mod.PingCollector()
+        self._made = getattr(self, "_made", []) + [c]
+        return c
+
+    def test_collect_returns_immediately_even_when_ping_hangs(self):
+        c = self._collector()
+
+        def hang(*a, **k):
+            time.sleep(5)
+            raise AssertionError("should never be awaited by collect()")
+
+        with mock.patch("subprocess.run", side_effect=hang):
+            started = time.monotonic()
+            metrics = c.collect()
+            elapsed = time.monotonic() - started
+        assert elapsed < 0.5, f"collect() blocked for {elapsed:.2f}s"
+        assert metrics["net.ping"].available is False
+
+    def test_reports_rtt_once_the_probe_lands(self):
+        c = self._collector()
+        with c._lock:
+            c._rtt_ms = 10.4
+            c._gateway = "192.168.16.1"
+        m = c.collect()["net.ping"]
+        assert m.available is True
+        assert m.value == 10.4
+        assert m.unit == "ms"
+        assert m.extra["target"] == "192.168.16.1"
+
+    def test_unreachable_gateway_is_unavailable_not_zero(self):
+        c = self._collector()
+        with c._lock:
+            c._rtt_ms = None
+        m = c.collect()["net.ping"]
+        assert m.available is False
+        assert m.value is None
+
+    @pytest.mark.parametrize("boom", [OSError, ValueError, RuntimeError, MemoryError])
+    def test_probe_survives_any_subprocess_failure(self, boom):
+        c = self._collector()
+        with mock.patch("subprocess.run", side_effect=boom("nope")):
+            assert c._discover_gateway() is None
+            assert c._ping_once("1.2.3.4") is None
+
+    def test_stop_is_idempotent_and_prompt(self):
+        c = ping_mod.PingCollector()
+        c.collect()                      # starts the worker
+        assert c._worker is not None
+        started = time.monotonic()
+        c.stop()
+        c.stop()
+        c._worker.join(timeout=8)
+        assert not c._worker.is_alive(), "worker did not stop"
+        assert time.monotonic() - started < 8
+
+
+class TestGpuMultiCard:
+    """The collector must enumerate every card, and survive a bad one.
+
+    It was hardcoded to nvmlDeviceGetHandleByIndex(0) with no GetCount, so a
+    second card was invisible regardless of what the UI asked for.
+    """
+
+    def _fake(self, cards, broken=()):
+        """Minimal pynvml stand-in; the real collector runs against it."""
+        ns = types.SimpleNamespace
+        mod = mock.MagicMock()
+        mod.NVML_TEMPERATURE_GPU = 0
+        mod.NVML_CLOCK_GRAPHICS = 1
+        mod.NVML_CLOCK_MEM = 2
+        mod.nvmlDeviceGetCount.return_value = len(cards)
+
+        def handle(i):
+            if i in broken:
+                raise RuntimeError("card not responding")
+            return i
+        mod.nvmlDeviceGetHandleByIndex.side_effect = handle
+        mod.nvmlDeviceGetName.side_effect = lambda h: cards[h]["name"]
+        mod.nvmlDeviceGetPciInfo.side_effect = lambda h: ns(busId=cards[h]["bus"])
+        mod.nvmlDeviceGetTemperature.side_effect = lambda h, s: cards[h]["temp"]
+
+        def fan(h):
+            v = cards[h].get("fan")
+            if v is None:
+                raise RuntimeError("no fan sensor")
+            return v
+        mod.nvmlDeviceGetFanSpeed.side_effect = fan
+        mod.nvmlDeviceGetPowerUsage.side_effect = lambda h: cards[h]["power"] * 1000
+        mod.nvmlDeviceGetPowerManagementLimit.side_effect = lambda h: cards[h]["pmax"] * 1000
+        mod.nvmlDeviceGetMemoryInfo.side_effect = lambda h: ns(
+            used=cards[h]["vu"] * 1024**2, total=cards[h]["vt"] * 1024**2)
+        mod.nvmlDeviceGetUtilizationRates.side_effect = lambda h: ns(gpu=cards[h]["util"], memory=5)
+        mod.nvmlDeviceGetClockInfo.side_effect = lambda h, k: 1000
+        mod.nvmlDeviceGetMaxClockInfo.side_effect = lambda h, k: 2000
+        mod.nvmlDeviceGetComputeRunningProcesses.side_effect = (
+            lambda h: [ns(pid=p, usedGpuMemory=m) for p, m in cards[h].get("procs", [])])
+        mod.nvmlSystemGetProcessName.side_effect = lambda pid: f"/usr/bin/proc{pid}"
+        return mod
+
+    def _card(self, name, bus, **kw):
+        base = dict(name=name, bus=bus, temp=60, fan=50, power=100, pmax=250,
+                    vu=1024, vt=8192, util=42)
+        base.update(kw)
+        return base
+
+    def _collect(self, cards, broken=()):
+        mod = self._fake(cards, broken)
+        with mock.patch.dict("sys.modules", {"pynvml": mod}), \
+             mock.patch.object(gpu_mod, "_nvml_initialized", True):
+            return gpu_mod.GpuNvidiaCollector().collect()
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4])
+    def test_every_card_is_enumerated(self, n):
+        cards = [self._card(f"GPU {i}", f"0000:0{i}:00.0") for i in range(n)]
+        m = self._collect(cards)
+        assert m["gpu.count"].value == n
+        assert [c["index"] for c in m["gpu.cards"].value] == list(range(n))
+
+    def test_flat_keys_still_mirror_card_zero(self):
+        """Every shipped renderer reads the flat keys - they must not move."""
+        cards = [self._card("FIRST", "0000:01:00.0", temp=71),
+                 self._card("SECOND", "0000:02:00.0", temp=54)]
+        m = self._collect(cards)
+        assert m["gpu.name"].value == "FIRST"
+        assert m["gpu.temp"].value == 71
+        assert m["gpu.vram_used"].extra["total"] == 8192
+
+    def test_one_wedged_card_does_not_cost_the_others(self):
+        cards = [self._card(f"GPU {i}", f"0000:0{i}:00.0") for i in range(3)]
+        m = self._collect(cards, broken={1})
+        assert m["gpu.count"].value == 2
+        assert [c["index"] for c in m["gpu.cards"].value] == [0, 2]
+
+    def test_missing_fan_sensor_keeps_the_rest_of_the_card(self):
+        m = self._collect([self._card("A100", "0000:03:00.0", fan=None)])
+        card = m["gpu.cards"].value[0]
+        assert card["fan"] is None
+        assert card["temp"] == 60 and card["util"] == 42
+
+    def test_no_cards_reports_zero_not_a_crash(self):
+        m = self._collect([])
+        assert m["gpu.count"].value == 0
+        assert m["gpu.cards"].value == []
+        assert m["gpu.name"].available is False
+
+
+class TestGpuProcVramSentinel:
+    """NVML signals 'not supported' with an all-ones value, not an error.
+
+    It is truthy, so a bare `if p.usedGpuMemory` passes it through and it
+    renders as roughly 17.6 million MiB.
+    """
+
+    @pytest.mark.parametrize(
+        "raw,want",
+        [
+            ((1 << 64) - 1, 0),          # the sentinel itself
+            ((1 << 64) - 2, 0),          # implausible even if not the sentinel
+            (0, 0),
+            (None, 0),
+            (-5, 0),
+            (19661 * 1024**2, 19661),    # a real reading survives
+            (1024**2, 1),
+        ],
+    )
+    def test_sentinel_and_junk_become_zero(self, raw, want):
+        assert gpu_mod._proc_vram_mib(raw) == want

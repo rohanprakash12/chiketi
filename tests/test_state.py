@@ -209,7 +209,9 @@ class TestLoadHostileContent:
         file present open() is never reached and the mock never fires.
         """
         _write(json.dumps({"version": 1, "theme": "Panel/Teal"}))
-        with mock.patch("builtins.open", side_effect=KeyboardInterrupt):
+        # load_state now uses os.open + os.fdopen so it can fstat the
+        # descriptor rather than stat the path, so patch that call.
+        with mock.patch("os.open", side_effect=KeyboardInterrupt):
             with pytest.raises(KeyboardInterrupt):
                 load_state()
 

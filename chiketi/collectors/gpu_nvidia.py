@@ -1,4 +1,10 @@
-"""Full GPU stats via pynvml."""
+"""Full GPU stats via pynvml, across every card present.
+
+Shape note: the flat ``gpu.name`` / ``gpu.temp`` / ``gpu.vram_used`` keys are
+kept and mirror card 0, because every shipped renderer reads them. Multi-card
+data arrives alongside as ``gpu.count`` and ``gpu.cards``, so nothing that
+works today changes behaviour on a single-card box.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,10 @@ from chiketi.collectors.base import MetricCollector, MetricValue
 _nvml_initialized = False
 _nvml_last_attempt = 0.0
 _NVML_RETRY_S = 30.0
+
+# Fields mirrored from card 0 into the flat, pre-existing key names.
+_FLAT_KEYS = ("name", "temp", "fan", "power", "vram_used", "vram_total",
+              "vram_percent", "util", "mem_util", "clock_gpu", "clock_mem")
 
 
 def _ensure_nvml() -> bool:
@@ -31,8 +41,129 @@ def _ensure_nvml() -> bool:
         return False
 
 
+# NVML reports "not supported" for per-process memory as an all-ones sentinel
+# rather than an error. It is truthy, so a bare `if p.usedGpuMemory` lets it
+# through and it renders as ~17.6 million MiB.
+_NVML_VALUE_NOT_AVAILABLE = (1 << 64) - 1
+_MAX_PLAUSIBLE_VRAM_MIB = 2 * 1024 * 1024      # 2 TiB, far above any real card
+
+
+def _proc_vram_mib(raw) -> int:
+    """Per-process VRAM in MiB, or 0 when NVML says it does not know."""
+    if not isinstance(raw, int) or raw <= 0:
+        return 0
+    if raw >= _NVML_VALUE_NOT_AVAILABLE:
+        return 0
+    mib = round(raw / (1024 ** 2))
+    return mib if mib <= _MAX_PLAUSIBLE_VRAM_MIB else 0
+
+
+def _text(value) -> str | None:
+    """NVML returns str on new pynvml, bytes on old. Normalise, or give up."""
+    if isinstance(value, bytes):
+        try:
+            return value.decode()
+        except Exception:
+            return None
+    return value if isinstance(value, str) else None
+
+
 class GpuNvidiaCollector(MetricCollector):
     namespace = "gpu"
+
+    # ------------------------------------------------------------------
+    # one card
+    # ------------------------------------------------------------------
+
+    def _read_card(self, pynvml, handle, index: int) -> dict:
+        """Read one card. Every field is guarded on its own: a card that
+        refuses one reading still contributes the rest."""
+        card: dict = {"index": index}
+
+        try:
+            card["name"] = _text(pynvml.nvmlDeviceGetName(handle)) or f"GPU {index}"
+        except Exception:
+            card["name"] = f"GPU {index}"
+
+        try:
+            info = pynvml.nvmlDeviceGetPciInfo(handle)
+            card["bus_id"] = _text(getattr(info, "busId", None))
+        except Exception:
+            card["bus_id"] = None
+
+        try:
+            card["temp"] = pynvml.nvmlDeviceGetTemperature(
+                handle, pynvml.NVML_TEMPERATURE_GPU)
+        except Exception:
+            card["temp"] = None
+
+        try:
+            card["fan"] = pynvml.nvmlDeviceGetFanSpeed(handle)
+        except Exception:
+            card["fan"] = None
+
+        try:
+            card["power"] = round(pynvml.nvmlDeviceGetPowerUsage(handle) / 1000)
+        except Exception:
+            card["power"] = None
+        try:
+            card["power_limit"] = round(
+                pynvml.nvmlDeviceGetPowerManagementLimit(handle) / 1000)
+        except Exception:
+            card["power_limit"] = None
+
+        try:
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            card["vram_used"] = round(mem.used / (1024 ** 2))
+            card["vram_total"] = round(mem.total / (1024 ** 2))
+            card["vram_percent"] = (round(mem.used / mem.total * 100, 1)
+                                    if mem.total else 0.0)
+        except Exception:
+            card["vram_used"] = card["vram_total"] = card["vram_percent"] = None
+
+        try:
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            card["util"] = util.gpu
+            card["mem_util"] = util.memory
+        except Exception:
+            card["util"] = card["mem_util"] = None
+
+        try:
+            card["clock_gpu"] = pynvml.nvmlDeviceGetClockInfo(
+                handle, pynvml.NVML_CLOCK_GRAPHICS)
+            card["clock_gpu_max"] = pynvml.nvmlDeviceGetMaxClockInfo(
+                handle, pynvml.NVML_CLOCK_GRAPHICS)
+        except Exception:
+            card["clock_gpu"] = card["clock_gpu_max"] = None
+        try:
+            card["clock_mem"] = pynvml.nvmlDeviceGetClockInfo(
+                handle, pynvml.NVML_CLOCK_MEM)
+            card["clock_mem_max"] = pynvml.nvmlDeviceGetMaxClockInfo(
+                handle, pynvml.NVML_CLOCK_MEM)
+        except Exception:
+            card["clock_mem"] = card["clock_mem_max"] = None
+
+        procs = []
+        try:
+            for p in pynvml.nvmlDeviceGetComputeRunningProcesses(handle):
+                name = "unknown"
+                try:
+                    name = (_text(pynvml.nvmlSystemGetProcessName(p.pid))
+                            or "unknown").rsplit("/", 1)[-1]
+                except Exception:
+                    pass
+                procs.append({
+                    "pid": p.pid, "name": name,
+                    "vram_mib": _proc_vram_mib(p.usedGpuMemory),
+                })
+        except Exception:
+            pass
+        card["processes"] = procs
+        return card
+
+    # ------------------------------------------------------------------
+    # every card
+    # ------------------------------------------------------------------
 
     def collect(self) -> dict[str, MetricValue]:
         metrics: dict[str, MetricValue] = {}
@@ -41,115 +172,60 @@ class GpuNvidiaCollector(MetricCollector):
 
         try:
             import pynvml
-
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-
-            # Name
-            try:
-                name = pynvml.nvmlDeviceGetName(handle)
-                if isinstance(name, bytes):
-                    name = name.decode()
-                metrics[self._key("name")] = MetricValue(value=name)
-            except Exception:
-                metrics[self._key("name")] = MetricValue(available=False)
-
-            # Temperature
-            try:
-                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-                metrics[self._key("temp")] = MetricValue(value=temp, unit="°C")
-            except Exception:
-                metrics[self._key("temp")] = MetricValue(available=False, unit="°C")
-
-            # Fan speed
-            try:
-                fan = pynvml.nvmlDeviceGetFanSpeed(handle)
-                metrics[self._key("fan")] = MetricValue(value=fan, unit="%")
-            except Exception:
-                metrics[self._key("fan")] = MetricValue(available=False, unit="%")
-
-            # Power
-            try:
-                power_mw = pynvml.nvmlDeviceGetPowerUsage(handle)
-                power_limit_mw = pynvml.nvmlDeviceGetPowerManagementLimit(handle)
-                metrics[self._key("power")] = MetricValue(
-                    value=round(power_mw / 1000), unit="W",
-                    extra={"limit": round(power_limit_mw / 1000)},
-                )
-            except Exception:
-                metrics[self._key("power")] = MetricValue(available=False, unit="W")
-
-            # VRAM
-            try:
-                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                used_mib = round(mem.used / (1024**2))
-                total_mib = round(mem.total / (1024**2))
-                percent = (mem.used / mem.total * 100) if mem.total > 0 else 0
-                metrics[self._key("vram_used")] = MetricValue(
-                    value=used_mib, unit="MiB",
-                    extra={"total": total_mib, "percent": round(percent, 1)},
-                )
-                metrics[self._key("vram_total")] = MetricValue(value=total_mib, unit="MiB")
-                metrics[self._key("vram_percent")] = MetricValue(value=round(percent, 1), unit="%")
-            except Exception:
-                for k in ("vram_used", "vram_total", "vram_percent"):
-                    metrics[self._key(k)] = MetricValue(available=False)
-
-            # Utilization
-            try:
-                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                metrics[self._key("util")] = MetricValue(value=util.gpu, unit="%")
-                metrics[self._key("mem_util")] = MetricValue(value=util.memory, unit="%")
-            except Exception:
-                metrics[self._key("util")] = MetricValue(available=False, unit="%")
-                metrics[self._key("mem_util")] = MetricValue(available=False, unit="%")
-
-            # Clocks
-            try:
-                gpu_clk = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS)
-                gpu_max = pynvml.nvmlDeviceGetMaxClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS)
-                mem_clk = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_MEM)
-                mem_max = pynvml.nvmlDeviceGetMaxClockInfo(handle, pynvml.NVML_CLOCK_MEM)
-                metrics[self._key("clock_gpu")] = MetricValue(
-                    value=gpu_clk, unit="MHz", extra={"max": gpu_max},
-                )
-                metrics[self._key("clock_mem")] = MetricValue(
-                    value=mem_clk, unit="MHz", extra={"max": mem_max},
-                )
-            except Exception:
-                metrics[self._key("clock_gpu")] = MetricValue(available=False, unit="MHz")
-                metrics[self._key("clock_mem")] = MetricValue(available=False, unit="MHz")
-
-            # CUDA processes
-            try:
-                procs = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
-                proc_list = []
-                for p in procs:
-                    name = "unknown"
-                    try:
-                        name = pynvml.nvmlSystemGetProcessName(p.pid)
-                        if isinstance(name, bytes):
-                            name = name.decode()
-                        # Get just the binary name
-                        name = name.rsplit("/", 1)[-1]
-                    except Exception:
-                        pass
-                    proc_list.append({
-                        "pid": p.pid,
-                        "name": name,
-                        "vram_mib": round(p.usedGpuMemory / (1024**2)) if p.usedGpuMemory else 0,
-                    })
-                metrics[self._key("processes")] = MetricValue(value=proc_list)
-            except Exception:
-                metrics[self._key("processes")] = MetricValue(value=[])
-
+            count = pynvml.nvmlDeviceGetCount()
         except Exception:
             return self._all_unavailable(metrics)
 
+        cards: list[dict] = []
+        for i in range(count):
+            try:
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            # One card failing to enumerate must not cost the others - a
+            # mixed rig with a dead or busy device still reports the rest.
+            except Exception:
+                continue
+            try:
+                cards.append(self._read_card(pynvml, handle, i))
+            except Exception:
+                continue
+
+        if not cards:
+            return self._all_unavailable(metrics)
+
+        metrics[self._key("count")] = MetricValue(value=len(cards))
+        metrics[self._key("cards")] = MetricValue(
+            value=cards, extra={"count": len(cards)})
+
+        # Flat keys mirror card 0 so existing renderers are untouched.
+        first = cards[0]
+        for key in _FLAT_KEYS:
+            val = first.get(key)
+            if val is None:
+                metrics[self._key(key)] = MetricValue(available=False)
+                continue
+            unit = {"temp": "°C", "fan": "%", "power": "W", "util": "%",
+                    "mem_util": "%", "vram_used": "MiB", "vram_total": "MiB",
+                    "vram_percent": "%", "clock_gpu": "MHz",
+                    "clock_mem": "MHz"}.get(key, "")
+            extra: dict = {}
+            if key == "power" and first.get("power_limit") is not None:
+                extra["limit"] = first["power_limit"]
+            if key == "vram_used" and first.get("vram_total") is not None:
+                extra = {"total": first["vram_total"],
+                         "percent": first.get("vram_percent")}
+            if key == "clock_gpu" and first.get("clock_gpu_max") is not None:
+                extra["max"] = first["clock_gpu_max"]
+            if key == "clock_mem" and first.get("clock_mem_max") is not None:
+                extra["max"] = first["clock_mem_max"]
+            metrics[self._key(key)] = MetricValue(value=val, unit=unit, extra=extra)
+
+        metrics[self._key("processes")] = MetricValue(value=first["processes"])
         return metrics
 
     def _all_unavailable(self, metrics: dict[str, MetricValue]) -> dict[str, MetricValue]:
-        for k in ("name", "temp", "fan", "power", "vram_used", "vram_total",
-                   "vram_percent", "util", "mem_util", "clock_gpu", "clock_mem"):
+        for k in _FLAT_KEYS:
             metrics[self._key(k)] = MetricValue(available=False)
         metrics[self._key("processes")] = MetricValue(value=[])
+        metrics[self._key("count")] = MetricValue(value=0)
+        metrics[self._key("cards")] = MetricValue(value=[], extra={"count": 0})
         return metrics

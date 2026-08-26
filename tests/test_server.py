@@ -11,6 +11,7 @@ import os
 import socket
 import threading
 import urllib.request
+import urllib.error
 from http.server import HTTPServer, ThreadingHTTPServer
 from unittest import mock
 
@@ -285,12 +286,17 @@ class TestControlPlane:
         assert data["screen_rotation"]["screen1"]["duration"] == 600
 
     def test_rotation_long_key_rejected(self):
+        """Now a 400 rather than a silent drop.
+
+        Accepting the request and quietly discarding the entry told the client
+        its settings had been saved when they had not.
+        """
         with _LiveServer() as srv:
-            resp = self._post(
-                srv, "/api/display",
-                {"screen_rotation": {"x" * 65: {"duration": 10}}})
-            data = json.loads(resp.read())
-        assert data["screen_rotation"] == {}
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                self._post(srv, "/api/display",
+                           {"screen_rotation": {"x" * 65: {"duration": 10}}})
+            assert exc.value.code == 400
+        assert server._screen_rotation == {}
 
 
 class TestXrandrCache:
@@ -488,14 +494,15 @@ class TestCsrfAndCors:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 assert resp.status == 200
 
-    def test_null_origin_allowed(self, restore_active_theme):
+    def test_null_origin_rejected(self, restore_active_theme):
+        """A sandboxed iframe sends Origin: null. Allowing it reopened CSRF."""
         with _LiveServer() as srv:
             req = urllib.request.Request(
-                srv.url("/api/theme/Panel/Gold"), data=b"", method="POST",
-                headers={"Origin": "null"},
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                assert resp.status == 200
+                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                headers={"Origin": "null"})
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req, timeout=5)
+            assert exc.value.code == 403
 
     def test_metrics_not_wildcard_cors(self):
         with _LiveServer() as srv:
@@ -533,12 +540,91 @@ class TestCsrfAndCors:
                     assert resp.headers.get("X-Frame-Options") == "DENY"
 
 
+class TestHostAllowed:
+    """DNS rebinding: the Origin check cannot stop it, because a rebinding
+    attacker controls the DNS name and so Origin and Host agree. What they
+    cannot forge is a Host the user would have had to type - an IP literal or
+    a private DNS zone. Every real access path is on the allowed side.
+    """
+
+    @pytest.mark.parametrize("host", [
+        "192.168.16.159:7777",   # LAN address
+        "100.94.12.7:7777",      # Tailscale 100.64/10
+        "127.0.0.1:7777",
+        "[::1]:7777",            # IPv6 literal, bracketed
+        "[fd00::1]:7777",        # ULA over Tailscale/IPv6 LAN
+        "localhost:7777",
+        "LocalHost:7777",        # Host is case-insensitive
+        "chiketi.local:7777",    # mDNS
+        "box.tail1234.ts.net",   # Tailscale MagicDNS, no port
+        "nas.home.arpa:7777",    # RFC 8375
+        "pi.lan:7777",
+        "svc.internal:7777",
+        "microsoft:7777",        # single label cannot be a public domain
+        "",                      # absent: non-browser client
+    ])
+    def test_real_access_paths_allowed(self, host):
+        assert server._host_allowed(host) is True
+
+    @pytest.mark.parametrize("host", [
+        "evil.example:7777",
+        "attacker.co.uk:7777",
+        "rebind.evil.com",
+        "chiketi.local.evil.com:7777",   # suffix must anchor at the end
+        "ts.net.evil.com:7777",
+        "[::1:7777",                     # unclosed bracket
+        "a]b.com:7777",
+    ])
+    def test_rebinding_hosts_rejected(self, host):
+        assert server._host_allowed(host) is False
+
+    def test_get_rejects_rebinding_host(self):
+        """The disclosure half of the attack is a GET: /api/metrics carries
+        hostname, LAN IP, MAC and token usage."""
+        with _LiveServer() as srv:
+            req = urllib.request.Request(srv.url("/api/metrics"))
+            req.add_header("Host", "evil.example:7777")
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req, timeout=5)
+            assert exc.value.code == 403
+
+    def test_post_rejects_rebinding_host(self, restore_active_theme):
+        """Origin and Host agree, which is exactly what rebinding produces."""
+        with _LiveServer() as srv:
+            req = urllib.request.Request(srv.url("/api/display/off"), method="POST")
+            req.add_header("Host", "evil.example:7777")
+            req.add_header("Origin", "http://evil.example:7777")
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req, timeout=5)
+            assert exc.value.code == 403
+
+    def test_lan_access_still_works(self):
+        """The whole point: locking out rebinding must not lock out the user."""
+        with _LiveServer() as srv:
+            req = urllib.request.Request(srv.url("/api/metrics"))
+            req.add_header("Host", "192.168.16.159:7777")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                assert resp.status == 200
+
+    def test_cors_header_not_echoed_to_rebinding_host(self):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(srv.url("/api/metrics"))
+            req.add_header("Host", "evil.example:7777")
+            req.add_header("Origin", "http://evil.example:7777")
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req, timeout=5)
+            assert exc.value.headers.get("Access-Control-Allow-Origin") is None
+
+
 class TestOriginAllowed:
     def test_absent_origin(self):
         assert server._origin_allowed("", "host:7777") is True
 
     def test_null_origin(self):
-        assert server._origin_allowed("null", "host:7777") is True
+        # "null" is not the same as absent: a sandboxed iframe sends it, so
+        # allowing it handed the CSRF bypass to any page that embeds one.
+        # curl and friends send NO Origin, which is still allowed.
+        assert server._origin_allowed("null", "host:7777") is False
 
     def test_matching_origin(self):
         assert server._origin_allowed("http://host:7777", "host:7777") is True
@@ -934,3 +1020,137 @@ class TestDisplayDimensionClamp:
         # Both the response and the live globals must reflect the clamp.
         assert (payload["width"], payload["height"]) == (want_w, want_h)
         assert (server._display_width, server._display_height) == (want_w, want_h)
+
+
+class TestTokenComparisonAndContentTypes:
+    def test_token_gate_still_works_after_constant_time_switch(self):
+        server._AUTH_TOKEN = "s3cret"
+        with _LiveServer() as srv:
+            for token, want in [(None, 403), ("wrong", 403), ("s3cret", 200)]:
+                headers = {"X-Chiketi-Token": token} if token else {}
+                req = urllib.request.Request(
+                    srv.url("/api/theme/Panel/Gold"), data=b"", method="POST",
+                    headers=headers,
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        got = resp.status
+                except urllib.error.HTTPError as exc:
+                    got = exc.code
+                assert got == want, f"token={token!r} -> {got}, expected {want}"
+
+    def test_absent_token_header_does_not_raise(self):
+        """compare_digest rejects None, so the header must be coerced."""
+        server._AUTH_TOKEN = "s3cret"
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/theme/Panel/Gold"), data=b"", method="POST"
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req, timeout=5)
+            assert exc.value.code == 403
+
+    @pytest.mark.parametrize(
+        "fname,want",
+        [
+            ("Rajdhani-Regular.ttf", "font/ttf"),
+            ("OFL-Rajdhani.txt", "text/plain; charset=utf-8"),
+            ("README.md", "text/markdown; charset=utf-8"),
+        ],
+    )
+    def test_font_dir_content_types(self, fname, want):
+        with _LiveServer() as srv:
+            with urllib.request.urlopen(
+                srv.url(f"/assets/fonts/{fname}"), timeout=5
+            ) as resp:
+                assert resp.status == 200
+                assert resp.headers.get("Content-Type") == want
+
+
+class TestRejectedPostLeavesStateAlone:
+    """Every 400 must leave live state exactly as it was.
+
+    The handler used to validate and mutate interleaved, so a body whose LATER
+    field was bad returned 400 having already committed the earlier ones - a
+    rejected request could still change your brightness.
+    """
+
+    def _snapshot(self):
+        return (server._display_brightness, server._display_width,
+                server._display_height, dict(server._screen_rotation))
+
+    @pytest.mark.parametrize("bad", [
+        {"brightness": 1.7, "width": "abc", "height": 600},
+        {"brightness": 1.7, "screen_rotation": {"s": {"duration": "soon"}}},
+        {"brightness": 1.7, "width": 800},                        # height missing
+        {"brightness": 1.7, "screen_rotation": {"s": "not-an-object"}},
+        {"brightness": 1.7, "screen_rotation": "not-an-object"},
+        {"brightness": 1.7, "screen_rotation": {"": {"duration": 5}}},
+        {"brightness": 1.7, "display_on": "yes"},                 # string bool
+        {"brightness": True},                                     # bool as number
+        {"brightness": float("inf")},
+        {"brightness": float("nan")},
+        {"width": 800, "height": 600, "display_on": 1},           # int as bool
+    ])
+    def test_bad_request_changes_nothing(self, bad):
+        server._display_brightness, server._display_width = 1.0, 1024
+        server._display_height, server._screen_rotation = 600, {}
+        before = self._snapshot()
+        with _LiveServer() as srv:
+            body = json.dumps(bad).encode()
+            req = urllib.request.Request(
+                srv.url("/api/display"), data=body, method="POST",
+                headers={"Content-Type": "application/json"})
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req, timeout=5)
+            assert exc.value.code == 400
+        assert self._snapshot() == before, f"{bad} mutated state despite 400"
+
+    def test_a_good_request_still_commits(self):
+        server._display_brightness, server._display_width = 1.0, 1024
+        server._display_height, server._screen_rotation = 600, {}
+        with _LiveServer() as srv:
+            body = json.dumps({"brightness": 1.6, "width": 800, "height": 480,
+                               "screen_rotation": {"screen1": {"enabled": False,
+                                                               "duration": 30}}}).encode()
+            req = urllib.request.Request(
+                srv.url("/api/display"), data=body, method="POST",
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                assert r.status == 200
+        assert server._display_brightness == 1.6
+        assert (server._display_width, server._display_height) == (800, 480)
+        assert server._screen_rotation["screen1"] == {"enabled": False, "duration": 30}
+
+
+class TestTokenHeaderCannotCrash:
+    """hmac.compare_digest raises TypeError on non-ASCII str arguments.
+
+    The header is attacker-supplied, and the call sat outside any try block, so
+    a token header of "sécret" killed the handler thread and dropped the
+    connection with zero bytes.
+    """
+
+    def teardown_method(self):
+        server._AUTH_TOKEN = None
+
+    @pytest.mark.parametrize("tok", ["sécret", "日本語", "\U0001f600", "s\udcffcret"])
+    def test_non_ascii_token_is_rejected_not_fatal(self, tok):
+        server._AUTH_TOKEN = "s3cret"
+        with _LiveServer() as srv:
+            with socket.create_connection(("127.0.0.1", srv.port), timeout=5) as s:
+                s.sendall(
+                    b"POST /api/theme/Panel/Teal HTTP/1.1\r\n"
+                    b"Host: " + f"127.0.0.1:{srv.port}".encode() + b"\r\n"
+                    b"X-Chiketi-Token: " + tok.encode("utf-8", "surrogatepass") + b"\r\n"
+                    b"Content-Length: 0\r\n\r\n")
+                s.settimeout(5)
+                resp = s.recv(128)
+        assert resp.startswith(b"HTTP/"), f"connection dropped: {resp!r}"
+        assert b"403" in resp, resp
+
+    def test_correct_token_still_works(self):
+        server._AUTH_TOKEN = "s3cret"
+        assert server._token_matches("s3cret") is True
+        assert server._token_matches("wrong") is False
+        assert server._token_matches(None) is False

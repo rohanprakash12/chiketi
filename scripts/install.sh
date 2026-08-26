@@ -11,7 +11,10 @@ for arg in "$@"; do
     case "$arg" in
         --autostart)    AUTOSTART="yes" ;;
         --no-autostart) AUTOSTART="no" ;;
-        *) echo "Unknown option: $arg (expected --autostart or --no-autostart)" >&2 ;;
+        *)  # Do not carry on: a typo like --autostrat would otherwise print a
+            # warning nobody reads and then install with the opposite setting.
+            echo "Unknown option: $arg (expected --autostart or --no-autostart)" >&2
+            exit 2 ;;
     esac
 done
 

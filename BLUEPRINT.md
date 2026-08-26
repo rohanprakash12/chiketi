@@ -73,7 +73,7 @@ chiketi/
 │   ├── check_js.sh              # node --check for the inlined UI JavaScript
 │   ├── run.sh                   # launch helper
 │   └── chiketi.desktop          # reference autostart entry (installer generates its own)
-└── tests/                       # pytest suite (401 tests) + tests/js/ renderer harness
+└── tests/                       # pytest suite (400+ tests) + tests/js/ renderer harness
 ```
 
 ## Dependencies
@@ -227,7 +227,7 @@ Each theme exposes a palette (`primary`, `accent`, `background`, `panel`,
 
 ## Testing
 
-A headless `pytest` suite (401 tests) covers the pure helpers, theme
+A headless `pytest` suite (400+ tests) covers the pure helpers, theme
 management, `panel_spec`, config, settings persistence, the collectors (with
 `psutil`/NVML/HTTP mocked), and the HTTP server routes (via an ephemeral-port
 server). Alongside it, `node tests/js/render_harness.js` runs every dashboard
