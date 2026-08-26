@@ -1,0 +1,6 @@
+prune tests
+prune plans
+prune specs
+prune ui_ideas
+prune docs
+exclude setup.py

@@ -25,6 +25,14 @@ find = {include = ["chiketi", "chiketi.*"]}
 [tool.setuptools.package-data]
 chiketi = ["assets/**/*"]
 
+# Tests are a development concern: run them from the repo, not from a release
+# artifact. Without this (plus the `prune tests` in MANIFEST.in) setuptools
+# auto-includes top-level tests/ in the sdist -- but only the test_*.py files,
+# leaving out conftest.py, __init__.py and tests/fixtures/, so the shipped
+# suite could not run at all.
+[tool.setuptools.exclude-package-data]
+"*" = ["tests", "tests.*"]
+
 [tool.pytest.ini_options]
 # Only collect the real test suite; scripts/ holds standalone tools like
 # font_test.py (a pygame harness) that match pytest's *_test.py glob but
