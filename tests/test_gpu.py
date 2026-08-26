@@ -517,3 +517,27 @@ class TestNvmlCardShape:
 
         missing = set(sysfs_card) - set(nvml_card)
         assert not missing, f"NVML cards lack keys the sysfs cards have: {sorted(missing)}"
+
+
+class TestNvmlBusIdDomain:
+    """NVML pads the PCI domain to eight digits where the kernel and lspci use
+    four. Left alone it reaches the screen looking like a different addressing
+    scheme from the sysfs cards beside it."""
+
+    @pytest.mark.parametrize("raw,expect", [
+        ("00000000:01:00.0", "0000:01:00.0"),
+        ("0000:03:00.0", "0000:03:00.0"),
+        # A real non-zero domain must survive intact.
+        ("00010000:01:00.0", "00010000:01:00.0"),
+        ("garbage", "garbage"),
+        (None, None),
+    ])
+    def test_domain_trimmed_only_when_the_dropped_digits_are_zero(self, raw, expect):
+        from chiketi.collectors.gpu_nvidia import _normalize_domain
+        assert _normalize_domain(raw) == expect
+
+    def test_dedupe_still_matches_after_normalisation(self):
+        """The trim must not break the cross-source match it exists beside."""
+        from chiketi.collectors.gpu_nvidia import _normalize_domain
+        assert (normalize_bus_id(_normalize_domain("00000000:01:00.0"))
+                == normalize_bus_id("0000:01:00.0"))

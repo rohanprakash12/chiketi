@@ -181,6 +181,14 @@ const GPU_MALFORMED = (function () {
   return o;
 })();
 
+// An idle NVML card: the process list is empty because nothing is using the
+// GPU, NOT because NVML cannot report it. The screen must not conflate those.
+const GPU_IDLE = (function () {
+  return withCards([gpuCard({ util: 0, mem_util: 0, vram_used: 458,
+                              vram_percent: 1.9, temp: 48, power: 25,
+                              fan: 0, clock_gpu: 210, processes: [] })]);
+})();
+
 const EMPTY = {};
 
 // Every metric flagged unavailable (collector caught an exception).
@@ -238,4 +246,4 @@ const OLLAMA = (function () {
 
 module.exports = { FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA,
                    GPU_NONE, GPU_DUAL, GPU_QUAD, GPU_MANY, GPU_SPARSE,
-                   GPU_HOSTILE, GPU_MALFORMED };
+                   GPU_HOSTILE, GPU_MALFORMED, GPU_IDLE };

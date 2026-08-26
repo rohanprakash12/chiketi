@@ -59,6 +59,22 @@ def _proc_vram_mib(raw) -> int:
     return mib if mib <= _MAX_PLAUSIBLE_VRAM_MIB else 0
 
 
+def _normalize_domain(bus_id: str | None) -> str | None:
+    """NVML pads the PCI domain to eight digits ("00000000:01:00.0") where the
+    kernel and lspci both use four. Left as-is it reaches the screen, looking
+    like a different addressing scheme from the sysfs cards beside it.
+    """
+    if not isinstance(bus_id, str) or ":" not in bus_id:
+        return bus_id
+    head, sep, tail = bus_id.partition(":")
+    if len(head) > 4 and head.startswith("0"):
+        trimmed = head[-4:]
+        # Only when the dropped digits are all zero: never lose a real domain.
+        if set(head[:-4]) <= {"0"}:
+            return trimmed + sep + tail
+    return bus_id
+
+
 def _text(value) -> str | None:
     """NVML returns str on new pynvml, bytes on old. Normalise, or give up."""
     if isinstance(value, bytes):
@@ -88,7 +104,7 @@ class GpuNvidiaCollector(MetricCollector):
 
         try:
             info = pynvml.nvmlDeviceGetPciInfo(handle)
-            card["bus_id"] = _text(getattr(info, "busId", None))
+            card["bus_id"] = _normalize_domain(_text(getattr(info, "busId", None)))
         except Exception:
             card["bus_id"] = None
 

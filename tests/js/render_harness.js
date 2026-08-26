@@ -220,6 +220,16 @@ for (const fixtureName of Object.keys(FIX)) {
         }
       }
 
+      // An empty NVML process list means the card is idle, not that the
+      // data is unavailable -- the screen said "not exposed by nvidia" on a
+      // real 3090 Ti, which is simply false. FULL's card is an idle NVML one.
+      if ((fixtureName === 'FULL' || fixtureName === 'GPU_IDLE') &&
+          fn.name === 'panelGoldGpuScreen') {
+        if (/NOT EXPOSED BY NVIDIA/i.test(html)) {
+          fail(fixtureName, label, 'claims NVIDIA does not expose per-process VRAM');
+        }
+      }
+
       // The empty state has to say why it is empty.
       if (fixtureName === 'GPU_NONE' && fn.name === 'panelGoldGpuScreen' &&
           !/NO GPU DETECTED/.test(html)) {

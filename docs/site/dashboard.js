@@ -1823,8 +1823,14 @@ function gpuLayoutSingle(card) {
           `font-variant-numeric:tabular-nums">${gpuVal(pr.vram_mib)}M</span></div>`;
     }
     procRight = procs.length + ' ACTIVE';
+  } else if (card.source === 'nvml') {
+    // An empty list from NVML means the card is idle, NOT that the data is
+    // unavailable. Saying "not exposed by nvidia" here was simply false.
+    procBody = `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em">NO COMPUTE PROCESSES ON THIS CARD</div>`;
+    procRight = 'IDLE';
   } else {
-    // NVML is the only source with per-process VRAM. Say that, rather than
+    // sysfs genuinely has no per-process accounting. Say that, rather than
     // leaving a box that looks like it failed to load.
     procBody = `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
       `text-transform:uppercase;letter-spacing:0.22em">PER-PROCESS VRAM NOT EXPOSED BY ${gpuVal(card.driver).toUpperCase()}</div>`;
