@@ -178,7 +178,7 @@ function onRotate() {
 
    Non-clock screens are deliberately left alone: renderDisplay() replaces
    ~130KB of innerHTML and that is not worth doing every second on a Pi. */
-const CLOCK_SCREEN_IDS = ['screen2'];
+const CLOCK_SCREEN_IDS = ['screen1', 'screen2'];
 /* Families whose screen2 is a clock. Terminal's screen2 is the AI Monitor
    (see getScreenRegistry(): every non-Panel/Vintage family falls through to
    the terminal branch), so this is an allowlist, not a Terminal denylist --

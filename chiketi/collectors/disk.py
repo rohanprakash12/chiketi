@@ -1,6 +1,8 @@
-"""Disk usage collector for / and /home."""
+"""Disk usage collector for / and any genuinely separate /home."""
 
 from __future__ import annotations
+
+import os
 
 import psutil
 
@@ -15,6 +17,22 @@ def _gib(b: int) -> float:
     return round(b / (1024**3), 1)
 
 
+def _same_filesystem(a: str, b: str) -> bool:
+    """True when two paths live on the same device.
+
+    psutil.disk_usage("/home") does not fail when /home is just a directory on
+    the root filesystem -- it happily returns the root filesystem's numbers.
+    Reported as disk.home_* those become a second bar showing the same disk
+    twice, which every theme then renders as two identical readings.
+    """
+    try:
+        return os.stat(a).st_dev == os.stat(b).st_dev
+    except Exception:
+        # Cannot tell: report the mount rather than silently dropping a real
+        # second disk. A duplicate reading beats a missing one.
+        return False
+
+
 class DiskCollector(MetricCollector):
     namespace = "disk"
 
@@ -24,6 +42,11 @@ class DiskCollector(MetricCollector):
         metrics: dict[str, MetricValue] = {}
         for mount in self.MOUNTS:
             key = mount.replace("/", "_").strip("_") or "root"
+            if mount != "/" and _same_filesystem(mount, "/"):
+                # Not a separate volume; the renderers show "SECONDARY - NONE".
+                for suffix in ("used", "total", "percent"):
+                    metrics[self._key(f"{key}_{suffix}")] = MetricValue(available=False)
+                continue
             try:
                 usage = psutil.disk_usage(mount)
                 total = usage.total

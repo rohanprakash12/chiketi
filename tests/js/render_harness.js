@@ -87,8 +87,12 @@ const TIB_CAPACITY_SCREENS = [
 
 // Screens that print the live LLM backend as a panel title. Note the panel is
 // on screen1 for Panel/Vintage and on screen2 for Terminal.
+//
+// panelGoldScreen1 is deliberately absent: the Bridge Station rebuild moved
+// the NPU readout off screen 1 to make room for the chronometer, and it
+// returns when Gold's screen 2 is rebuilt. Re-add it then.
 const BACKEND_TITLE_SCREENS = [
-  'panelGoldScreen1', 'panelCoralScreen1', 'panelTealScreen1',
+  'panelCoralScreen1', 'panelTealScreen1',
   'scanScreen1', 'tubeScreen1', 'vfdScreen1', 'terminalScreen2',
 ];
 

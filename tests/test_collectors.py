@@ -1491,3 +1491,40 @@ class TestGpuProcVramSentinel:
     )
     def test_sentinel_and_junk_become_zero(self, raw, want):
         assert gpu_mod._proc_vram_mib(raw) == want
+
+
+class TestDiskSeparateHome:
+    """psutil.disk_usage("/home") does not fail when /home is a directory on
+    the root filesystem -- it returns the root filesystem's numbers. Reported
+    as disk.home_* those became a second bar showing the same disk twice, in
+    every theme."""
+
+    def test_home_on_root_reported_unavailable(self, monkeypatch):
+        import chiketi.collectors.disk as disk_mod
+        monkeypatch.setattr(disk_mod, "_same_filesystem", lambda a, b: True)
+        m = disk_mod.DiskCollector().collect()
+        assert m["disk.home_used"].available is False
+        assert m["disk.home_total"].available is False
+        assert m["disk.home_percent"].available is False
+        # The root volume is still reported in full.
+        assert m["disk.root_used"].available is True
+
+    def test_separate_home_still_reported(self, monkeypatch):
+        import chiketi.collectors.disk as disk_mod
+        monkeypatch.setattr(disk_mod, "_same_filesystem", lambda a, b: False)
+        m = disk_mod.DiskCollector().collect()
+        assert m["disk.home_used"].available is True
+
+    def test_undecidable_reports_the_mount(self, monkeypatch):
+        """A duplicate reading beats losing a real second disk, so a failing
+        stat must fall back to reporting rather than dropping."""
+        import chiketi.collectors.disk as disk_mod
+        monkeypatch.setattr(disk_mod.os, "stat",
+                            lambda p: (_ for _ in ()).throw(OSError("nope")))
+        assert disk_mod._same_filesystem("/home", "/") is False
+
+    def test_same_filesystem_uses_st_dev(self, tmp_path):
+        import chiketi.collectors.disk as disk_mod
+        a = tmp_path / "a"; a.mkdir()
+        b = tmp_path / "b"; b.mkdir()
+        assert disk_mod._same_filesystem(str(a), str(b)) is True

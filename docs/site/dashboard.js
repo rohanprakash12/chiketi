@@ -331,84 +331,6 @@ function terminalScreen2(c) {
     `</div></div>`;
 }
 
-function panelGoldScreen1(c) {
-  const F = "'Chakra Petch', sans-serif";
-  const RED = PANEL_SPEC.colors.red;
-  const BLUE = PANEL_SPEC.colors.blue;
-  const MAROON = PANEL_SPEC.colors.maroon || '#8B0000';
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const thermalStatusColor = anyDanger ? PANEL_SPEC.colors.thermDarkRed : anyOrange ? PANEL_SPEC.colors.thermOrange : GREEN;
-
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
-  const donutOpts = {anticlockwise: true, critColor: RED, valColor: '#fff', bgRing: '#1a1a1a', valSize: '4.2cqw', labelSize: '2.8cqw'};
-
-  function thermBar(label, temp) {
-    const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
-    const flash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
-    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${GOLD};font-size:2.34cqw;font-family:${F};font-weight:700;width:4.69cqw;text-align:right;flex-shrink:0">${label}</span><div style="flex:1;height:2.05cqw;background:#1a1a1a;border-radius:2px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${_thermColor(temp)};border-radius:2px;transition:width 0.8s ease${flash}"></div></div></div>`;
-  }
-
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  return `<div class="screen-frame"><div class="l-screen l-2x2" style="background:#000">` +
-    lPanel('CORE', GOLD,
-      `<div style="display:flex;justify-content:space-around;align-items:center;flex:1">` +
-        donut(cpuUsage.available?cpuUsage.value:0, 'CPU', GOLD, 160, 11, F, donutOpts) +
-        donut(ramPct.available?ramPct.value:0, 'RAM', BLUE, 160, 11, F, donutOpts) +
-        donut(diskRootPct.available?diskRootPct.value:0, 'SSD', MAROON, 160, 11, F, donutOpts) +
-      `</div>` +
-      (diskHome.available ?
-        `<div style="position:relative;height:2.93cqw;background:${GREEN};border-radius:3px;overflow:hidden">` +
-          `<div style="position:absolute;top:0;left:0;height:100%;width:${diskHomePct.available?diskHomePct.value:0}%;background:${GOLD};border-radius:3px;transition:width 0.8s ease"></div>` +
-          `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.17cqw;font-family:${F};font-size:1.95cqw;font-weight:700;color:#000"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
-        `</div>` :
-        `<div style="height:2.93cqw;background:#111;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.95cqw;color:#444">SECONDARY \u2014 NONE</div>`)
-    , hostStr) +
-    lPanel('THERMALS', AMBER,
-      `<div style="display:flex;flex-direction:column;gap:0.59cqw;flex:1;justify-content:center">` +
-        thermBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        thermBar('MB', mbTemp.available?mbTemp.value:20) +
-        thermBar('GPU', gpuTemp.available?gpuTemp.value:20) +
-        thermalScale('#555', F) +
-      `</div>` +
-      fanStrip(RED, F, RED+'22')
-    , `<span style="color:${thermalStatusColor}">${thermalStatus}</span>`) +
-    lPanel('COMMS', TEAL,
-      `<div style="font-family:${F}">` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:#9aa0a6;font-size:2.05cqw">IP</span><span style="color:#ddd;font-size:4.10cqw;font-weight:700">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:#9aa0a6;font-size:2.05cqw">MAC</span><span style="color:#ddd;font-size:4.10cqw;font-weight:700">${mac.available?esc(String(mac.value)):'N/A'}</span></div>` +
-      `</div>` +
-      `<div style="display:flex;justify-content:space-around;align-items:center;font-family:${F}">` +
-        `<div style="display:flex;align-items:center;gap:0.88cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${GREEN}"/></svg><span style="color:${GREEN};font-size:4.69cqw;font-weight:700">${ul.available?ul.value:'0'} <span style="font-size:2.34cqw">${ul.available?ul.unit:'B/s'}</span></span></div>` +
-        `<div style="display:flex;align-items:center;gap:0.88cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,22 4,10 20,10" fill="${TEAL}"/></svg><span style="color:${TEAL};font-size:4.69cqw;font-weight:700">${dl.available?dl.value:'0'} <span style="font-size:2.34cqw">${dl.available?dl.unit:'B/s'}</span></span></div>` +
-      `</div>`
-    , speedStr) +
-    lPanel('NPU', GOLD,
-      `<div style="font-family:${F}">` +
-        `<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:#9aa0a6;font-size:2.05cqw;flex-shrink:0">MODEL</span><span style="color:#ddd;font-size:3.22cqw;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right">${cleanModel()}</span></div>` +
-        `<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:#9aa0a6;font-size:2.05cqw">QUANT</span><span style="color:#ddd;font-size:3.22cqw;font-weight:700">${mv('llama.quant')}</span></div>` +
-        `<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:#9aa0a6;font-size:2.05cqw">CTX</span><span style="color:#ddd;font-size:3.22cqw;font-weight:700">${mv('llama.context')}</span></div>` +
-      `</div>` +
-      `<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${F}">` +
-        `<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:#9aa0a6;font-size:2.05cqw">T/S</span><span style="color:#ddd;font-size:4.69cqw;font-weight:700">${tokSec.available?Math.round(tokSec.value):'--'}</span></div>` +
-        `<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:#9aa0a6;font-size:2.05cqw">VRAM</span><span style="color:#ddd;font-size:4.69cqw;font-weight:700">${vramStr}</span></div>` +
-      `</div>`
-    , backendTitle()) +
-    `</div></div>`;
-}
-
 function panelGoldScreen2(c) {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
@@ -1642,7 +1564,7 @@ function claudeScreen3(c) {
     '</div></div>';
 }
 
-/* ── GPU screen ──────────────────────────────────────────────────────────
+/* ── Bridge Station: shared primitives, then the GPU screen ──────────────────────────────────────────────────────────
  * One screen, three densities, chosen from how many cards the collector
  * actually found. The same build has to read correctly on a single-card
  * workstation and on a four-card rig, and nobody should have to configure
@@ -1658,9 +1580,9 @@ function claudeScreen3(c) {
 /* px -> cqw against the 1024px kiosk width. */
 function gq(px) { return (px / 1024 * 100).toFixed(3) + 'cqw'; }
 
-const GPU_F = "'Chakra Petch', sans-serif";
-const GPU_LABEL = '#d8d8d8';   /* mid-greys disappear on a cheap 7" panel */
-const GPU_DIM = '#9a9a9a';
+const BS_F = "'Chakra Petch', sans-serif";
+const BS_LABEL = '#d8d8d8';   /* mid-greys disappear on a cheap 7" panel */
+const BS_DIM = '#9a9a9a';
 
 function gpuVendorColor(vendor) {
   const C = PANEL_SPEC.colors;
@@ -1672,25 +1594,25 @@ function gpuVendorColor(vendor) {
 
 /* A value the driver never reported is shown as absent. Printing 0 where the
    card said nothing is a lie the renderer cannot take back. */
-function gpuVal(v, suffix) {
+function bsVal(v, suffix) {
   if (v === null || v === undefined || (typeof v === 'number' && !isFinite(v))) return '--';
   return esc(String(v)) + (suffix || '');
 }
 
-function gpuNum(v) {
+function bsNum(v) {
   return (typeof v === 'number' && isFinite(v)) ? v : 0;
 }
 
 /* Spine-and-title region: the Bridge Station vocabulary, one per section. */
-function gpuRegion(x, y, w, h, title, color, right, body, justify) {
+function bsRegion(x, y, w, h, title, color, right, body, justify) {
   const SW = 12;
   return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
     `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
       `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
-    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${GPU_F};` +
+    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${BS_F};` +
       `font-size:${gq(16)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
       `text-shadow:0 0 ${gq(10)} ${color}99;white-space:nowrap">${title}</div>` +
-    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${color};font-family:${GPU_F};` +
+    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${color};font-family:${BS_F};` +
       `font-size:${gq(13)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
       `opacity:0.85;white-space:nowrap">${right}</div>` : '') +
     `<div style="position:absolute;left:${gq(SW + 16)};top:${gq(32)};right:0;bottom:${gq(6)};` +
@@ -1700,8 +1622,8 @@ function gpuRegion(x, y, w, h, title, color, right, body, justify) {
 
 /* Segmented bar. A non-zero reading always lights at least one cell: a real
    but sub-1% value rendered as a wholly empty bar reads as broken, not small. */
-function gpuSegBar(pct, color, w, h, cells, gap) {
-  const p = Math.max(0, Math.min(100, gpuNum(pct)));
+function bsSegBar(pct, color, w, h, cells, gap) {
+  const p = Math.max(0, Math.min(100, bsNum(pct)));
   const cw = (w - gap * (cells - 1)) / cells;
   let n = Math.round(cells * p / 100);
   if (n === 0 && p > 0) n = 1;
@@ -1714,33 +1636,33 @@ function gpuSegBar(pct, color, w, h, cells, gap) {
   return html + `</div>`;
 }
 
-function gpuKv(label, value, color, valPx, labPx) {
+function bsKv(label, value, color, valPx, labPx) {
   return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:${gq(12)}">` +
-    `<span style="color:${GPU_LABEL};font-family:${GPU_F};font-size:${gq(labPx || 13)};font-weight:700;` +
+    `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(labPx || 13)};font-weight:700;` +
       `text-transform:uppercase;letter-spacing:0.22em;white-space:nowrap">${label}</span>` +
-    `<span style="color:${color};font-family:${GPU_F};font-size:${gq(valPx || 22)};font-weight:700;` +
+    `<span style="color:${color};font-family:${BS_F};font-size:${gq(valPx || 22)};font-weight:700;` +
       `font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 ${gq(8)} ${color}99">${value}</span></div>`;
 }
 
 /* A readout bound to the width of its own bar. Letting it span the flex row
    pushed the number to the far edge, where it read as labelling the next
    column rather than the bar beneath it. */
-function gpuMetered(label, value, pct, color, w, cells, valPx, labPx) {
-  return `<div style="width:${gq(w)}">` + gpuKv(label, value, color, valPx, labPx) +
-    gpuSegBar(pct, color, w, valPx && valPx < 20 ? 8 : 11, cells, 3) + `</div>`;
+function bsMetered(label, value, pct, color, w, cells, valPx, labPx) {
+  return `<div style="width:${gq(w)}">` + bsKv(label, value, color, valPx, labPx) +
+    bsSegBar(pct, color, w, valPx && valPx < 20 ? 8 : 11, cells, 3) + `</div>`;
 }
 
 /* sysfs reports real RPM, NVML only a duty percentage. Show whichever the card
    actually gave rather than inventing a conversion between them. */
 function gpuFanText(card) {
-  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return gpuVal(card.fan_rpm) + ' RPM';
-  if (card.fan !== null && card.fan !== undefined) return gpuVal(card.fan, '%');
+  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return bsVal(card.fan_rpm) + ' RPM';
+  if (card.fan !== null && card.fan !== undefined) return bsVal(card.fan, '%');
   return '--';
 }
 
 function gpuFanRpm(card) {
-  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return gpuNum(card.fan_rpm);
-  if (card.fan !== null && card.fan !== undefined) return Math.round(gpuNum(card.fan) / 100 * 2400);
+  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return bsNum(card.fan_rpm);
+  if (card.fan !== null && card.fan !== undefined) return Math.round(bsNum(card.fan) / 100 * 2400);
   return 0;
 }
 
@@ -1760,20 +1682,20 @@ function gpuPowerPctText(card) {
 }
 
 function gpuName(card) {
-  return esc(String(card.short_name || card.name || 'GPU ' + gpuNum(card.index)));
+  return esc(String(card.short_name || card.name || 'GPU ' + bsNum(card.index)));
 }
 
 function gpuTempColor(card) {
-  return (card.temp === null || card.temp === undefined) ? GPU_DIM : _thermColor(card.temp);
+  return (card.temp === null || card.temp === undefined) ? BS_DIM : _thermColor(card.temp);
 }
 
 /* Donut with its caption BELOW the ring. The shared donut() puts the label
    above, which overflows the top of a vertically-centred region and gets
    clipped by its overflow:hidden. */
-function gpuGauge(pct, caption, color, size, sw, opts) {
+function bsGauge(pct, caption, color, size, sw, opts) {
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(4)}">` +
-    donut(pct, '', color, size, sw, GPU_F, opts) +
-    `<div style="color:${GPU_LABEL};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
+    donut(pct, '', color, size, sw, BS_F, opts) +
+    `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
       `line-height:1;text-transform:uppercase;letter-spacing:0.22em">${caption}</div></div>`;
 }
 
@@ -1783,28 +1705,28 @@ function gpuLayoutSingle(card) {
   const tc = gpuTempColor(card);
   const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
                  critColor: '#fff', linecap: 'butt', valSize: gq(44), labelSize: gq(13),
-                 labelColor: GPU_LABEL};
+                 labelColor: BS_LABEL};
 
   const head = `<div style="position:absolute;left:${gq(24)};top:${gq(16)};right:${gq(24)};` +
-    `display:flex;align-items:center;gap:${gq(14)};font-family:${GPU_F}">` +
+    `display:flex;align-items:center;gap:${gq(14)};font-family:${BS_F}">` +
     `<span style="font-size:${gq(11)};font-weight:700;color:#000;background:${col};` +
       `padding:${gq(2)} ${gq(9)};border-radius:2px;text-transform:uppercase;letter-spacing:0.22em;` +
       `box-shadow:0 0 ${gq(12)} ${col}88">${esc(String(card.vendor || 'GPU'))}</span>` +
     `<span style="color:#fff;font-size:${gq(27)};font-weight:700;text-shadow:0 0 ${gq(10)} ${col}99;` +
       `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${gpuName(card)}</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${GPU_LABEL};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;white-space:nowrap">${gpuVal(card.driver)} &nbsp;|&nbsp; ${gpuVal(card.bus_id)}</span></div>`;
+    `<span style="color:${BS_LABEL};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
+      `letter-spacing:0.22em;white-space:nowrap">${bsVal(card.driver)} &nbsp;|&nbsp; ${bsVal(card.bus_id)}</span></div>`;
 
   const utilBody = (card.util === null || card.util === undefined)
-    ? `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${gpuVal(card.driver).toUpperCase()}</div>`
-    : `<div style="display:flex;justify-content:center">${gpuGauge(gpuNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
+    ? `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
 
   const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
-    ? `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${gpuVal(card.driver).toUpperCase()}</div>`
-    : `<div style="display:flex;justify-content:center">${gpuGauge(gpuNum(card.vram_percent), 'VRAM', TEAL, 152, 11, dOpts)}</div>`;
+    ? `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.vram_percent), 'VRAM', TEAL, 152, 11, dOpts)}</div>`;
 
   const procs = asList({available: true, value: card.processes});
   let procBody, procRight;
@@ -1812,52 +1734,52 @@ function gpuLayoutSingle(card) {
     procBody = '';
     for (let i = 0; i < Math.min(3, procs.length); i++) {
       const pr = procs[i] || {};
-      const tot = gpuNum(card.vram_total);
-      const pct = tot > 0 ? Math.round(gpuNum(pr.vram_mib) / tot * 100) : 0;
-      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${GPU_F}">` +
+      const tot = bsNum(card.vram_total);
+      const pct = tot > 0 ? Math.round(bsNum(pr.vram_mib) / tot * 100) : 0;
+      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${BS_F}">` +
         `<span style="color:#fff;font-size:${gq(17)};font-weight:700;width:${gq(118)};overflow:hidden;` +
           `text-overflow:ellipsis;white-space:nowrap">${esc(String(pr.name || '?'))}</span>` +
-        `<span style="color:${GPU_DIM};font-size:${gq(13)};width:${gq(54)}">${gpuVal(pr.pid)}</span>` +
-        gpuSegBar(pct, TEAL, 560, 13, 30, 3) +
+        `<span style="color:${BS_DIM};font-size:${gq(13)};width:${gq(54)}">${bsVal(pr.pid)}</span>` +
+        bsSegBar(pct, TEAL, 560, 13, 30, 3) +
         `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700;width:${gq(74)};text-align:right;` +
-          `font-variant-numeric:tabular-nums">${gpuVal(pr.vram_mib)}M</span></div>`;
+          `font-variant-numeric:tabular-nums">${bsVal(pr.vram_mib)}M</span></div>`;
     }
     procRight = procs.length + ' ACTIVE';
   } else if (card.source === 'nvml') {
     // An empty list from NVML means the card is idle, NOT that the data is
     // unavailable. Saying "not exposed by nvidia" here was simply false.
-    procBody = `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
+    procBody = `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
       `text-transform:uppercase;letter-spacing:0.22em">NO COMPUTE PROCESSES ON THIS CARD</div>`;
     procRight = 'IDLE';
   } else {
     // sysfs genuinely has no per-process accounting. Say that, rather than
     // leaving a box that looks like it failed to load.
-    procBody = `<div style="color:${GPU_DIM};font-family:${GPU_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em">PER-PROCESS VRAM NOT EXPOSED BY ${gpuVal(card.driver).toUpperCase()}</div>`;
+    procBody = `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em">PER-PROCESS VRAM NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`;
     procRight = 'UNAVAILABLE';
   }
 
   return head +
-    gpuRegion(24, 62, 300, 240, 'PROCESSOR', col, '', utilBody, 'center') +
-    gpuRegion(348, 62, 300, 240, 'MEMORY', TEAL, '', vramBody, 'center') +
-    gpuRegion(672, 62, 328, 240, 'TELEMETRY', GOLD, '',
-      gpuKv('TEMP', gpuVal(card.temp, '°C'), tc, 30) +
-      gpuKv('POWER', gpuVal(card.power) + ` <span style="font-size:${gq(16)};color:${GPU_DIM}">/ ${gpuVal(card.power_limit)} W</span>`, AMBER, 30) +
-      gpuKv('CORE', gpuVal(card.clock_gpu) + ` <span style="font-size:${gq(16)};color:${GPU_DIM}">/ ${gpuVal(card.clock_gpu_max)} MHz</span>`, '#e6e6e6', 26) +
-      gpuKv('MEMORY', gpuVal(card.clock_mem) + ` <span style="font-size:${gq(16)};color:${GPU_DIM}">MHz</span>`, '#e6e6e6', 26),
+    bsRegion(24, 62, 300, 240, 'PROCESSOR', col, '', utilBody, 'center') +
+    bsRegion(348, 62, 300, 240, 'MEMORY', TEAL, '', vramBody, 'center') +
+    bsRegion(672, 62, 328, 240, 'TELEMETRY', GOLD, '',
+      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 30) +
+      bsKv('POWER', bsVal(card.power) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`, AMBER, 30) +
+      bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">/ ${bsVal(card.clock_gpu_max)} MHz</span>`, '#e6e6e6', 26) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">MHz</span>`, '#e6e6e6', 26),
       'space-around') +
-    gpuRegion(24, 312, 624, 116, 'LOAD', col, '',
-      gpuMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), AMBER, 596, 34, 14, 12) +
-      gpuMetered('MEMORY CONTROLLER', gpuVal(card.mem_util, '%'), gpuNum(card.mem_util), TEAL, 596, 34, 14, 12),
+    bsRegion(24, 312, 624, 116, 'LOAD', col, '',
+      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), AMBER, 596, 34, 14, 12) +
+      bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), TEAL, 596, 34, 14, 12),
       'space-around') +
-    gpuRegion(672, 312, 328, 116, 'COOLING', tc, '',
+    bsRegion(672, 312, 328, 116, 'COOLING', tc, '',
       `<div style="display:flex;align-items:center;gap:${gq(18)}">` +
         fanIcon(tc, gq(54), gpuFanRpm(card)) +
-        `<div><div style="color:#fff;font-family:${GPU_F};font-size:${gq(30)};font-weight:700;` +
+        `<div><div style="color:#fff;font-family:${BS_F};font-size:${gq(30)};font-weight:700;` +
           `font-variant-numeric:tabular-nums;text-shadow:0 0 ${gq(8)} ${tc}99">${gpuFanText(card)}</div>` +
-        `<div style="color:${GPU_LABEL};font-family:${GPU_F};font-size:${gq(12)};font-weight:700;` +
+        `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
           `text-transform:uppercase;letter-spacing:0.22em">FAN</div></div></div>`, 'center') +
-    gpuRegion(24, 446, 976, 132, 'PROCESSES', TEAL, procRight, procBody, 'space-around');
+    bsRegion(24, 446, 976, 132, 'PROCESSES', TEAL, procRight, procBody, 'space-around');
 }
 
 /* ── layout B: two cards ── */
@@ -1868,28 +1790,28 @@ function gpuCardPanel(card, x, y, w, h) {
                  critColor: '#fff', linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
 
   const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
-    gpuMetered('VRAM', gpuVal(card.vram_used) + ` <span style="font-size:${gq(15)};color:${GPU_DIM}">/ ${gpuVal(card.vram_total)} MiB</span>`,
-               gpuNum(card.vram_percent), TEAL, 330, 26, 23, 13) +
-    gpuMetered('POWER', gpuVal(card.power) + ` <span style="font-size:${gq(15)};color:${GPU_DIM}">/ ${gpuVal(card.power_limit)} W</span>`,
+    bsMetered('VRAM', bsVal(card.vram_used) + ` <span style="font-size:${gq(15)};color:${BS_DIM}">/ ${bsVal(card.vram_total)} MiB</span>`,
+               bsNum(card.vram_percent), TEAL, 330, 26, 23, 13) +
+    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(15)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`,
                gpuPowerPct(card), AMBER, 330, 26, 23, 13) +
-    gpuMetered('MEM CTRL', gpuVal(card.mem_util, '%'), gpuNum(card.mem_util), GOLD, 330, 26, 23, 13) +
+    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), GOLD, 330, 26, 23, 13) +
     `</div>`;
 
   // Fixed width, not flex:1. Stretching this column ran its labels back
   // underneath the bars in the middle column.
   const right = `<div style="width:${gq(236)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
-    gpuKv('TEMP', gpuVal(card.temp, '°C'), tc, 26) +
-    gpuKv('CORE', gpuVal(card.clock_gpu) + ` <span style="font-size:${gq(14)};color:${GPU_DIM}">MHz</span>`, '#e6e6e6', 22) +
+    bsKv('TEMP', bsVal(card.temp, '°C'), tc, 26) +
+    bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(14)};color:${BS_DIM}">MHz</span>`, '#e6e6e6', 22) +
     `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(30), gpuFanRpm(card)) +
-      `<span style="color:#e6e6e6;font-family:${GPU_F};font-size:${gq(17)};font-weight:700;` +
+      `<span style="color:#e6e6e6;font-family:${BS_F};font-size:${gq(17)};font-weight:700;` +
       `text-shadow:0 0 ${gq(6)} ${tc}99">${gpuFanText(card)}</span></div></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
-    donut(gpuNum(card.util), '', col, 138, 10, GPU_F, dOpts) +
+    donut(bsNum(card.util), '', col, 138, 10, BS_F, dOpts) +
     stats + `<div style="flex:1"></div>` + right + `</div>`;
 
-  return gpuRegion(x, y, w, h, gpuName(card), col,
-    gpuVal(card.driver) + ' &nbsp;|&nbsp; ' + gpuVal(card.bus_id), inner, 'center');
+  return bsRegion(x, y, w, h, gpuName(card), col,
+    bsVal(card.driver) + ' &nbsp;|&nbsp; ' + bsVal(card.bus_id), inner, 'center');
 }
 
 /* ── layout C: three or more ── */
@@ -1901,26 +1823,26 @@ function gpuTile(card, x, y, w, h) {
   // Used keeps a decimal at every magnitude -- rounding 18.3 to 18 on a 24G
   // card throws away the only digit that moves. The total is a fixed board
   // spec, so an integer is right there.
-  const gibUsed = function (mib) { return (gpuNum(mib) / 1024).toFixed(1); };
-  const gibTotal = function (mib) { return Math.round(gpuNum(mib) / 1024); };
+  const gibUsed = function (mib) { return (bsNum(mib) / 1024).toFixed(1); };
+  const gibTotal = function (mib) { return Math.round(bsNum(mib) / 1024); };
 
   const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
-    gpuMetered('VRAM', gibUsed(card.vram_used) + ` <span style="font-size:${gq(12)};color:${GPU_DIM}">/ ${gibTotal(card.vram_total)} G</span>`,
-               gpuNum(card.vram_percent), TEAL, 214, 20, 19, 11) +
-    gpuMetered('POWER', gpuVal(card.power) + ` <span style="font-size:${gq(12)};color:${GPU_DIM}">/ ${gpuVal(card.power_limit)} W</span>`,
+    bsMetered('VRAM', gibUsed(card.vram_used) + ` <span style="font-size:${gq(12)};color:${BS_DIM}">/ ${gibTotal(card.vram_total)} G</span>`,
+               bsNum(card.vram_percent), TEAL, 214, 20, 19, 11) +
+    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(12)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`,
                gpuPowerPct(card), AMBER, 214, 20, 19, 11) + `</div>`;
 
-  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${GPU_F}">` +
+  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${BS_F}">` +
     fanIcon(tc, gq(24), gpuFanRpm(card)) +
-    `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700">${gpuVal(card.temp, '°C')}</span>` +
+    `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700">${bsVal(card.temp, '°C')}</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${GPU_LABEL};font-size:${gq(11)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;white-space:nowrap">${gpuVal(card.clock_gpu)} MHz</span></div>`;
+    `<span style="color:${BS_LABEL};font-size:${gq(11)};font-weight:700;text-transform:uppercase;` +
+      `letter-spacing:0.22em;white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
-    donut(gpuNum(card.util), '', col, 104, 8, GPU_F, dOpts) + stack + `</div>` + footer;
+    donut(bsNum(card.util), '', col, 104, 8, BS_F, dOpts) + stack + `</div>` + footer;
 
-  return gpuRegion(x, y, w, h, gpuName(card), col, gpuVal(card.util, '%'), inner, 'center');
+  return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
 }
 
 function gpuHeader(cards) {
@@ -1930,18 +1852,18 @@ function gpuHeader(cards) {
   }
   const total = anyPower ? ` &nbsp;|&nbsp; ${Math.round(watts)} W TOTAL` : '';
   return `<div style="position:absolute;left:${gq(24)};top:${gq(14)};right:${gq(24)};` +
-    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${GPU_F}">` +
+    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${BS_F}">` +
     `<span style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
       `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${GPU_LABEL};font-size:${gq(13)};font-weight:700;text-transform:uppercase;` +
+    `<span style="color:${BS_LABEL};font-size:${gq(13)};font-weight:700;text-transform:uppercase;` +
       `letter-spacing:0.22em">${cards.length} CARD${cards.length === 1 ? '' : 'S'}${total}</span></div>`;
 }
 
 function panelGoldGpuScreen(c) {
   const cards = asList(m('gpu.cards'));
   const frame = (body) => `<div class="screen-frame"><div style="position:relative;width:100%;` +
-    `height:100%;background:#000;font-family:${GPU_F};overflow:hidden">${body}</div></div>`;
+    `height:100%;background:#000;font-family:${BS_F};overflow:hidden">${body}</div></div>`;
 
   if (!cards.length) {
     // A machine with no card the collector can read. Say so plainly; the
@@ -1950,7 +1872,7 @@ function panelGoldGpuScreen(c) {
       `align-items:center;justify-content:center;gap:${gq(10)}">` +
       `<div style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
         `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</div>` +
-      `<div style="color:${GPU_DIM};font-size:${gq(15)};font-weight:700;text-transform:uppercase;` +
+      `<div style="color:${BS_DIM};font-size:${gq(15)};font-weight:700;text-transform:uppercase;` +
         `letter-spacing:0.22em">NO GPU DETECTED</div></div>`);
   }
 
@@ -1970,11 +1892,216 @@ function panelGoldGpuScreen(c) {
   // Beyond four the grid has no room; say what is not shown rather than
   // silently truncating the list.
   if (cards.length > 4) {
-    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${GPU_DIM};` +
-      `font-family:${GPU_F};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
+    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${BS_DIM};` +
+      `font-family:${BS_F};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
       `letter-spacing:0.22em">+${cards.length - 4} MORE NOT SHOWN</div>`;
   }
   return frame(body);
+}
+
+/* ── Bridge Station: screen 1 ────────────────────────────────────────────
+ * CORE / THERMALS / COMMS / CHRONOMETER, in the same spine vocabulary as the
+ * GPU screen so the Gold family reads as one theme rather than two.
+ *
+ * The NPU readout that used to hold the fourth quadrant moves to its own
+ * screen: on a 1024x600 panel it was four lines of text competing with the
+ * clock, and a local model server deserves the room the GPU screen gets.
+ */
+
+/* Thermal row: label, segmented track, reading. The track is segmented rather
+   than continuous so a glance reads roughly how hot without parsing digits. */
+function bsThermRow(label, temp, w) {
+  const known = (temp !== null && temp !== undefined && isFinite(temp));
+  const c = known ? _thermColor(temp) : BS_DIM;
+  // The scale runs 20-120C, matching the tick labels printed beneath it.
+  const pct = known ? Math.max(0, Math.min(100, ((temp - 20) / 100) * 100)) : 0;
+  return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
+    `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
+      `text-transform:uppercase;letter-spacing:0.22em;width:${gq(34)};flex-shrink:0">${label}</span>` +
+    bsSegBar(pct, c, w, 16, 14, 4) +
+    `<span style="color:${c};font-family:${BS_F};font-size:${gq(18)};font-weight:700;` +
+      `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+      `text-shadow:0 0 ${gq(8)} ${c}99">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
+}
+
+/* One icon per fan detected, each turning at its own rate.
+   No RPM readout on purpose: fans in a group do not share a speed, so a
+   single number was an average that hid the very thing worth seeing. */
+function bsFanGroup(label, color, rpms) {
+  if (!rpms.length) return '';
+  let icons = '';
+  for (const r of rpms) icons += fanIcon(color, gq(26), r);
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(6)}">` +
+    `<div style="display:flex;gap:${gq(9)}">${icons}</div>` +
+    `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
+      `line-height:1;text-transform:uppercase;letter-spacing:0.22em">${label}</div></div>`;
+}
+
+function bsWiredIcon(color, lit) {
+  return `<svg width="${gq(26)}" height="${gq(26)}" viewBox="0 0 24 24" ` +
+    `style="opacity:${lit ? 1 : 0.3};filter:drop-shadow(0 0 ${gq(6)} ${color})">` +
+    `<rect x="4" y="9" width="16" height="9" rx="1.5" fill="${color}"/>` +
+    `<rect x="9" y="4" width="6" height="5" fill="${color}"/>` +
+    `<rect x="7" y="18" width="2" height="3" fill="${color}"/>` +
+    `<rect x="15" y="18" width="2" height="3" fill="${color}"/></svg>`;
+}
+
+function bsWifiIcon(color, lit) {
+  return `<svg width="${gq(22)}" height="${gq(22)}" viewBox="0 0 24 24" ` +
+    `style="opacity:${lit ? 1 : 0.3}"><g fill="none" stroke="${color}" ` +
+    `stroke-width="2" stroke-linecap="round">` +
+    `<path d="M4 9a13 13 0 0 1 16 0"/><path d="M7.5 13a8 8 0 0 1 9 0"/></g>` +
+    `<circle cx="12" cy="17.5" r="1.8" fill="${color}"/></svg>`;
+}
+
+/* Capacity bar with its own readout, bound to the bar's width. */
+function bsCapacityBar(label, cap, pct, color, w) {
+  return `<div style="width:${gq(w)}">` +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
+      `margin-bottom:${gq(5)}">` +
+      `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
+        `text-transform:uppercase;letter-spacing:0.22em">${label}</span>` +
+      `<span style="color:#dcdcdc;font-family:${BS_F};font-size:${gq(14)};font-weight:700;` +
+        `font-variant-numeric:tabular-nums">${cap}</span></div>` +
+    bsSegBar(pct, color, w, 11, 26, 3) + `</div>`;
+}
+
+function panelGoldScreen1(c) {
+  const BLUE = PANEL_SPEC.colors.blue;
+  const RED = PANEL_SPEC.colors.red;
+
+  const cpu = m('cpu.usage'), ram = m('mem.ram_percent'), vram = m('gpu.vram_percent');
+  const root = m('disk.root_used'), rootPct = m('disk.root_percent');
+  const home = m('disk.home_used'), homePct = m('disk.home_percent');
+  const cpuT = m('cpu.temp'), mbT = m('cpu.mb_temp'), gpuT = m('gpu.temp');
+  const ip = m('net.ip'), mac = m('net.mac'), iface = m('net.iface');
+  const speed = m('net.speed'), dl = m('net.dl'), ul = m('net.ul'), ping = m('net.ping');
+  const host = m('sys.hostname');
+
+  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
+                 critColor: RED, linecap: 'butt', valSize: gq(30), labelSize: gq(12)};
+
+  // ── CORE
+  const core =
+    `<div style="display:flex;justify-content:space-around;align-items:center">` +
+      bsGauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', GOLD, 104, 9, dOpts) +
+      bsGauge(bsNum(ram.available ? ram.value : 0), 'RAM', BLUE, 104, 9, dOpts) +
+      bsGauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', GREEN, 104, 9, dOpts) +
+    `</div>` +
+    `<div style="display:flex;flex-direction:column;gap:${gq(11)};margin-top:${gq(14)}">` +
+      bsCapacityBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
+                    bsNum(rootPct.available ? rootPct.value : 0), GOLD, 428) +
+      (home.available
+        ? bsCapacityBar('SECONDARY', `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`,
+                        bsNum(homePct.available ? homePct.value : 0), TEAL, 428)
+        : `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
+          `text-transform:uppercase;letter-spacing:0.22em">SECONDARY &mdash; NONE</div>`) +
+    `</div>`;
+
+  // ── THERMALS
+  const temps = [cpuT, mbT, gpuT].filter(t => t.available).map(t => t.value);
+  const hottest = temps.length ? Math.max.apply(null, temps) : null;
+  const status = hottest === null ? 'NO SENSORS'
+               : hottest >= 110 ? 'CRITICAL' : hottest >= 90 ? 'WARNING' : 'NOMINAL';
+  const statusColor = hottest === null ? BS_DIM
+                    : hottest >= 110 ? RED : hottest >= 90 ? (PANEL_SPEC.colors.thermOrange || '#FF7700') : GREEN;
+
+  let scale = `<div style="display:flex;justify-content:space-between;` +
+    `margin-left:${gq(45)};margin-right:${gq(60)}">`;
+  for (const t of [20, 50, 70, 90, 110, 120]) {
+    scale += `<span style="color:#b4b4b4;font-family:${BS_F};font-size:${gq(11)}">${t}</span>`;
+  }
+  scale += `</div>`;
+
+  const cpuFans = asList(m('cpu.fans_cpu'));
+  const caseFans = asList(m('cpu.fans_case'));
+  const gpuFanPct = m('gpu.fan');
+  // gpu.fan is a duty percentage, not a tachometer reading; map it onto a
+  // comparable range so the icon turns at a rate the eye can compare.
+  const gpuFans = gpuFanPct.available && gpuFanPct.value !== null
+    ? [Math.round(bsNum(gpuFanPct.value) / 100 * 2400)] : [];
+  const fanRow = cpuFans.length || caseFans.length || gpuFans.length
+    ? `<div style="display:flex;justify-content:space-around;align-items:flex-end">` +
+      bsFanGroup('CPU', GOLD, cpuFans) + bsFanGroup('CASE', TEAL, caseFans) +
+      bsFanGroup('GPU', GREEN, gpuFans) + `</div>`
+    : `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
+      `text-align:center;text-transform:uppercase;letter-spacing:0.22em">NO FANS DETECTED</div>`;
+
+  const therm =
+    `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
+      bsThermRow('CPU', cpuT.available ? cpuT.value : null, 300) +
+      bsThermRow('MB', mbT.available ? mbT.value : null, 300) +
+      bsThermRow('GPU', gpuT.available ? gpuT.value : null, 300) +
+      scale +
+    `</div>` + fanRow;
+
+  // ── COMMS
+  const linkUp = ip.available;
+  const identity =
+    `<div style="display:flex;justify-content:flex-end;align-items:center;gap:${gq(12)}">` +
+      bsWiredIcon(linkUp ? GREEN : BS_DIM, linkUp) +
+      `<div style="text-align:right">` +
+        `<div style="color:#f2f2f2;font-family:${BS_F};font-size:${gq(21)};font-weight:700;` +
+          `line-height:1.05;text-shadow:0 0 ${gq(8)} #f2f2f299">` +
+          `${iface.available ? esc(String(iface.value)) : '--'}</div>` +
+        `<div style="color:${linkUp ? GREEN : BS_DIM};font-family:${BS_F};font-size:${gq(11)};` +
+          `font-weight:700;margin-top:${gq(2)};text-transform:uppercase;letter-spacing:0.22em">` +
+          `${linkUp ? 'LINK ACTIVE' : 'NO LINK'}</div></div>` +
+      `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(1)};` +
+        `margin-left:${gq(4)}">` + bsWifiIcon(BS_DIM, false) +
+        `<span style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(9)};font-weight:700;` +
+        `text-transform:uppercase;letter-spacing:0.22em">OFF</span></div></div>`;
+
+  const speedStr = speed.available
+    ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GbE' : speed.value + ' Mb')
+    : '--';
+  const comms = identity +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(22)};` +
+      `row-gap:${gq(18)}">` +
+      bsKv('LINK', speedStr, GREEN, 22) +
+      bsKv('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', AMBER, 22) +
+      bsKv('RECV', dl.available ? `${esc(String(dl.value))} <span style="font-size:${gq(13)};` +
+           `color:${BS_DIM}">${esc(String(dl.unit))}</span>` : '--',
+           PANEL_SPEC.colors.thermBlue || '#2288DD', 22) +
+      bsKv('SEND', ul.available ? `${esc(String(ul.value))} <span style="font-size:${gq(13)};` +
+           `color:${BS_DIM}">${esc(String(ul.unit))}</span>` : '--', GREEN, 22) +
+      bsKv('IP', ip.available ? esc(String(ip.value)) : '--', '#efefef', 18) +
+      bsKv('MAC', mac.available ? esc(String(mac.value)) : '--', '#cfcfcf', 15) +
+    `</div>`;
+
+  // ── CHRONOMETER
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mmn = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST',
+                  'SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const chrono =
+    `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<div style="display:flex;align-items:baseline;gap:${gq(8)}">` +
+        `<span style="color:${GOLD};font-family:${BS_F};font-size:${gq(72)};font-weight:700;` +
+          `line-height:1;font-variant-numeric:tabular-nums;` +
+          `text-shadow:0 0 ${gq(26)} ${GOLD}66">${hh}:${mmn}</span>` +
+        `<span style="color:${AMBER};font-family:${BS_F};font-size:${gq(32)};font-weight:700;` +
+          `font-variant-numeric:tabular-nums;text-shadow:0 0 ${gq(14)} ${AMBER}99">${ss}</span></div>` +
+      `<div style="color:${GREEN};font-family:${BS_F};font-size:${gq(19)};font-weight:700;` +
+        `letter-spacing:0.3em;margin-top:${gq(12)};text-transform:uppercase;` +
+        `text-shadow:0 0 ${gq(10)} ${GREEN}99">${days[now.getDay()]}</div>` +
+      `<div style="color:#dcdcdc;font-family:${BS_F};font-size:${gq(15)};font-weight:700;` +
+        `letter-spacing:0.22em;text-transform:uppercase">` +
+        `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}</div></div>`;
+
+  return `<div class="screen-frame"><div style="position:relative;width:100%;height:100%;` +
+    `background:#000;font-family:${BS_F};overflow:hidden">` +
+    bsRegion(16, 18, 486, 272, 'CORE', GOLD,
+             host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
+    bsRegion(522, 18, 486, 272, 'THERMALS', AMBER,
+             `<span style="color:${statusColor}">${status}</span>`, therm, 'space-evenly') +
+    bsRegion(16, 312, 486, 272, 'COMMS', TEAL, '', comms, 'space-evenly') +
+    bsRegion(522, 312, 486, 272, 'CHRONOMETER', GOLD, '', chrono, 'center') +
+    `</div></div>`;
 }
 
 
