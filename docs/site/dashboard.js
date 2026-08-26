@@ -75,6 +75,31 @@ function fmtCapacityTotal(d) {
   return fmtCapacity({ available: true, value: d.extra.total, unit: d.unit });
 }
 
+/* Coerce a list-valued metric to a real array. A metric flagged available is
+   not a promise that it carries a list -- a collector that returns None for a
+   field it normally fills would otherwise crash the renderer on `.length`. */
+function asList(d) {
+  return (d && d.available && Array.isArray(d.value)) ? d.value : [];
+}
+
+
+/* Display name for whichever LLM backend is live. llm.py reports
+   'llama.cpp' | 'ollama' | 'vllm' in llama.backend; an Ollama or vLLM user
+   should not see a panel titled LLAMA.CPP. Defined here rather than beside
+   cleanModel() because cleanModel() is duplicated in display_app.js,
+   control_app.js and the docs/site shim -- screen_functions.js is the single
+   file all three hosts share, and the only consumer of this. */
+function backendTitle() {
+  const d = m('llama.backend');
+  if (!d.available || !d.value || d.value === 'none') return 'AI ENGINE';
+  // Object.create(null): a plain object literal would resolve '__proto__' or
+  // 'toString' to prototype junk instead of falling through to the escaped
+  // default.
+  const names = Object.assign(Object.create(null), {
+    'llama.cpp': 'LLAMA.CPP', ollama: 'OLLAMA', vllm: 'VLLM',
+  });
+  return names[String(d.value)] || esc(String(d.value).toUpperCase());
+}
 
 /* ── SVG Donut gauge ── */
 function donut(pct, label, ringColor, size, sw, font, opts) {
@@ -153,8 +178,8 @@ function fanStrip(fanColor, font, bgColor) {
   const cpuFans = m('cpu.fans_cpu');
   const caseFans = m('cpu.fans_case');
   const gpuFan = m('gpu.fan');
-  const cpuList = cpuFans.available ? cpuFans.value : [];
-  const caseList = caseFans.available ? caseFans.value : [];
+  const cpuList = asList(cpuFans);
+  const caseList = asList(caseFans);
   let html = `<div style="display:flex;align-items:center;gap:0.88cqw;${bgColor ? 'background:'+bgColor+';border-radius:3px;padding:0.44cqw 1.17cqw;' : ''}">`;
   let shown = 0;
   if (cpuList.length) {
@@ -204,7 +229,7 @@ function terminalScreen1(c) {
     tPanel(c, 'CPU',
       tRow(c, 'Temp:', '', cpuTemp.available ? cpuTemp.value + '\u00b0C' : 'N/A') +
       tRow(c, 'Load:', tBar(c, cpuUsage.available ? cpuUsage.value : null), cpuUsage.available ? Math.round(cpuUsage.value) + '%' : 'N/A') +
-      tRow(c, 'Fans:', '', (function(){ var cpuF=m('cpu.fans_cpu'),caseF=m('cpu.fans_case'),parts=[]; var cl=cpuF.available?cpuF.value:[],ca=caseF.available?caseF.value:[]; if(cl.length)parts.push('CPU:'+cl.filter(function(r){return r>0}).length); if(ca.length)parts.push('Case:'+ca.filter(function(r){return r>0}).length); var gpuF=m('gpu.fan'); if(gpuF.available)parts.push('GPU:'+(gpuF.value>0?'On':'Off')); return parts.length?parts.join(' | '):'N/A'; })(), c.dim) +
+      tRow(c, 'Fans:', '', (function(){ var cpuF=m('cpu.fans_cpu'),caseF=m('cpu.fans_case'),parts=[]; var cl=asList(cpuF),ca=asList(caseF); if(cl.length)parts.push('CPU:'+cl.filter(function(r){return r>0}).length); if(ca.length)parts.push('Case:'+ca.filter(function(r){return r>0}).length); var gpuF=m('gpu.fan'); if(gpuF.available)parts.push('GPU:'+(gpuF.value>0?'On':'Off')); return parts.length?parts.join(' | '):'N/A'; })(), c.dim) +
       tRow(c, 'Cores:', '', coresStr, c.dim)
     ) +
     tPanel(c, 'GPU',
@@ -268,7 +293,7 @@ function terminalScreen2(c) {
   let statusText = 'Unknown';
   if (llamaStatus.available) {
     if (llamaStatus.value === 'Running') {
-      statusText = llamaHealth.available ? `Running (${llamaHealth.value})` : 'Running';
+      statusText = llamaHealth.available ? `Running (${esc(String(llamaHealth.value))})` : 'Running';
     } else statusText = 'Stopped';
   }
 
@@ -282,7 +307,7 @@ function terminalScreen2(c) {
       tRow(c, 'Mem BW Util:', tBar(c, memUtil.available ? memUtil.value : null), memUtil.available ? memUtil.value + '%' : 'N/A')
     ) +
     tPanel(c, 'CUDA PROCESSES', procRows) +
-    tPanel(c, 'LLAMA.CPP',
+    tPanel(c, backendTitle(),
       tRow(c, 'Status:', '', statusText) +
       tRow(c, 'Model:', '', cleanModel()) +
       tRow(c, 'Quant:', '', mv('llama.quant')) +
@@ -347,8 +372,8 @@ function panelGoldScreen1(c) {
     , `<span style="color:${thermalStatusColor}">${thermalStatus}</span>`) +
     lPanel('COMMS', TEAL,
       `<div style="font-family:${F}">` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:#9aa0a6;font-size:2.05cqw">IP</span><span style="color:#ddd;font-size:4.10cqw;font-weight:700">${ip.available?ip.value:'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:#9aa0a6;font-size:2.05cqw">MAC</span><span style="color:#ddd;font-size:4.10cqw;font-weight:700">${mac.available?mac.value:'N/A'}</span></div>` +
+        `<div style="display:flex;justify-content:space-between"><span style="color:#9aa0a6;font-size:2.05cqw">IP</span><span style="color:#ddd;font-size:4.10cqw;font-weight:700">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
+        `<div style="display:flex;justify-content:space-between"><span style="color:#9aa0a6;font-size:2.05cqw">MAC</span><span style="color:#ddd;font-size:4.10cqw;font-weight:700">${mac.available?esc(String(mac.value)):'N/A'}</span></div>` +
       `</div>` +
       `<div style="display:flex;justify-content:space-around;align-items:center;font-family:${F}">` +
         `<div style="display:flex;align-items:center;gap:0.88cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${GREEN}"/></svg><span style="color:${GREEN};font-size:4.69cqw;font-weight:700">${ul.available?ul.value:'0'} <span style="font-size:2.34cqw">${ul.available?ul.unit:'B/s'}</span></span></div>` +
@@ -365,7 +390,7 @@ function panelGoldScreen1(c) {
         `<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:#9aa0a6;font-size:2.05cqw">T/S</span><span style="color:#ddd;font-size:4.69cqw;font-weight:700">${tokSec.available?Math.round(tokSec.value):'--'}</span></div>` +
         `<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:#9aa0a6;font-size:2.05cqw">VRAM</span><span style="color:#ddd;font-size:4.69cqw;font-weight:700">${vramStr}</span></div>` +
       `</div>`
-    , 'LLAMA.CPP') +
+    , backendTitle()) +
     `</div></div>`;
 }
 
@@ -465,12 +490,12 @@ function panelCoralScreen1(c) {
     `</div>` +
     `<div style="display:flex;gap:0.88cqw">` +
       `<div style="flex:1">${coralHdr('Comms', T.anakiwa||'#99CCFF', speedStr)}</div>` +
-      `<div style="flex:1">${coralHdr('NPU', T.lilac||'#CC99CC', 'llama.cpp')}</div>` +
+      `<div style="flex:1">${coralHdr('NPU', T.lilac||'#CC99CC', backendTitle().toLowerCase())}</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw;flex:1">` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">IP</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${ip.available?ip.value:'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">MAC</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${mac.available?mac.value:'N/A'}</span></div></div>` +
+        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">IP</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
+        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">MAC</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${mac.available?esc(String(mac.value)):'N/A'}</span></div></div>` +
         `<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${T.anakiwa||'#99CCFF'}"/></svg><span style="color:${T.anakiwa||'#99CCFF'};font-size:4.98cqw">${ul.available?ul.value+' '+ul.unit:'0'}</span></div><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,22 4,10 20,10" fill="${T.mariner||'#3366CC'}"/></svg><span style="color:${T.mariner||'#3366CC'};font-size:4.98cqw">${dl.available?dl.value+' '+dl.unit:'0'}</span></div></div>` +
       `</div>` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
@@ -598,12 +623,12 @@ function panelTealScreen1(c) {
     `</div>` +
     `<div style="display:flex;gap:0.88cqw">` +
       `<div style="flex:1">${tealHdr('Comms', D.lavender||'#8888BB', '')}</div>` +
-      `<div style="flex:1">${tealHdr('NPU', D.warm||'#CCAA77', 'LLAMA.CPP')}</div>` +
+      `<div style="flex:1">${tealHdr('NPU', D.warm||'#CCAA77', backendTitle())}</div>` +
     `</div>` +
     `<div style="display:flex;gap:0.88cqw;flex:1">` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">IP</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${ip.available?ip.value:'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">MAC</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${mac.available?mac.value:'N/A'}</span></div></div>` +
+        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">IP</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
+        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">MAC</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${mac.available?esc(String(mac.value)):'N/A'}</span></div></div>` +
         `<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${D.teal||'#2A9D8F'}"/></svg><span style="color:${D.teal||'#2A9D8F'};font-size:4.98cqw;font-weight:600">${ul.available?ul.value+' '+ul.unit:'0'}</span></div><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,22 4,10 20,10" fill="${D.lavender||'#8888BB'}"/></svg><span style="color:${D.lavender||'#8888BB'};font-size:4.98cqw;font-weight:600">${dl.available?dl.value+' '+dl.unit:'0'}</span></div></div>` +
       `</div>` +
       `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
@@ -783,14 +808,14 @@ function scanScreen1(c) {
     /* Row 4: Headers */
     '<div style="display:flex;gap:1.17cqw">' +
       '<div style="flex:1">' + scanSectionLabel('COMMS', blue, speedStr) + '</div>' +
-      '<div style="flex:1">' + scanSectionLabel('NPU', amber, 'LLAMA.CPP') + '</div>' +
+      '<div style="flex:1">' + scanSectionLabel('NPU', amber, backendTitle()) + '</div>' +
     '</div>' +
     /* Row 5+6: Data */
     '<div style="display:flex;gap:1.17cqw;flex:1">' +
       '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
         '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">IP</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (ip.available?ip.value:'N/A') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">MAC</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (mac.available?mac.value:'N/A') + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">IP</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (ip.available?esc(String(ip.value)):'N/A') + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">MAC</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (mac.available?esc(String(mac.value)):'N/A') + '</span></div>' +
         '</div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
           '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="' + scanGlow(green, 4) + ';font-size:1.76cqw;font-family:' + F + '">\u25B2</span><span style="' + scanGlow(green, 4) + ';font-size:4.98cqw;font-family:' + F + '">' + (ul.available?ul.value+' '+ul.unit:'0') + '</span></div>' +
@@ -1077,7 +1102,7 @@ function tubeScreen1(c) {
       '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
         (function() {
           var cpuF = m('cpu.fans_cpu'), caseF = m('cpu.fans_case'), gpuFan = m('gpu.fan'), h = '';
-          var cpuList = cpuF.available ? cpuF.value : [], caseList = caseF.available ? caseF.value : [];
+          var cpuList = asList(cpuF), caseList = asList(caseF);
           if (cpuList.length) {
             h += '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">CPU</span>';
             for (var i = 0; i < cpuList.length; i++) h += dekatron(cpuList[i], 24);
@@ -1097,13 +1122,13 @@ function tubeScreen1(c) {
     '</div>' +
     '<div style="display:flex;gap:1.17cqw">' +
       '<div style="flex:1">' + tubeSectionLabel('COMMS', '#4488DD', speedStr) + '</div>' +
-      '<div style="flex:1">' + tubeSectionLabel('NPU', warm, 'LLAMA.CPP') + '</div>' +
+      '<div style="flex:1">' + tubeSectionLabel('NPU', warm, backendTitle()) + '</div>' +
     '</div>' +
     '<div style="display:flex;gap:1.17cqw;flex:1">' +
       '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
         '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">IP</span>' + nixieDigit(ip.available?ip.value:'N/A', 32) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">MAC</span>' + nixieDigit(mac.available?mac.value:'N/A', 32) + '</div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">IP</span>' + nixieDigit(ip.available?esc(String(ip.value)):'N/A', 32) + '</div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">MAC</span>' + nixieDigit(mac.available?esc(String(mac.value)):'N/A', 32) + '</div>' +
         '</div>' +
         '<div style="display:flex;gap:1.76cqw;align-items:center">' +
           '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + eyeStd + ';text-shadow:0 0 4px ' + eyeStd + '88;font-size:1.76cqw;font-family:' + MONO + '">\u25B2</span>' + nixieDigit((ul.available?ul.value:'0'), 32) + '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">' + (ul.available?ul.unit:'B/s') + '</span></div>' +
@@ -1333,7 +1358,7 @@ function vfdScreen1(c) {
       '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
         (function() {
           var cpuF = m('cpu.fans_cpu'), caseF = m('cpu.fans_case'), gpuFan = m('gpu.fan'), h = '';
-          var cpuList = cpuF.available ? cpuF.value : [], caseList = caseF.available ? caseF.value : [];
+          var cpuList = asList(cpuF), caseList = asList(caseF);
           if (cpuList.length) {
             h += '<span style="color:' + greenDim + ';text-shadow:0 0 2px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + '">CPU</span>';
             for (var i = 0; i < cpuList.length; i++) h += fanIcon(green, '2.93cqw', cpuList[i]);
@@ -1353,13 +1378,13 @@ function vfdScreen1(c) {
     '</div>' +
     '<div style="display:flex;gap:1.17cqw">' +
       '<div style="flex:1">' + vfdSectionLabel('COMMS', 'blue', speedStr) + '</div>' +
-      '<div style="flex:1">' + vfdSectionLabel('NPU', 'amber', 'LLAMA.CPP') + '</div>' +
+      '<div style="flex:1">' + vfdSectionLabel('NPU', 'amber', backendTitle()) + '</div>' +
     '</div>' +
     '<div style="display:flex;gap:1.46cqw;flex:1">' +
       '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
         '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">IP</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (ip.available?ip.value:'N/A') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">MAC</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (mac.available?mac.value:'N/A') + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">IP</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (ip.available?esc(String(ip.value)):'N/A') + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">MAC</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (mac.available?esc(String(mac.value)):'N/A') + '</span></div>' +
         '</div>' +
         '<div style="display:flex;gap:1.76cqw;align-items:center">' +
           '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + green + ';text-shadow:0 0 4px ' + greenDim + ';font-size:1.76cqw;font-family:' + F + '">\u25B2</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:4.10cqw;font-family:' + F + '">' + (ul.available?ul.value:'0') + '</span><span style="color:' + greenDim + ';font-size:1.76cqw;font-family:' + F + '">' + (ul.available?ul.unit:'B/s') + '</span></div>' +
@@ -1422,8 +1447,17 @@ function vfdScreen2(c) {
 
 /* ═══ Screen 3 — Claude Usage (shared, adapts to theme) ═══ */
 
+/* Safe thousands-separated integer. A metric flagged available is not a
+   promise that it carries a number, so never call .toLocaleString() blind. */
+function fmtNum(d, fallback) {
+  if (!d || !d.available || d.value == null || isNaN(d.value)) {
+    return fallback === undefined ? '--' : fallback;
+  }
+  return Number(d.value).toLocaleString();
+}
+
 function fmtTok(n) {
-  if (n == null || n === 0) return '0';
+  if (n == null || isNaN(n) || n === 0) return '0';
   if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
@@ -1537,16 +1571,16 @@ function claudeScreen3(c) {
       `<div>` +
         sectionTitle('Messages') +
         `<div style="display:flex;gap:12px;align-items:baseline">` +
-          `<span style="color:${pri};font-size:3.52cqw;font-weight:700">${msgsTotal.available ? msgsTotal.value.toLocaleString() : '--'}</span>` +
+          `<span style="color:${pri};font-size:3.52cqw;font-weight:700">${fmtNum(msgsTotal)}</span>` +
           `<span style="color:${dim};font-size:1.37cqw">total</span>` +
         `</div>` +
-        statRow('User', msgsUser.available ? msgsUser.value.toLocaleString() : '--') +
-        statRow('Assistant', msgsAsst.available ? msgsAsst.value.toLocaleString() : '--') +
+        statRow('User', fmtNum(msgsUser)) +
+        statRow('Assistant', fmtNum(msgsAsst)) +
       `</div>` +
       `<div>` +
         sectionTitle('Monthly Average') +
         statRow('Tokens', fmtTok(monthlyTok.value||0)) +
-        statRow('Messages', monthlyMsg.available ? monthlyMsg.value.toLocaleString() : '--') +
+        statRow('Messages', fmtNum(monthlyMsg)) +
         statRow('Active Days', days.available ? days.value : '--') +
         statRow('Sessions', sessions.available ? sessions.value : '--') +
       `</div>` +
@@ -1566,7 +1600,7 @@ function claudeScreen3(c) {
           statRow('Output', fmtTok(sessOut.value||0), cOut) +
           statRow('Cache Write', fmtTok(sessCW.value||0), cCW) +
           statRow('Cache Read', fmtTok(sessCR.value||0), cCR) +
-          statRow('Messages', sessMsgs.available ? sessMsgs.value.toLocaleString() : '--') +
+          statRow('Messages', fmtNum(sessMsgs)) +
         `</div>` +
       `</div>` +
       `<div>` +
@@ -1575,7 +1609,7 @@ function claudeScreen3(c) {
           sparkline(sparkData, pri, 400, 50) +
         `</div>` +
         `<div style="color:${pri};font-size:2.34cqw;font-weight:700">` +
-          `${rate.available ? rate.value.toLocaleString() : '0'} <span style="color:${dim};font-size:1.37cqw">tok/min</span>` +
+          `${fmtNum(rate, '0')} <span style="color:${dim};font-size:1.37cqw">tok/min</span>` +
         `</div>` +
       `</div>` +
       `<div>` +

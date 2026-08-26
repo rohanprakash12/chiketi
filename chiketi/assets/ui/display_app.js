@@ -27,6 +27,7 @@ const PAUSE_MS = __PAUSE_S__ * 1000;
 let screenRotation = {}; // {id: {enabled, duration}}
 let defaultDuration = 10; // server-provided default (--rotate-interval)
 let rotateTimer = null;
+let clockTimer = null;
 
 /* ── Data helpers ── */
 function m(key) {
@@ -141,6 +142,7 @@ async function poll() {
 
     renderDisplay();
     scheduleRotate();
+    scheduleClockTick();
   } catch(e) { /* retry next poll */ }
 }
 
@@ -161,13 +163,60 @@ function onRotate() {
   lastRotate = Date.now();
   renderDisplay();
   scheduleRotate();
+  scheduleClockTick();
 }
+
+/* ── Clock tick ──
+   Clock screens render live seconds, but metrics only refresh every 2500ms,
+   so the seconds digit visibly skips (2 -> 4 -> 7). Repaint those screens
+   once a second on a separate timer instead of speeding up the poll, which
+   would triple metric traffic for every screen.
+
+   Non-clock screens are deliberately left alone: renderDisplay() replaces
+   ~130KB of innerHTML and that is not worth doing every second on a Pi. */
+const CLOCK_SCREEN_IDS = ['screen2'];
+/* Families whose screen2 is a clock. Terminal's screen2 is the AI Monitor
+   (see getScreenRegistry(): every non-Panel/Vintage family falls through to
+   the terminal branch), so this is an allowlist, not a Terminal denylist --
+   a family added later is correctly treated as non-clock by default. */
+const CLOCK_FAMILIES = ['Panel', 'Vintage'];
+
+function isClockScreen() {
+  const s = enabledScreens[currentScreenIdx];
+  if (!s) return false;
+  return CLOCK_SCREEN_IDS.indexOf(s.id) !== -1 &&
+         CLOCK_FAMILIES.indexOf(activeFamily) !== -1;
+}
+
+/* Idempotent: always clears the existing interval first, so calling it on
+   every screen change can never accumulate timers, and leaving a clock screen
+   through any path stops the tick. */
+function scheduleClockTick() {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+  if (!isClockScreen()) return;
+  clockTimer = setInterval(function () {
+    // renderDisplay() can itself move off this screen (it rebuilds
+    // enabledScreens and resets currentScreenIdx when the list shrinks), so
+    // re-check each tick rather than trusting the state at schedule time.
+    if (!isClockScreen()) { scheduleClockTick(); return; }
+    renderDisplay();
+  }, 1000);
+}
+
+/* A backgrounded kiosk tab has nothing to repaint. */
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) {
+    if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+  } else {
+    scheduleClockTick();
+  }
+});
 
 /* ── Keyboard shortcuts ── */
 document.addEventListener('keydown', (e) => {
   const n = enabledScreens.length || 1;
-  if (e.key >= '1' && e.key <= '9') { currentScreenIdx = Math.min(parseInt(e.key) - 1, n - 1); pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); scheduleRotate(); }
-  else if (e.key === ' ') { e.preventDefault(); currentScreenIdx = (currentScreenIdx + 1) % n; pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); scheduleRotate(); }
+  if (e.key >= '1' && e.key <= '9') { currentScreenIdx = Math.min(parseInt(e.key) - 1, n - 1); pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); scheduleRotate(); scheduleClockTick(); }
+  else if (e.key === ' ') { e.preventDefault(); currentScreenIdx = (currentScreenIdx + 1) % n; pauseUntil = Date.now() + PAUSE_MS; lastRotate = Date.now(); renderDisplay(); scheduleRotate(); scheduleClockTick(); }
   else if (e.key === 'Escape') { window.close(); }
 });
 

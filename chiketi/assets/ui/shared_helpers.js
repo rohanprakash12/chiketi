@@ -73,3 +73,10 @@ function fmtCapacityTotal(d) {
   if (!d || !d.available || !d.extra || d.extra.total == null) return '?';
   return fmtCapacity({ available: true, value: d.extra.total, unit: d.unit });
 }
+
+/* Coerce a list-valued metric to a real array. A metric flagged available is
+   not a promise that it carries a list -- a collector that returns None for a
+   field it normally fills would otherwise crash the renderer on `.length`. */
+function asList(d) {
+  return (d && d.available && Array.isArray(d.value)) ? d.value : [];
+}

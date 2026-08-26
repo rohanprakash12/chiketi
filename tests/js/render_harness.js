@@ -13,10 +13,9 @@
    display_app.js), because `const GOLD = ...` in shared_helpers.js lands in the
    eval's own lexical scope and would be invisible to a second, separate eval.
 
-   Exit code is 0 on success, non-zero when there is at least one blocking
-   failure. Each problem prints as `FAIL <fixture> <label>: <reason>`.
-   CHIKETI_HARNESS_ALLOW is a comma-separated list of fixture names whose
-   failures are reported but do not affect the exit code. */
+   Exit code is 0 on success, non-zero when anything fails. Each problem
+   prints as `FAIL <fixture> <label>: <reason>`. There is no allowlist: every
+   fixture must render cleanly. */
 
 const fs = require('fs');
 const path = require('path');
@@ -86,6 +85,94 @@ const TIB_CAPACITY_SCREENS = [
   'scanScreen1', 'tubeScreen1', 'vfdScreen1',
 ];
 
+// Screens that print the live LLM backend as a panel title. Note the panel is
+// on screen1 for Panel/Vintage and on screen2 for Terminal.
+const BACKEND_TITLE_SCREENS = [
+  'panelGoldScreen1', 'panelCoralScreen1', 'panelTealScreen1',
+  'scanScreen1', 'tubeScreen1', 'vfdScreen1', 'terminalScreen2',
+];
+
+/* Leak detection by tokenizing, not by pattern-matching a payload.
+   
+   The obvious check -- does the output contain "<img"? -- is defeated by any
+   renderer that transforms a value character by character. nixieDigit() wraps
+   every character in its own <span>, so an unescaped "<img src=x>" comes out
+   as "<span>&lt;</span><span>i</span>..." with no contiguous "<img" anywhere,
+   and two real leaks in tubeScreen1 hid behind exactly that for a whole phase.
+
+   Instead: walk the HTML and flag (a) any '<' that does not open a well-formed
+   tag, and (b) any tag NAME that does not appear in the same renderer's clean
+   render. Both are impossible unless esc() was skipped, and neither depends on
+   the payload surviving intact. */
+function tokenize(html) {
+  const tags = new Set();
+  const stray = [];
+  const tagRe = /^<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^<>"'])*)>/;
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt === -1) break;
+    const mres = tagRe.exec(html.slice(lt, lt + 4000));
+    if (mres) {
+      tags.add(mres[2].toLowerCase());
+      i = lt + mres[0].length;
+    } else {
+      stray.push(lt);
+      i = lt + 1;
+    }
+  }
+  return { tags, stray };
+}
+
+/* Tag vocabulary each renderer legitimately emits, from a clean FULL render. */
+const CLEAN_TAGS = {};
+(function () {
+  const saved = metrics;
+  metrics = FIX.FULL;
+  for (const entry of REGISTRY) {
+    const colors = FAMILIES[entry.family][entry.variant];
+    entry.fns.concat([claudeScreen3]).forEach(function (fn) {
+      if (CLEAN_TAGS[fn.name]) return;
+      try {
+        CLEAN_TAGS[fn.name] = tokenize(fn(colors)).tags;
+      } catch (e) {
+        CLEAN_TAGS[fn.name] = new Set();
+      }
+    });
+  }
+  metrics = saved;
+})();
+
+/* The vocabulary check assumes the payload's tag is NOT one a renderer
+   legitimately emits. If that ever stops being true, pass-through leak
+   detection silently degrades for that renderer -- so assert it. */
+(function () {
+  for (const fnName of Object.keys(CLEAN_TAGS)) {
+    if (CLEAN_TAGS[fnName].has('img')) {
+      console.error(
+        'HARNESS BROKEN: ' + fnName + ' legitimately emits <img>, so the '
+        + 'hostile payload <img ...> can no longer be distinguished from '
+        + 'normal output. Change PAYLOAD to a tag no renderer emits.'
+      );
+      process.exit(2);
+    }
+  }
+})();
+
+/* Returns a reason string when html carries an unescaped metric, else null. */
+function leakReason(fnName, html) {
+  const t = tokenize(html);
+  if (t.stray.length) {
+    const at = t.stray[0];
+    return 'stray "<" at ' + at + ': ' + JSON.stringify(html.slice(at, at + 40));
+  }
+  const clean = CLEAN_TAGS[fnName] || new Set();
+  for (const tag of t.tags) {
+    if (!clean.has(tag)) return 'injected <' + tag + '> tag not in the clean render';
+  }
+  return null;
+}
+
 const failures = [];
 function fail(fixture, label, reason) {
   failures.push('FAIL ' + fixture + ' ' + label + ': ' + reason);
@@ -115,9 +202,23 @@ for (const fixtureName of Object.keys(FIX)) {
       // attribute text remains present (and harmless) once escaped, and some
       // renderers uppercase metrics first, so matching 'onerror=' both misses
       // uppercase leaks and false-positives on correctly-escaped output.
-      // A raw '<img' can only appear if esc() was skipped.
-      if (fixtureName === 'HOSTILE' && /<\s*img/i.test(html)) {
-        fail(fixtureName, label, 'unescaped metric reached output');
+      if (fixtureName === 'HOSTILE') {
+        const leak = leakReason(fn.name, html);
+        if (leak) fail(fixtureName, label, 'unescaped metric reached output -- ' + leak);
+      }
+
+      // The LLM panel title must follow llama.backend, not a hardcoded
+      // engine name. Case-insensitive: panelCoralScreen1 renders its headers
+      // in lower case, so it hardcoded 'llama.cpp', not 'LLAMA.CPP'.
+      if (fixtureName === 'OLLAMA' && /llama\.cpp/i.test(html)) {
+        fail(fixtureName, label, 'hardcoded llama.cpp shown for an ollama backend');
+      }
+      // ...and the positive half, so a renderer that simply dropped the title
+      // cannot pass. The panel lives on screen1 for Panel/Vintage and on
+      // screen2 for Terminal -- pin it per renderer rather than per index.
+      if (fixtureName === 'OLLAMA' && BACKEND_TITLE_SCREENS.indexOf(fn.name) !== -1 &&
+          !/ollama/i.test(html)) {
+        fail(fixtureName, label, 'backend title "ollama" missing');
       }
 
       // A >=1 TiB disk must never render as 0.0. disk.py switches to TiB units
@@ -165,34 +266,17 @@ for (const key of STRING_KEYS) {
         fail('HOSTILE_KEYS', label, 'threw ' + e.message);
         return;
       }
-      if (/<\s*img/i.test(html)) {
-        fail('HOSTILE_KEYS', label, 'unescaped ' + key + ' reached output');
+      const leak = leakReason(fn.name, html);
+      if (leak) {
+        fail('HOSTILE_KEYS', label, 'unescaped ' + key + ' reached output -- ' + leak);
       }
     });
   }
 }
 
-const allow = (process.env.CHIKETI_HARNESS_ALLOW || '').split(',').filter(Boolean);
-const blocking = failures.filter(function (f) {
-  return !allow.some(function (a) { return f.indexOf('FAIL ' + a + ' ') === 0; });
-});
-failures.forEach(function (f) { console.error(f); });
-if (blocking.length) {
-  console.error('\n' + blocking.length + ' blocking renderer failures');
+if (failures.length) {
+  failures.forEach(function (f) { console.error(f); });
+  console.error('\n' + failures.length + ' renderer failures');
   process.exit(1);
 }
-
-// Pin the allowed count. The allowlist is fixture-scoped, so without this a
-// NEW failure inside an already-allowed fixture would be silently swallowed
-// until Phase 4 removes the allowlist entirely.
-const allowed = failures.length - blocking.length;
-const expected = process.env.CHIKETI_HARNESS_EXPECT;
-if (expected !== undefined && allowed !== Number(expected)) {
-  console.error(
-    '\nallowed-failure count drifted: expected ' + expected + ', got ' + allowed +
-    '. A new failure appeared in an allowed fixture, or one was fixed without ' +
-    'updating CHIKETI_HARNESS_EXPECT.'
-  );
-  process.exit(1);
-}
-console.log('renderer harness OK (' + allowed + ' allowed failures)');
+console.log('renderer harness OK');

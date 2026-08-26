@@ -129,4 +129,13 @@ const HOSTILE = (function () {
   return o;
 })();
 
-module.exports = { FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE };
+// An Ollama backend. Proves the LLM panel title is derived from
+// llama.backend instead of hardcoding LLAMA.CPP.
+const OLLAMA = (function () {
+  const o = Object.assign({}, FULL);
+  o['llama.backend'] = mval('ollama');
+  o['llama.model'] = mval('qwen3:32b');
+  return o;
+})();
+
+module.exports = { FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA };
