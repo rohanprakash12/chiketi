@@ -648,6 +648,8 @@ section[id] {
 }
 .cmd__copy:hover { background: var(--panel-2); }
 .cmd__copy.copied { color: var(--green); }
+/* Failure must not look like success: distinct colour, not just distinct text. */
+.cmd__copy.copy-failed { color: var(--coral); }
 
 .nudge {
   margin-top: 14px;

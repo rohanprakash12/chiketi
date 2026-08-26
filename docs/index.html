@@ -41,7 +41,7 @@
         <span class="screw screw--br" aria-hidden="true"></span>
 
         <div class="bezel-strip">
-          <span class="bezel-brand mono">CHIKETI &middot; SYS-MON &middot; v0.2</span>
+          <span class="bezel-brand mono">CHIKETI &middot; SYS-MON &middot; v0.1.0</span>
           <span class="bezel-leds" aria-hidden="true">
             <span class="led led--bezel led--green"></span>
             <span class="led led--bezel led--gold"></span>
@@ -106,7 +106,7 @@
           <span class="screw screw--bl" aria-hidden="true"></span>
           <span class="screw screw--br" aria-hidden="true"></span>
           <div class="bezel-strip">
-            <span class="bezel-brand mono">CHIKETI &middot; SYS-MON &middot; v0.2</span>
+            <span class="bezel-brand mono">CHIKETI &middot; SYS-MON &middot; v0.1.0</span>
             <span class="bezel-leds" aria-hidden="true">
               <span class="led led--bezel led--green"></span>
               <span class="led led--bezel led--gold"></span>
@@ -138,8 +138,8 @@
         <p class="feat__line">Cores, VRAM, throughput, capacity &mdash; with temps and animated fans.</p>
       </article>
       <article class="feat feat--teal">
-        <h3 class="feat__title">llama.cpp local LLM</h3>
-        <p class="feat__line">Watch your running model, quant, and context window at a glance.</p>
+        <h3 class="feat__title">Local LLM server</h3>
+        <p class="feat__line">Auto-detects llama.cpp, Ollama or vLLM &mdash; and names the one that&rsquo;s live. Model, quant, context and tok/sec at a glance.</p>
       </article>
       <article class="feat feat--gold">
         <h3 class="feat__title">Claude Code usage</h3>
@@ -147,7 +147,7 @@
       </article>
       <article class="feat feat--teal">
         <h3 class="feat__title">Kiosk mode</h3>
-        <p class="feat__line">Boots straight into a full-screen Chromium dashboard &mdash; no desktop.</p>
+        <p class="feat__line">One command opens a full-screen Chromium dashboard &mdash; no desktop chrome. Say yes to the installer&rsquo;s autostart prompt (or pass <span class="mono">--autostart</span>) and it comes up with your session.</p>
       </article>
       <article class="feat feat--gold">
         <h3 class="feat__title">Phone control panel</h3>
@@ -155,7 +155,7 @@
       </article>
       <article class="feat feat--teal">
         <h3 class="feat__title">Graceful degradation</h3>
-        <p class="feat__line">No GPU or sensors? Panels hide themselves instead of erroring out.</p>
+        <p class="feat__line">No GPU or sensors? Those readings show <span class="mono">N/A</span> &mdash; the layout stays put and nothing errors out.</p>
       </article>
     </div>
   </section>
@@ -182,7 +182,8 @@
       <p class="nudge">Tip: grab a 7&Prime; 1024&times;600 display (the GeeekPi panel is the reference) &mdash; but any HDMI screen works.</p>
       <ol class="steps">
         <li>Run the one-liner &mdash; it installs Python, pipx, sensors, and chiketi, and detects NVIDIA GPUs.</li>
-        <li>Plug in the display; chiketi launches a full-screen Chromium kiosk.</li>
+        <li>Answer <span class="mono">Enable autostart on login?</span> &mdash; <span class="mono">y</span> starts it with every session, anything else keeps it manual.</li>
+        <li>Plug in the display and run <span class="mono">chiketi</span>; it launches a full-screen Chromium kiosk.</li>
         <li>Open <span class="mono">http://&lt;host&gt;:7777</span> on your phone to switch themes and screens.</li>
       </ol>
     </div>

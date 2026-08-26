@@ -142,7 +142,12 @@ def set_active_theme(name: str) -> bool:
 
 
 def on_theme_change(callback: Callable[[Theme], None]) -> None:
-    """Register a callback for theme changes."""
+    """Register a callback for theme changes.
+
+    A public extension point. Nothing in this repository subscribes -- the
+    server re-reads the active theme on each request instead -- so it looks
+    unused. It is kept deliberately, and covered by tests, for embedders.
+    """
     _listeners.append(callback)
 
 

@@ -7,21 +7,16 @@ Built for the GeeekPi 7" (1024x600) but works on any HDMI display.
 **Website:** https://rohanprakash12.github.io/chiketi/ — live, interactive theme gallery (try all 12 themes in your browser).
 **Companion product:** [chiketi-appliance](https://github.com/rohanprakash12/chiketi-appliance) — monitor *remote* servers over SSH from a dedicated Raspberry Pi.
 
-<!-- Screenshots: uncomment when added
-![Panel Gold Theme](screenshots/panel-gold.png)
-![Terminal Hacker Theme](screenshots/terminal-hacker.png)
--->
-
 ## Features
 
 - **12 themed dashboards** across 3 theme families — Panel, Terminal (hacker/retro), and Vintage (tubes/VFD/scanlines)
 - **3 rotating screens** — System stats, a theme-specific second screen (GPU/AI monitor on Terminal themes, a clock on Panel/Vintage), and Claude Code usage
 - **Remote control panel** — Switch themes, toggle screens, adjust rotation from your phone at `http://<host>:7777`
 - **Display on/off toggle** — Turn the dashboard on/off from the control panel, restoring the console when off
-- **Live metrics** — CPU, memory, disk, network, GPU (NVIDIA), fan speeds, Claude Code token usage
+- **Live metrics** — CPU, memory, disk, network, GPU (NVIDIA), fan speeds, local LLM server (llama.cpp / Ollama / vLLM), Claude Code token usage
 - **Per-screen rotation** — Enable/disable individual screens with custom durations
 - **Fan monitoring** — Real-time animated fans grouped by CPU/Case/GPU with speed-proportional rotation
-- **Zero config** — Auto-detects hardware, gracefully degrades when sensors are unavailable
+- **Zero config** — Auto-detects hardware; readings it cannot take render as `N/A` rather than erroring or vanishing
 
 ## Install
 
@@ -32,6 +27,29 @@ curl -fsSL https://raw.githubusercontent.com/rohanprakash12/chiketi/main/scripts
 ```
 
 This automatically installs all prerequisites (Python, pip, pipx, git, build tools, lm-sensors), detects NVIDIA GPUs, and installs chiketi.
+
+#### Autostart on login
+
+Near the end, the installer asks:
+
+```
+Enable autostart on login? [y/N]
+```
+
+Answering `y` writes `~/.config/autostart/chiketi.desktop`, so the dashboard
+starts with your desktop session. Anything else skips it — autostart is opt-in.
+
+The prompt reads from your terminal, not from stdin, so it still works through
+`curl ... | bash`. When there is no terminal at all (CI, cron, a non-interactive
+pipe) the installer skips autostart and says so. Pass a flag to decide up front
+and skip the question:
+
+```bash
+curl -fsSL .../install.sh | bash -s -- --autostart      # enable, no prompt
+curl -fsSL .../install.sh | bash -s -- --no-autostart   # skip, no prompt
+```
+
+To remove autostart later, delete `~/.config/autostart/chiketi.desktop`.
 
 ### Manual install
 
@@ -173,9 +191,20 @@ sudo modprobe nct6775  # or your chipset's module
 
 All settings can also be changed at runtime via the control panel.
 
-> **Security:** the control server assumes a trusted LAN — it binds `0.0.0.0`
-> with open CORS and no auth by default. Use `--bind 127.0.0.1` and/or `--token`
-> to harden exposure.
+> **Security:** the control server is built for a trusted LAN. By default it
+> binds `0.0.0.0` and serves telemetry `GET`s to anyone who can reach the port —
+> that is deliberate, so the phone panel just works.
+>
+> Control actions are narrower. A `POST` is accepted only from a same-origin
+> request (or one with no `Origin` at all, i.e. curl and scripts), so a page you
+> merely *visit* cannot drive your dashboard. CORS echoes the `Origin` only when
+> it matches the host, request bodies are capped at 64 KiB, and responses carry
+> `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and, on the
+> HTML pages, `X-Frame-Options: DENY`.
+>
+> If the LAN is not trusted: `--bind 127.0.0.1` keeps it local, and `--token`
+> (or `CHIKETI_TOKEN`) requires a shared secret on every control action. Neither
+> is on by default.
 
 ## Development
 
@@ -192,10 +221,12 @@ Headless test suite (no display/GPU/network needed — collectors and the HTTP
 server are exercised with mocks and an ephemeral-port server):
 
 ```bash
-pytest -q          # 83 tests
+pytest -q                        # 401 tests
+node tests/js/render_harness.js  # every renderer against hostile payloads
+./scripts/check_js.sh            # syntax-check the inlined UI JavaScript
 ```
 
-CI runs the suite on Python 3.11–3.13 plus an sdist/wheel build on every push
+CI runs all three on Python 3.11–3.13, plus an sdist/wheel build, on every push
 and PR (`.github/workflows/ci.yml`).
 
 ### Project layout
@@ -208,21 +239,23 @@ chiketi/
 │   ├── server.py              # HTTP server + API routes (serves assets/ui)
 │   ├── themes.py              # 12 themes across 3 families
 │   ├── panel_spec.py          # shared design tokens (web_spec)
-│   ├── config.py              # timing/threshold constants
-│   ├── collectors/            # system, cpu, memory, disk, network,
-│   │                          #   gpu_nvidia, llm (llama.cpp/Ollama), claude
+│   ├── config.py              # timing constants
+│   ├── state.py               # versioned settings persistence (atomic writes)
+│   ├── collectors/            # system, cpu, memory, disk, network, gpu_nvidia,
+│   │                          #   llm (llama.cpp/Ollama/vLLM), claude
 │   └── assets/
 │       ├── ui/                # dashboard + control-panel HTML/CSS/JS
 │       │                      #   (extracted from server.py; server inlines these)
-│       └── fonts/             # bundled display fonts
+│       └── fonts/             # bundled display fonts + their OFL licences
 ├── docs/                      # GitHub Pages site (the family website)
 │   ├── index.html             # live, theme-switchable marketing site
-│   ├── index-legacy.html      # previous landing page (preserved)
 │   └── site/                  # site CSS/JS + generated data.js/dashboard.js
 ├── scripts/
-│   ├── install.sh             # one-line installer
-│   └── gen_site_assets.py     # regenerates the website's frozen data + renderer
-└── tests/                     # pytest suite
+│   ├── install.sh             # one-line installer (optional autostart)
+│   ├── gen_site_assets.py     # regenerates the site data + mirrors the fonts
+│   ├── check_js.sh            # node --check for the inlined UI JavaScript
+│   └── run.sh                 # launch helper for a source checkout
+└── tests/                     # pytest suite + tests/js/ renderer harness
 ```
 
 ### The website
@@ -236,6 +269,13 @@ the dashboard renderers:
 python scripts/gen_site_assets.py
 ```
 
-## License
+## Licensing
 
-MIT
+chiketi itself is **MIT** — see [LICENSE](LICENSE).
+
+The bundled font files are **not** covered by that licence. All six families
+(Antonio, Chakra Petch, IBM Plex Mono, Nixie One, Rajdhani, Share Tech Mono)
+are licensed under the SIL Open Font License 1.1, and each ships its upstream
+licence text next to its `.ttf`. Provenance, copyright lines and the reserved
+font names are documented in
+[`chiketi/assets/fonts/README.md`](chiketi/assets/fonts/README.md).

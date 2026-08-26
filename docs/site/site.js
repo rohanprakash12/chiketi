@@ -49,8 +49,15 @@
   var def = ['Panel', 'Gold'];
   var q = (location.search.match(/[?&]t=([^&]+)/) || [])[1];
   if (q) {
-    var parts = decodeURIComponent(q).split('/');
-    if (parts.length === 2 && isKnownTheme(parts[0], parts[1])) def = parts;
+    // A malformed escape (?t=%) makes decodeURIComponent throw a URIError, which
+    // would abort this whole file and leave every later IIFE (the gallery, the
+    // install tabs) unregistered. Swallow it and fall back to the default face.
+    var decoded = null;
+    try { decoded = decodeURIComponent(q); } catch (e) { decoded = null; }
+    if (decoded) {
+      var parts = decoded.split('/');
+      if (parts.length === 2 && isKnownTheme(parts[0], parts[1])) def = parts;
+    }
   }
   setTheme(def[0], def[1]);
 })();
@@ -139,18 +146,43 @@
   }
 
   document.querySelectorAll('.cmd__copy').forEach(function (btn) {
+    // Capture the resting label ONCE, before any click can overwrite it: reading
+    // it inside the handler would latch 'Copied' on a second click inside 1.6s.
+    var orig = btn.textContent;
+    var timer = null;
+    var done = function (ok) {
+      btn.textContent = ok ? 'Copied' : 'Copy failed';
+      btn.classList.toggle('copied', ok);
+      btn.classList.toggle('copy-failed', !ok);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        timer = null;
+        btn.textContent = orig;
+        btn.classList.remove('copied');
+        btn.classList.remove('copy-failed');
+      }, 1600);
+    };
     btn.addEventListener('click', function () {
       var text = btn.dataset.copy || '';
-      var done = function () {
-        var orig = btn.textContent;
-        btn.textContent = 'Copied';
-        btn.classList.add('copied');
-        setTimeout(function () { btn.textContent = orig; btn.classList.remove('copied'); }, 1600);
-      };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done, done);
+        // NB: .then(done, done) would run the SUCCESS path on rejection.
+        navigator.clipboard.writeText(text).then(
+          function () { done(true); },
+          function () { done(false); }
+        );
       } else {
-        done();
+        // execCommand fallback for non-secure contexts (plain http://, file://),
+        // where navigator.clipboard is undefined. Report what actually happened.
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:absolute;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        done(ok);
       }
     });
   });

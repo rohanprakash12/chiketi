@@ -16,13 +16,6 @@ class MetricValue:
     available: bool = True
     extra: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def percent(self) -> float | None:
-        """Return value as float if it represents a percentage, else None."""
-        if isinstance(self.value, (int, float)) and self.unit == "%":
-            return float(self.value)
-        return None
-
 
 class MetricCollector(ABC):
     """Base class for all metric collectors."""
@@ -36,6 +29,3 @@ class MetricCollector(ABC):
 
     def _key(self, name: str) -> str:
         return f"{self.namespace}.{name}"
-
-    def _unavailable(self, name: str, unit: str = "") -> tuple[str, MetricValue]:
-        return self._key(name), MetricValue(available=False, unit=unit)

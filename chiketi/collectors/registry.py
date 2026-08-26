@@ -23,7 +23,7 @@ def get_collectors() -> list[MetricCollector]:
         NetworkCollector(),
     ]
 
-    # GPU - nvidia (works on Linux and Windows)
+    # GPU - nvidia (no-ops when NVML is unavailable)
     collectors.append(GpuNvidiaCollector())
 
     # LLM backend (auto-detects llama.cpp, Ollama, vLLM)

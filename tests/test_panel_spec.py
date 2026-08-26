@@ -10,7 +10,7 @@ from chiketi.panel_spec import web_spec
 class TestWebSpec:
     def test_top_level_keys(self):
         spec = web_spec()
-        for key in ("colors", "coral", "teal", "scanlines", "tubes", "vfd", "sizes"):
+        for key in ("colors", "coral", "teal", "scanlines", "tubes", "vfd"):
             assert key in spec, f"missing top-level key {key!r}"
 
     def test_json_serializable(self):
@@ -32,10 +32,9 @@ class TestWebSpec:
             assert val.startswith("#"), f"{name}={val} is not a hex color"
             assert len(val) == 7
 
-    def test_sizes_section(self):
-        sizes = web_spec()["sizes"]
-        assert sizes["panel_radius_px"] == 2
-        assert sizes["bar_height_px"] == 12
+    def test_no_sizes_section(self):
+        # The px tokens were dropped: no renderer ever read them.
+        assert "sizes" not in web_spec()
 
     def test_teal_palette_keys(self):
         teal = web_spec()["teal"]

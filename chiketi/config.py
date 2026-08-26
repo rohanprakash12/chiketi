@@ -1,4 +1,4 @@
-"""Display dimensions, timing, and threshold constants."""
+"""Timing constants."""
 
 from dataclasses import dataclass
 
@@ -9,13 +9,5 @@ class Timing:
     rotate_interval_s: int = 10
     pause_duration_s: int = 30
 
-
-# Display dimensions
-DISPLAY_WIDTH = 1024
-DISPLAY_HEIGHT = 600
-
-# Threshold percentages for color coding
-THRESHOLD_WARNING = 70
-THRESHOLD_CRITICAL = 90
 
 TIMING = Timing()

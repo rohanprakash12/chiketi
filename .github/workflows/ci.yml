@@ -12,21 +12,53 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # Node is not optional: without it the renderer harness and the UI syntax
+      # check below would have nothing to run on.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
+      - name: Syntax-check the UI JavaScript
+        run: ./scripts/check_js.sh
       - name: Test
         run: pytest -q
+      - name: Renderer harness
+        run: node tests/js/render_harness.js
+      # docs/site/{data,dashboard}.js and dashboard.css, and the whole
+      # docs/assets/fonts mirror, are generated. If a theme, panel_spec,
+      # renderer or font changes without a regenerate, the published site
+      # silently serves the old one -- catch it here instead.
+      - name: Verify generated site assets are in sync
+        run: |
+          python scripts/gen_site_assets.py
+          # `git diff --exit-code` only sees TRACKED files. The generator also
+          # mirrors the font tree, so a newly added font would land as an
+          # untracked file and slip through. Check the porcelain status instead.
+          if [ -n "$(git status --porcelain -- docs/)" ]; then
+            git status --porcelain -- docs/
+            git --no-pager diff -- docs/
+            echo "::error::docs/ is stale. Run scripts/gen_site_assets.py and commit."
+            exit 1
+          fi
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint shell scripts
+        run: shellcheck scripts/*.sh
 
   build:
     runs-on: ubuntu-latest
@@ -39,3 +71,39 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build
+      # The package data globs are easy to break. Install the real artifact and
+      # render both pages from it, so a wheel that dropped assets/ui or the font
+      # licences fails here rather than on a user's display.
+      - name: Smoke-test the wheel
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet dist/*.whl
+          # -P keeps the repo checkout (cwd) off sys.path. Without it `import
+          # chiketi` resolves to ./chiketi/ and the wheel is never exercised --
+          # a wheel with zero asset files passes the whole check.
+          /tmp/smoke/bin/python -P - <<'PY'
+          import chiketi
+          import chiketi.server as s
+          from importlib.resources import files
+
+          assert "/tmp/smoke/" in chiketi.__file__, chiketi.__file__
+          assert chiketi.__version__, "no __version__"
+          placeholders = ("__FONTS_CSS__", "__SHARED_HELPERS__", "__SCREEN_FUNCTIONS__",
+                          "__PANEL_SPEC_JSON__", "__PAUSE_S__", "__DISPLAY_CSS__",
+                          "__DISPLAY_SCRIPTS__", "__CONTROL_CSS__", "__CONTROL_SCRIPTS__")
+          for name, fn in (("display", s._build_display_html), ("control", s._build_html)):
+              html = fn()
+              assert len(html) > 50_000, (name, len(html))
+              for tok in placeholders:
+                  assert tok not in html, (name, tok)
+
+          fonts = files("chiketi") / "assets" / "fonts"
+          names = [f.name for f in fonts.iterdir()]
+          ttf = [n for n in names if n.endswith(".ttf")]
+          ofl = [n for n in names if n.startswith("OFL-")]
+          assert len(ttf) == 8, ttf
+          assert len(ofl) == 6, ofl
+
+          print("wheel %s serves both pages; %d fonts, %d licences"
+                % (chiketi.__version__, len(ttf), len(ofl)))
+          PY

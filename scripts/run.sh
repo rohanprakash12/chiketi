@@ -9,11 +9,18 @@ cd "$PROJECT_DIR"
 
 # Activate venv if it exists
 if [ -f ".venv/bin/activate" ]; then
+    # shellcheck disable=SC1091  # created by `python -m venv`; not in the repo
     source .venv/bin/activate
 fi
 
-# Default to DISPLAY=:1 for GeeekPi kiosk if not set
-export DISPLAY="${DISPLAY:-:1}"
+# Leave DISPLAY unset when the caller did not set it. `${DISPLAY:-:1}` always
+# produced a value, which short-circuits chiketi's own _detect_display() --
+# it returns $DISPLAY first, so the loginctl / /proc / X-lock-file scan never
+# ran and a kiosk on any display other than :1 was never found. Force a
+# specific display with CHIKETI_DISPLAY.
+if [ -n "${CHIKETI_DISPLAY:-}" ]; then
+    export DISPLAY="$CHIKETI_DISPLAY"
+fi
 
 # Disable screen blanking / sleep if running under X
 if [ -n "${DISPLAY:-}" ]; then

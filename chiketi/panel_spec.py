@@ -27,16 +27,8 @@ CORAL_LILAC = "#CC99CC"
 CORAL_ANAKIWA = "#99CCFF"
 CORAL_EGGPLANT = "#664466"
 CORAL_MARINER = "#3366CC"
-CORAL_BAHAMA = "#006699"
 CORAL_PALE_CANARY = "#FFFF99"
-CORAL_SUNFLOWER = "#FFCC99"
-CORAL_ICE = "#99CCFF"
-CORAL_BLUEY = "#8899FF"
-CORAL_AFRICAN_VIOLET = "#CC99FF"
-CORAL_HOPBUSH = "#CC6699"
 CORAL_MARS = "#FF2200"
-CORAL_GREEN = "#999933"
-CORAL_GOLD = "#FFAA00"
 
 CORAL_THERM_BLUE = "#99CCFF"
 CORAL_THERM_GREEN = "#99CC66"
@@ -54,7 +46,6 @@ TEAL_TEAL = "#2A9D8F"
 TEAL_CYAN = "#66CCCC"
 TEAL_LAVENDER = "#8888BB"
 TEAL_PALE = "#AAAACC"
-TEAL_DEEP_BLUE = "#2A2A55"
 TEAL_WARM = "#CCAA77"
 TEAL_ALERT = "#FF4444"
 
@@ -133,10 +124,6 @@ VFDR_FILAMENT_WARM = "#443322"
 VFDR_GRID = "#1A1A18"
 VFDR_SUBSTRATE = "#0A0A08"
 VFDR_LABEL = "#556655"
-
-# Shared shape/size tokens
-PANEL_RADIUS_PX = 2
-PANEL_BAR_HEIGHT_PX = 12
 
 
 def web_spec() -> dict:
@@ -225,9 +212,5 @@ def web_spec() -> dict:
             "ghost": VFDR_GHOST, "ghostOutline": VFDR_GHOST_OUTLINE,
             "filament": VFDR_FILAMENT, "filamentWarm": VFDR_FILAMENT_WARM,
             "grid": VFDR_GRID, "substrate": VFDR_SUBSTRATE, "label": VFDR_LABEL,
-        },
-        "sizes": {
-            "panel_radius_px": PANEL_RADIUS_PX,
-            "bar_height_px": PANEL_BAR_HEIGHT_PX,
         },
     }

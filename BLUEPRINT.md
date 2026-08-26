@@ -39,7 +39,8 @@ chiketi/
 │   ├── __main__.py              # CLI: chiketi / python -m chiketi
 │   ├── app.py                   # MetricEngine thread, DisplayManager, run()
 │   ├── server.py                # HTTP server: API routes + serves assets/ui
-│   ├── config.py                # timing, thresholds, display constants
+│   ├── config.py                # timing constants
+│   ├── state.py                 # versioned settings persistence (atomic writes)
 │   ├── themes.py                # 12 themes / 3 families + active-theme state
 │   ├── panel_spec.py            # shared design tokens (web_spec())
 │   ├── collectors/
@@ -68,10 +69,11 @@ chiketi/
 ├── docs/                        # GitHub Pages website (separate from the app)
 ├── scripts/
 │   ├── install.sh               # one-line installer
-│   ├── gen_site_assets.py       # regenerates the website's data + renderer
+│   ├── gen_site_assets.py       # regenerates the website's data + font mirror
+│   ├── check_js.sh              # node --check for the inlined UI JavaScript
 │   ├── run.sh                   # launch helper
-│   └── chiketi.desktop          # autostart entry
-└── tests/                       # pytest suite (83 tests)
+│   └── chiketi.desktop          # reference autostart entry (installer generates its own)
+└── tests/                       # pytest suite (401 tests) + tests/js/ renderer harness
 ```
 
 ## Dependencies
@@ -225,10 +227,14 @@ Each theme exposes a palette (`primary`, `accent`, `background`, `panel`,
 
 ## Testing
 
-A headless `pytest` suite (83 tests) covers the pure helpers, theme management,
-`panel_spec`, config, the collectors (with `psutil`/NVML/HTTP mocked), and the
-HTTP server routes (via an ephemeral-port server). No display, GPU, or network
-is required. CI runs it on Python 3.11–3.13 plus a build, on every push/PR.
+A headless `pytest` suite (401 tests) covers the pure helpers, theme
+management, `panel_spec`, config, settings persistence, the collectors (with
+`psutil`/NVML/HTTP mocked), and the HTTP server routes (via an ephemeral-port
+server). Alongside it, `node tests/js/render_harness.js` runs every dashboard
+renderer against hostile metric payloads, and `scripts/check_js.sh`
+syntax-checks the UI JavaScript that `server.py` inlines. No display, GPU, or
+network is required. CI runs all three on Python 3.11–3.13, plus a build, on
+every push/PR.
 
 ## The Website (docs/)
 

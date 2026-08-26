@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 
-from chiketi import config
 from chiketi.config import Timing, TIMING
 
 
@@ -28,16 +27,3 @@ class TestTimingDefaults:
         assert t.collect_interval_ms == 500
         assert t.rotate_interval_s == 5
         assert t.pause_duration_s == 15
-
-
-class TestThresholdConstants:
-    def test_display_dimensions(self):
-        assert config.DISPLAY_WIDTH == 1024
-        assert config.DISPLAY_HEIGHT == 600
-
-    def test_thresholds(self):
-        assert config.THRESHOLD_WARNING == 70
-        assert config.THRESHOLD_CRITICAL == 90
-
-    def test_warning_below_critical(self):
-        assert config.THRESHOLD_WARNING < config.THRESHOLD_CRITICAL
