@@ -23,6 +23,12 @@ CONTROL_PORT = 7777
 # Bounds memory growth from arbitrary client-supplied screen ids.
 _MAX_SCREEN_ROTATION = 32
 
+# Maximum accepted POST body. Control payloads are a few hundred bytes; this
+# ceiling stops an open-LAN client from forcing a large allocation, and the
+# explicit negative check stops rfile.read(-1) from blocking a request thread
+# until the peer disconnects.
+_MAX_BODY_BYTES = 64 * 1024
+
 # Optional shared-secret token. When set (via start_server), POST/control
 # requests must supply it in the X-Chiketi-Token header. GET telemetry stays
 # open. None = no auth (trusted-LAN default).
@@ -30,6 +36,13 @@ _AUTH_TOKEN: str | None = None
 
 # Module-level metrics getter — set by app.py after engine starts
 _get_metrics = None
+
+# Guards every module-global mutable display/rotation value below, plus the
+# xrandr cache. The server is threaded, so an /api/display GET snapshotting
+# state can otherwise interleave with a POST mutating it -- the screen-rotation
+# cap check is a check-then-insert, and width/height are a composite write.
+# RLock, so a path that already holds it can call a helper that re-takes it.
+_STATE_LOCK = threading.RLock()
 
 # Display configuration
 _display_output: str = ""  # empty = auto/default
@@ -91,14 +104,21 @@ _XRANDR_TTL_S: float = 20.0
 
 
 def _get_xrandr_outputs(force: bool = False) -> list[dict]:
-    """Return display outputs from cache, re-querying on TTL expiry or force."""
+    """Return display outputs from cache, re-querying on TTL expiry or force.
+
+    The lock is released around the query: `xrandr --query` can take up to 5s
+    and must not block every other request while it runs.
+    """
     global _XRANDR_CACHE, _XRANDR_CACHE_TS
     now = time.monotonic()
-    if not force and _XRANDR_CACHE_TS and (now - _XRANDR_CACHE_TS) < _XRANDR_TTL_S:
-        return _XRANDR_CACHE
-    _XRANDR_CACHE = _query_xrandr_outputs()
-    _XRANDR_CACHE_TS = now
-    return _XRANDR_CACHE
+    with _STATE_LOCK:
+        if not force and _XRANDR_CACHE_TS and (now - _XRANDR_CACHE_TS) < _XRANDR_TTL_S:
+            return list(_XRANDR_CACHE)
+    fresh = _query_xrandr_outputs()          # slow; runs unlocked
+    with _STATE_LOCK:
+        _XRANDR_CACHE = fresh
+        _XRANDR_CACHE_TS = time.monotonic()
+        return list(_XRANDR_CACHE)
 
 
 def _query_xrandr_outputs() -> list[dict]:
@@ -156,11 +176,56 @@ def _apply_display_settings(output: str, brightness: float) -> bool:
         )
         if result.returncode != 0:
             return False
-        _display_output = output
-        _display_brightness = brightness
+        with _STATE_LOCK:
+            _display_output = output
+            _display_brightness = brightness
         return True
     except Exception:
         return False
+
+
+def _origin_allowed(origin: str, host_header: str) -> bool:
+    """Allow same-origin and null/absent Origin; reject everything else.
+
+    A browser always sends Origin on cross-origin POSTs, so rejecting a
+    mismatch blocks drive-by CSRF from any page the user happens to visit.
+    Requests with no Origin (curl, scripts, non-browser clients) are allowed so
+    nothing that works today breaks.
+    """
+    if not origin or origin == "null":
+        return True
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        # urlparse raises on malformed IPv6 forms ("http://[::1"). The header is
+        # attacker-controlled, so this must be a rejection, not a crash: an
+        # uncaught raise here kills the handler thread and drops the connection
+        # with no response at all.
+        return False
+    if not parsed.netloc:
+        return False
+    # Compare host:port against the Host header the client used to reach us.
+    return parsed.netloc == host_header
+
+
+def _display_payload(display_on: bool) -> dict:
+    """Immutable snapshot of display state, safe to serialize.
+
+    display_on is passed in rather than read here on purpose:
+    DisplayManager.is_on takes DisplayManager._lock, and taking that under
+    _STATE_LOCK at this call site while another path takes them in the
+    opposite order is a lock-order inversion. Callers compute it first.
+    """
+    with _STATE_LOCK:
+        return {
+            "current_output": _display_output,
+            "brightness": _display_brightness,
+            "width": _display_width,
+            "height": _display_height,
+            "screen_rotation": {k: dict(v) for k, v in _screen_rotation.items()},
+            "default_duration": TIMING.rotate_interval_s,
+            "display_on": display_on,
+        }
 
 
 def set_metrics_source(fn):
@@ -186,8 +251,61 @@ def _serialize_metrics() -> dict:
 
 
 class ControlHandler(BaseHTTPRequestHandler):
+    # Honoured by StreamRequestHandler.setup() as a socket timeout, so a client
+    # that promises bytes in Content-Length and never sends them cannot pin a
+    # request thread forever.
+    timeout = 10
+
+    def _read_body(self) -> dict | None:
+        """Read and parse a JSON object body, or send an error and return None."""
+        raw = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw)
+        except (TypeError, ValueError):
+            self.send_error(400, "Invalid Content-Length")
+            return None
+        if length < 0:
+            self.send_error(400, "Invalid Content-Length")
+            return None
+        if length > _MAX_BODY_BYTES:
+            self.send_error(413, "Request body too large")
+            return None
+        if not length:
+            return {}
+        try:
+            parsed = json.loads(self.rfile.read(length))
+        except Exception:
+            # Deliberately broad. json.loads raises RecursionError on a deeply
+            # nested body (~10k levels fits well inside the size cap), and
+            # RecursionError subclasses RuntimeError -- not ValueError -- so a
+            # narrow except lets it escape do_POST entirely, killing the handler
+            # thread and dropping the connection with zero bytes. The body is
+            # attacker-controlled; every parse failure must become a 400.
+            self.send_error(400, "Malformed JSON body")
+            return None
+        if not isinstance(parsed, dict):
+            self.send_error(400, "Malformed JSON body")
+            return None
+        return parsed
+
+    def _parse_target(self):
+        """Parse the request target, or send 400 and return None.
+
+        The request line is attacker-controlled and urlparse() raises on
+        malformed IPv6 forms, which absolute-form targets can carry
+        ("GET http://[::1 HTTP/1.1"). An uncaught raise aborts the handler
+        thread and drops the connection with zero bytes of response.
+        """
+        try:
+            return urlparse(self.path)
+        except ValueError:
+            self.send_error(400, "Malformed request target")
+            return None
+
     def do_GET(self) -> None:
-        parsed = urlparse(self.path)
+        parsed = self._parse_target()
+        if parsed is None:
+            return
         route = parsed.path
         query = parse_qs(parsed.query)
         if route == "/" or route == "/index.html":
@@ -222,15 +340,8 @@ class ControlHandler(BaseHTTPRequestHandler):
         elif route == "/api/display":
             from chiketi.app import get_display_manager
             mgr = get_display_manager()
-            payload = {
-                "current_output": _display_output,
-                "brightness": _display_brightness,
-                "width": _display_width,
-                "height": _display_height,
-                "screen_rotation": _screen_rotation,
-                "default_duration": TIMING.rotate_interval_s,
-                "display_on": mgr.is_on if mgr else False,
-            }
+            # is_on takes DisplayManager._lock -- read it before _STATE_LOCK.
+            payload = _display_payload(mgr.is_on if mgr else False)
             # Output discovery shells out to xrandr — only the control panel
             # needs it (?outputs=1). The kiosk poll omits it and stays cheap.
             # ?refresh=1 forces a re-query for the "scan displays" button.
@@ -244,11 +355,23 @@ class ControlHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self) -> None:
+        # CSRF: control POSTs carry no Content-Type when they have no body, so
+        # a browser treats them as "simple requests" and skips the preflight.
+        # Rejecting a mismatched Origin is what stops any page the user visits
+        # from flipping the theme or killing the display on their LAN.
+        if not _origin_allowed(
+            self.headers.get("Origin", ""), self.headers.get("Host", "")
+        ):
+            self.send_error(403, "Cross-origin request rejected")
+            return
         # Optional shared-secret gate on state-changing requests.
         if _AUTH_TOKEN and self.headers.get("X-Chiketi-Token") != _AUTH_TOKEN:
             self.send_error(403, "Forbidden")
             return
-        path = urlparse(self.path).path
+        parsed = self._parse_target()
+        if parsed is None:
+            return
+        path = parsed.path
         if path.startswith("/api/theme/"):
             rest = path.split("/api/theme/", 1)[1]
             # Support both /api/theme/family/variant and /api/theme/variant
@@ -267,41 +390,56 @@ class ControlHandler(BaseHTTPRequestHandler):
                 self.send_error(400, f"Unknown theme: {key}")
         elif path == "/api/display":
             global _display_width, _display_height, _screen_rotation
+            global _display_brightness
+            body = self._read_body()
+            if body is None:
+                return
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length)) if length else {}
                 # output is only acted on when explicitly present, so power- or
                 # rotation-only POSTs aren't rejected/re-applied off stale state.
                 output = body.get("output") or None
-                brightness = float(body.get("brightness", _display_brightness))
+                with _STATE_LOCK:
+                    brightness = float(body.get("brightness", _display_brightness))
                 brightness = max(0.3, min(2.0, brightness))
                 # Validate output only when the request explicitly targets one.
+                # Outside _STATE_LOCK: this can shell out to xrandr.
                 if output:
                     valid_outputs = {o["name"] for o in _get_xrandr_outputs()}
                     if output not in valid_outputs:
                         self.send_error(400, f"Unknown output: {output}")
                         return
-                # Display resolution
-                if "width" in body and "height" in body:
-                    _display_width = max(320, min(3840, int(body["width"])))
-                    _display_height = max(200, min(2160, int(body["height"])))
-                # Per-screen rotation settings
-                if "screen_rotation" in body:
-                    sr = body["screen_rotation"]
-                    if isinstance(sr, dict):
-                        for sid, cfg in sr.items():
-                            # Bound growth: cap entry count and key length.
-                            if (len(_screen_rotation) >= _MAX_SCREEN_ROTATION
-                                    and sid not in _screen_rotation):
-                                continue
-                            if not isinstance(sid, str) or len(sid) > 64:
-                                continue
-                            if isinstance(cfg, dict):
-                                _screen_rotation[sid] = {
-                                    "enabled": bool(cfg.get("enabled", True)),
-                                    "duration": max(3, min(600, int(cfg.get("duration", 10)))),
-                                }
-                # Display power toggle
+                with _STATE_LOCK:
+                    # Store brightness whether or not xrandr can apply it.
+                    # It used to be assigned only inside _apply_display_settings'
+                    # `if output:` branch, so with no connected output (headless,
+                    # Wayland) the slider silently reverted on the next reload
+                    # while the panel still said "Settings applied".
+                    if "brightness" in body:
+                        _display_brightness = brightness
+                    # Display resolution -- a composite write; both halves must
+                    # land before a concurrent reader snapshots them.
+                    if "width" in body and "height" in body:
+                        _display_width = max(320, min(3840, int(body["width"])))
+                        _display_height = max(200, min(2160, int(body["height"])))
+                    # Per-screen rotation settings
+                    if "screen_rotation" in body:
+                        sr = body["screen_rotation"]
+                        if isinstance(sr, dict):
+                            for sid, cfg in sr.items():
+                                # Bound growth: cap entry count and key length.
+                                # check-then-insert, so it must be atomic.
+                                if (len(_screen_rotation) >= _MAX_SCREEN_ROTATION
+                                        and sid not in _screen_rotation):
+                                    continue
+                                if not isinstance(sid, str) or len(sid) > 64:
+                                    continue
+                                if isinstance(cfg, dict):
+                                    _screen_rotation[sid] = {
+                                        "enabled": bool(cfg.get("enabled", True)),
+                                        "duration": max(3, min(600, int(cfg.get("duration", 10)))),
+                                    }
+                # Display power toggle. mgr.turn_on/turn_off/is_on all take
+                # DisplayManager._lock, so they stay outside _STATE_LOCK.
                 from chiketi.app import get_display_manager
                 mgr = get_display_manager()
                 if "display_on" in body and mgr:
@@ -313,18 +451,14 @@ class ControlHandler(BaseHTTPRequestHandler):
                 applied = None
                 if output:
                     applied = _apply_display_settings(output, brightness)
-                resp = {
-                    "current_output": _display_output,
-                    "brightness": _display_brightness,
-                    "width": _display_width,
-                    "height": _display_height,
-                    "screen_rotation": _screen_rotation,
-                    "default_duration": TIMING.rotate_interval_s,
-                    "display_on": mgr.is_on if mgr else False,
-                }
+                resp = _display_payload(mgr.is_on if mgr else False)
                 # Surface xrandr failure instead of a misleading bare 200.
                 if applied is not None:
                     resp["applied"] = applied
+                    resp["applied_detail"] = (
+                        "brightness applied via xrandr" if applied
+                        else "saved, but xrandr could not apply it"
+                    )
                 self._json_response(resp)
             except Exception as e:
                 self.send_error(400, str(e))
@@ -335,7 +469,15 @@ class ControlHandler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # Scoped CORS: echo the Origin only when it matches the host the client
+        # reached us on. A wildcard let any site the user visited read the
+        # telemetry (hostname, IP, MAC, Claude usage) off their LAN.
+        origin = self.headers.get("Origin", "")
+        if origin and _origin_allowed(origin, self.headers.get("Host", "")):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -356,11 +498,24 @@ class ControlHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def _send_html_security_headers(self) -> None:
+        """Headers common to the two HTML pages.
+
+        Deliberately no Content-Security-Policy: both pages are assembled from
+        inline <style>/<script> blocks by _build_html()/_build_display_html(),
+        so any CSP without 'unsafe-inline' breaks the product outright — and a
+        CSP that allows 'unsafe-inline' buys nothing.
+        """
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+
     def _serve_ui(self) -> None:
         html = _build_html()
         body = html.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
+        self._send_html_security_headers()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -370,6 +525,7 @@ class ControlHandler(BaseHTTPRequestHandler):
         body = html.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
+        self._send_html_security_headers()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

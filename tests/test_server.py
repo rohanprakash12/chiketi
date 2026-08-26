@@ -7,14 +7,16 @@ runs in a daemon thread, and is shut down at the end. No display / GPU needed.
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import urllib.request
-from http.server import HTTPServer
+from http.server import HTTPServer, ThreadingHTTPServer
 from unittest import mock
 
 import pytest
 
 import chiketi.server as server
+import chiketi.themes as themes
 from chiketi.collectors.base import MetricValue
 from chiketi.server import (
     ControlHandler,
@@ -116,10 +118,15 @@ class TestApplyDisplaySettings:
 
 
 class _LiveServer:
-    """Context manager: a real HTTPServer on an ephemeral port in a thread."""
+    """Context manager: a real HTTPServer on an ephemeral port in a thread.
 
-    def __init__(self):
-        self.httpd = HTTPServer(("127.0.0.1", 0), ControlHandler)
+    threaded=True uses ThreadingHTTPServer, which is what start_server()
+    actually runs — required to exercise concurrent request handling.
+    """
+
+    def __init__(self, threaded=False):
+        cls = ThreadingHTTPServer if threaded else HTTPServer
+        self.httpd = cls(("127.0.0.1", 0), ControlHandler)
         self.port = self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
@@ -297,3 +304,444 @@ class TestXrandrCache:
             server._get_xrandr_outputs()
             server._get_xrandr_outputs(force=True)
         assert q.call_count == 2
+
+
+class TestBodyLimits:
+    """Content-Length must be validated before rfile.read()."""
+
+    def test_oversized_body_rejected(self):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/display"), data=b"{}", method="POST",
+                headers={"Content-Length": str(10 * 1024 * 1024)},
+            )
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req, timeout=5)
+            assert ei.value.code == 413
+
+    def test_negative_content_length_rejected(self):
+        # urllib will not send a negative Content-Length, so speak HTTP directly.
+        with _LiveServer() as srv:
+            with socket.create_connection(("127.0.0.1", srv.port), timeout=5) as s:
+                s.sendall(
+                    b"POST /api/display HTTP/1.1\r\n"
+                    b"Host: localhost\r\nContent-Length: -1\r\n\r\n"
+                )
+                s.settimeout(5)
+                resp = s.recv(64)
+        assert b"400" in resp
+
+    def test_non_numeric_content_length_rejected(self):
+        with _LiveServer() as srv:
+            with socket.create_connection(("127.0.0.1", srv.port), timeout=5) as s:
+                s.sendall(
+                    b"POST /api/display HTTP/1.1\r\n"
+                    b"Host: localhost\r\nContent-Length: abc\r\n\r\n"
+                )
+                s.settimeout(5)
+                resp = s.recv(64)
+        assert b"400" in resp
+
+    def test_malformed_json_rejected(self):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/display"), data=b"{not json", method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req, timeout=5)
+            assert ei.value.code == 400
+
+    def test_empty_body_still_accepted(self):
+        # A bodiless POST is how the control panel toggles themes; it must work.
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/display"), data=b"", method="POST")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                assert resp.status == 200
+
+
+class TestCsrfAndCors:
+    """Cross-origin POSTs are drive-by CSRF; same-origin and no-Origin are not."""
+
+    def teardown_method(self):
+        server._AUTH_TOKEN = None
+        server._screen_rotation = {}
+
+    @pytest.mark.parametrize(
+        "origin",
+        ["http://[::1", "http://[", "http://[::1]extra", "http://[fe80::1%25eth0"],
+    )
+    def test_malformed_ipv6_origin_rejected_not_crashed(self, origin):
+        """urlparse raises ValueError on these; the header is attacker-supplied.
+
+        An uncaught raise kills the handler thread and drops the connection with
+        no HTTP response at all, so a rejection is the only acceptable outcome.
+        """
+        assert server._origin_allowed(origin, "127.0.0.1:7777") is False
+
+    @pytest.mark.parametrize("depth", [10000, 20000])
+    def test_deeply_nested_json_body_gets_400_not_a_crash(self, depth):
+        """json.loads raises RecursionError on deep nesting, inside the size cap.
+
+        RecursionError subclasses RuntimeError, so a narrow
+        `except (ValueError, UnicodeDecodeError)` lets it escape do_POST,
+        killing the handler thread and dropping the connection with zero bytes.
+        """
+        body = b"[" * depth + b"]" * depth
+        assert len(body) < 64 * 1024, "must fit inside the body cap to be meaningful"
+        with _LiveServer() as srv:
+            with socket.create_connection(("127.0.0.1", srv.port), timeout=10) as s:
+                s.sendall(
+                    b"POST /api/display HTTP/1.1\r\n"
+                    b"Host: " + f"127.0.0.1:{srv.port}".encode() + b"\r\n"
+                    b"Content-Type: application/json\r\n"
+                    b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+                )
+                s.settimeout(10)
+                resp = s.recv(128)
+        assert resp.startswith(b"HTTP/"), f"connection dropped, no response: {resp!r}"
+        assert b"400" in resp, resp
+
+    @pytest.mark.parametrize("verb", [b"GET", b"POST"])
+    @pytest.mark.parametrize(
+        "target",
+        [b"http://[::1", b"http://[", b"http://[::1]extra/x", b"http://[fe80::1%25eth0/y"],
+    )
+    def test_malformed_request_target_gets_400_not_a_crash(self, verb, target):
+        """Absolute-form request targets reach urlparse verbatim.
+
+        Pre-existing: 'GET http://[::1 HTTP/1.1' raised ValueError inside
+        do_GET/do_POST, aborting the handler thread and dropping the connection
+        with zero bytes rather than answering.
+        """
+        with _LiveServer() as srv:
+            with socket.create_connection(("127.0.0.1", srv.port), timeout=5) as s:
+                s.sendall(
+                    verb + b" " + target + b" HTTP/1.1\r\n"
+                    b"Host: " + f"127.0.0.1:{srv.port}".encode() + b"\r\n"
+                    b"Content-Length: 0\r\n\r\n"
+                )
+                s.settimeout(5)
+                resp = s.recv(128)
+        assert resp.startswith(b"HTTP/"), f"connection dropped, no response: {resp!r}"
+        assert b"400" in resp, resp
+
+    def test_malformed_origin_gets_a_real_http_response(self, restore_active_theme):
+        """End-to-end: the server must answer, not drop the connection."""
+        with _LiveServer() as srv:
+            with socket.create_connection(("127.0.0.1", srv.port), timeout=5) as s:
+                s.sendall(
+                    b"POST /api/theme/Panel/Teal HTTP/1.1\r\n"
+                    b"Host: " + f"127.0.0.1:{srv.port}".encode() + b"\r\n"
+                    b"Origin: http://[::1\r\n"
+                    b"Content-Length: 0\r\n\r\n"
+                )
+                s.settimeout(5)
+                resp = s.recv(128)
+        assert resp.startswith(b"HTTP/"), f"no HTTP response: {resp!r}"
+        assert b"403" in resp, resp
+
+    def test_cross_origin_post_rejected(self, restore_active_theme):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                headers={"Origin": "https://evil.example"},
+            )
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req, timeout=5)
+            assert ei.value.code == 403
+
+    def test_cross_origin_post_does_not_change_state(self, restore_active_theme):
+        before = themes.get_active_theme().name
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                headers={"Origin": "https://evil.example"},
+            )
+            with pytest.raises(urllib.error.HTTPError):
+                urllib.request.urlopen(req, timeout=5)
+        assert themes.get_active_theme().name == before
+
+    def test_same_origin_post_allowed(self, restore_active_theme):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                headers={"Origin": f"http://127.0.0.1:{srv.port}"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                assert resp.status == 200
+
+    def test_post_without_origin_allowed(self, restore_active_theme):
+        """curl and scripts send no Origin; they must keep working."""
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/theme/Panel/Gold"), data=b"", method="POST")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                assert resp.status == 200
+
+    def test_null_origin_allowed(self, restore_active_theme):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/theme/Panel/Gold"), data=b"", method="POST",
+                headers={"Origin": "null"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                assert resp.status == 200
+
+    def test_metrics_not_wildcard_cors(self):
+        with _LiveServer() as srv:
+            with urllib.request.urlopen(srv.url("/api/metrics"), timeout=5) as resp:
+                assert resp.headers.get("Access-Control-Allow-Origin") != "*"
+
+    def test_same_origin_get_echoes_origin(self):
+        with _LiveServer() as srv:
+            origin = f"http://127.0.0.1:{srv.port}"
+            req = urllib.request.Request(
+                srv.url("/api/metrics"), headers={"Origin": origin})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                assert resp.headers.get("Access-Control-Allow-Origin") == origin
+                assert resp.headers.get("Vary") == "Origin"
+
+    def test_cross_origin_get_gets_no_cors_header(self):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/metrics"), headers={"Origin": "https://evil.example"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                assert resp.headers.get("Access-Control-Allow-Origin") is None
+
+    def test_security_headers_on_json(self):
+        with _LiveServer() as srv:
+            with urllib.request.urlopen(srv.url("/api/health"), timeout=5) as resp:
+                assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+                assert resp.headers.get("Referrer-Policy") == "no-referrer"
+
+    def test_security_headers_on_html_pages(self):
+        for path in ("/", "/display"):
+            with _LiveServer() as srv:
+                with urllib.request.urlopen(srv.url(path), timeout=5) as resp:
+                    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+                    assert resp.headers.get("Referrer-Policy") == "no-referrer"
+                    assert resp.headers.get("X-Frame-Options") == "DENY"
+
+
+class TestOriginAllowed:
+    def test_absent_origin(self):
+        assert server._origin_allowed("", "host:7777") is True
+
+    def test_null_origin(self):
+        assert server._origin_allowed("null", "host:7777") is True
+
+    def test_matching_origin(self):
+        assert server._origin_allowed("http://host:7777", "host:7777") is True
+
+    def test_port_mismatch(self):
+        assert server._origin_allowed("http://host:80", "host:7777") is False
+
+    def test_host_mismatch(self):
+        assert server._origin_allowed("http://evil:7777", "host:7777") is False
+
+    def test_opaque_origin(self):
+        assert server._origin_allowed("not-a-url", "host:7777") is False
+
+
+class TestConcurrentState:
+    """ThreadingHTTPServer serves requests concurrently; shared display state
+    must not be serialized while another thread mutates it."""
+
+    def teardown_method(self):
+        server._screen_rotation = {}
+        server._display_width = 1024
+        server._display_height = 600
+
+    def test_concurrent_get_and_post_do_not_race(self):
+        errors = []
+
+        with _LiveServer(threaded=True) as srv:
+            def hammer_post():
+                for i in range(60):
+                    body = json.dumps({
+                        "screen_rotation": {
+                            f"s{i}": {"enabled": True, "duration": 5}},
+                        "width": 1024 + (i % 3),
+                        "height": 600 + (i % 3),
+                    }).encode()
+                    try:
+                        req = urllib.request.Request(
+                            srv.url("/api/display"), data=body, method="POST",
+                            headers={"Content-Type": "application/json"},
+                        )
+                        urllib.request.urlopen(req, timeout=10).read()
+                    except Exception as exc:
+                        errors.append(exc)
+
+            def hammer_get():
+                for _ in range(60):
+                    try:
+                        urllib.request.urlopen(
+                            srv.url("/api/display"), timeout=10).read()
+                    except Exception as exc:
+                        errors.append(exc)
+
+            threads = [threading.Thread(target=hammer_post) for _ in range(2)]
+            threads += [threading.Thread(target=hammer_get) for _ in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=60)
+        assert not errors, f"concurrent access raised: {errors[:3]}"
+
+    def test_rotation_cap_holds_under_concurrency(self):
+        with _LiveServer(threaded=True) as srv:
+            def hammer():
+                for i in range(120):
+                    body = json.dumps({
+                        "screen_rotation": {
+                            f"k{i}": {"enabled": True, "duration": 5}},
+                    }).encode()
+                    req = urllib.request.Request(
+                        srv.url("/api/display"), data=body, method="POST",
+                        headers={"Content-Type": "application/json"},
+                    )
+                    urllib.request.urlopen(req, timeout=10).read()
+
+            threads = [threading.Thread(target=hammer) for _ in range(6)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=60)
+        assert len(server._screen_rotation) <= server._MAX_SCREEN_ROTATION
+
+    def _post_in_thread(self, srv, done, body):
+        def run():
+            try:
+                req = urllib.request.Request(
+                    srv.url("/api/display"), data=json.dumps(body).encode(),
+                    method="POST", headers={"Content-Type": "application/json"},
+                )
+                urllib.request.urlopen(req, timeout=20).read()
+            finally:
+                done.set()
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return t
+
+    def test_post_write_path_takes_the_state_lock(self):
+        """Holding _STATE_LOCK must block a concurrent state-mutating POST."""
+        with _LiveServer(threaded=True) as srv:
+            done = threading.Event()
+            with server._STATE_LOCK:
+                t = self._post_in_thread(
+                    srv, done,
+                    {"screen_rotation": {"lk": {"enabled": True, "duration": 7}}})
+                assert not done.wait(1.0), "POST completed while lock was held"
+            assert done.wait(10), "POST did not complete after lock release"
+            t.join(timeout=5)
+        assert server._screen_rotation["lk"]["duration"] == 7
+
+    def test_get_read_path_takes_the_state_lock(self):
+        """Holding _STATE_LOCK must block a concurrent /api/display GET."""
+        with _LiveServer(threaded=True) as srv:
+            done = threading.Event()
+
+            def run():
+                try:
+                    urllib.request.urlopen(
+                        srv.url("/api/display"), timeout=20).read()
+                finally:
+                    done.set()
+
+            with server._STATE_LOCK:
+                t = threading.Thread(target=run, daemon=True)
+                t.start()
+                assert not done.wait(1.0), "GET completed while lock was held"
+            assert done.wait(10), "GET did not complete after lock release"
+            t.join(timeout=5)
+
+
+class TestDisplayPayloadSnapshot:
+    """Deterministic counterpart to the race test: the payload must be a
+    detached copy, so json.dumps never iterates the live dict."""
+
+    def teardown_method(self):
+        server._screen_rotation = {}
+
+    def test_rotation_is_a_copy(self):
+        server._screen_rotation = {"s1": {"enabled": True, "duration": 5}}
+        payload = server._display_payload(False)
+        assert payload["screen_rotation"] is not server._screen_rotation
+        assert payload["screen_rotation"]["s1"] is not server._screen_rotation["s1"]
+
+    def test_later_mutation_does_not_affect_snapshot(self):
+        server._screen_rotation = {"s1": {"enabled": True, "duration": 5}}
+        payload = server._display_payload(False)
+        server._screen_rotation["s2"] = {"enabled": False, "duration": 9}
+        server._screen_rotation["s1"]["duration"] = 99
+        assert payload["screen_rotation"] == {"s1": {"enabled": True, "duration": 5}}
+
+    def test_display_on_is_passed_in_not_looked_up(self):
+        assert server._display_payload(True)["display_on"] is True
+        assert server._display_payload(False)["display_on"] is False
+
+
+class TestBrightnessPersistence:
+    """Brightness must be stored independently of whether xrandr applied it."""
+
+    def teardown_method(self):
+        server._display_brightness = 1.0
+        server._display_output = ""
+        server._XRANDR_CACHE = []
+        server._XRANDR_CACHE_TS = 0.0
+
+    def _post(self, srv, body):
+        req = urllib.request.Request(
+            srv.url("/api/display"), data=json.dumps(body).encode(),
+            method="POST", headers={"Content-Type": "application/json"},
+        )
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_brightness_persists_without_output(self):
+        server._display_brightness = 1.0
+        with _LiveServer() as srv:
+            with self._post(srv, {"brightness": 1.7}) as r:
+                assert json.loads(r.read())["brightness"] == 1.7
+            with urllib.request.urlopen(srv.url("/api/display"), timeout=5) as r:
+                assert json.loads(r.read())["brightness"] == 1.7
+
+    def test_brightness_still_clamped(self):
+        with _LiveServer() as srv:
+            with self._post(srv, {"brightness": 99}) as r:
+                assert json.loads(r.read())["brightness"] == 2.0
+            with self._post(srv, {"brightness": -5}) as r:
+                assert json.loads(r.read())["brightness"] == 0.3
+
+    def test_omitted_brightness_leaves_stored_value(self):
+        server._display_brightness = 1.4
+        with _LiveServer() as srv:
+            with self._post(srv, {"width": 800, "height": 480}) as r:
+                assert json.loads(r.read())["brightness"] == 1.4
+
+    def test_saved_even_when_xrandr_fails(self):
+        with mock.patch.object(
+            server, "_query_xrandr_outputs",
+            return_value=[{"name": "HDMI-1", "connected": True, "resolution": ""}],
+        ), mock.patch.object(server, "_apply_display_settings", return_value=False):
+            with _LiveServer() as srv:
+                with self._post(
+                        srv, {"output": "HDMI-1", "brightness": 1.9}) as r:
+                    data = json.loads(r.read())
+        assert data["applied"] is False
+        assert data["applied_detail"] == "saved, but xrandr could not apply it"
+        assert data["brightness"] == 1.9
+
+    def test_applied_detail_on_success(self):
+        with mock.patch.object(
+            server, "_query_xrandr_outputs",
+            return_value=[{"name": "HDMI-1", "connected": True, "resolution": ""}],
+        ), mock.patch.object(server, "_apply_display_settings", return_value=True):
+            with _LiveServer() as srv:
+                with self._post(
+                        srv, {"output": "HDMI-1", "brightness": 1.2}) as r:
+                    data = json.loads(r.read())
+        assert data["applied"] is True
+        assert data["applied_detail"] == "brightness applied via xrandr"
