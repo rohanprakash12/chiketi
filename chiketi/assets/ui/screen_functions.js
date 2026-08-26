@@ -255,7 +255,7 @@ function panelGoldScreen1(c) {
       (diskHome.available ?
         `<div style="position:relative;height:2.93cqw;background:${GREEN};border-radius:3px;overflow:hidden">` +
           `<div style="position:absolute;top:0;left:0;height:100%;width:${diskHomePct.available?diskHomePct.value:0}%;background:${GOLD};border-radius:3px;transition:width 0.8s ease"></div>` +
-          `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.17cqw;font-family:${F};font-size:1.95cqw;font-weight:700;color:#000"><span>SECONDARY</span><span>${diskHome.value?(diskHome.value/1000).toFixed(1):'?'}T / ${diskHome.extra.total?(diskHome.extra.total/1000).toFixed(1):'?'}T</span></div>` +
+          `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.17cqw;font-family:${F};font-size:1.95cqw;font-weight:700;color:#000"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
         `</div>` :
         `<div style="height:2.93cqw;background:#111;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.95cqw;color:#444">SECONDARY \u2014 NONE</div>`)
     , hostStr) +
@@ -378,7 +378,7 @@ function panelCoralScreen1(c) {
         (diskHome.available ?
           `<div style="position:relative;height:2.93cqw;background:${T.eggplant||'#664466'};border-radius:999px;overflow:hidden">` +
             `<div style="position:absolute;top:0;left:0;height:100%;width:${secPct}%;background:${T.goldenTanoi||'#FFCC66'};border-radius:999px;transition:width 0.8s ease"></div>` +
-            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;color:#000"><span>SECONDARY</span><span>${diskHome.value?(diskHome.value/1000).toFixed(1):'?'}T / ${diskHome.extra.total?(diskHome.extra.total/1000).toFixed(1):'?'}T</span></div>` +
+            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;color:#000"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
           `</div>` :
           `<div style="height:2.93cqw;background:#111;border-radius:999px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.76cqw;color:${T.eggplant||'#664466'}">SECONDARY \u2014 NONE</div>`) +
       `</div>` +
@@ -511,7 +511,7 @@ function panelTealScreen1(c) {
         (diskHome.available ?
           `<div style="position:relative;height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;overflow:hidden">` +
             `<div style="position:absolute;top:0;left:0;height:100%;width:${secPct}%;background:${D.teal||'#2A9D8F'};border-radius:2px;transition:width 0.8s ease"></div>` +
-            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;font-weight:600;color:${D.void||'#111419'}"><span>SECONDARY</span><span>${diskHome.value?(diskHome.value/1000).toFixed(1):'?'}T / ${diskHome.extra.total?(diskHome.extra.total/1000).toFixed(1):'?'}T</span></div>` +
+            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;font-weight:600;color:${D.void||'#111419'}"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
           `</div>` :
           `<div style="height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.76cqw;color:${D.slate||'#6D748C'}">SECONDARY \u2014 NONE</div>`) +
       `</div>` +
@@ -695,7 +695,7 @@ function scanScreen1(c) {
           '<div style="position:relative;height:2.64cqw;background:' + dim + ';border-radius:1px;overflow:hidden">' +
             '<div style="position:absolute;top:0;left:0;height:100%;width:' + secPct + '%;background:' + green + ';border-radius:1px;transition:width 0.8s ease;box-shadow:0 0 3px ' + green + ',0 0 6px ' + green + '44"></div>' +
             '<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.17cqw;font-family:' + F + ';font-size:1.46cqw;color:' + bg + '">' +
-              '<span>SECONDARY</span><span>' + (diskHome.value?(diskHome.value/1000).toFixed(1):'?') + 'T / ' + (diskHome.extra.total?(diskHome.extra.total/1000).toFixed(1):'?') + 'T</span></div>' +
+              '<span>SECONDARY</span><span>' + fmtCapacity(diskHome) + ' / ' + fmtCapacityTotal(diskHome) + '</span></div>' +
           '</div>' :
           '<div style="height:2.64cqw;background:' + dim + ';border-radius:1px;display:flex;align-items:center;justify-content:center;font-family:' + F + ';font-size:1.46cqw;color:' + dim + '">SECONDARY \u2014 NONE</div>') +
       '</div>' +
@@ -993,7 +993,7 @@ function tubeScreen1(c) {
       '<div style="flex:1">' +
         (diskHome.available ?
           '<div style="position:relative;height:2.93cqw;background:#0C0A06;border:1px solid #33281844;border-radius:10px;overflow:hidden">' +
-            '<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:' + MONO + ';font-size:1.46cqw;color:#CCDDFF;text-shadow:0 0 2px #4488DD88;z-index:2;pointer-events:none"><span>SECONDARY</span><span>' + (diskHome.value?(diskHome.value/1000).toFixed(1):'?') + 'T / ' + (diskHome.extra.total?(diskHome.extra.total/1000).toFixed(1):'?') + 'T</span></div>' +
+            '<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:' + MONO + ';font-size:1.46cqw;color:#CCDDFF;text-shadow:0 0 2px #4488DD88;z-index:2;pointer-events:none"><span>SECONDARY</span><span>' + fmtCapacity(diskHome) + ' / ' + fmtCapacityTotal(diskHome) + '</span></div>' +
           '</div>' :
           '<div style="height:2.93cqw;background:#0C0A06;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:' + MONO + ';font-size:1.46cqw;color:' + (N.barDim||'#CC4400') + '">SECONDARY \u2014 NONE</div>') +
       '</div>' +
@@ -1249,7 +1249,7 @@ function vfdScreen1(c) {
             '<div style="flex:1;height:3.22cqw;background:' + (V.blueGhost||'#0A1018') + ';border-radius:1px;overflow:hidden;position:relative">' +
               '<div style="position:absolute;top:0;left:0;height:100%;width:' + secPct + '%;background:' + blue + ';border-radius:1px;transition:width 0.8s ease;box-shadow:0 0 4px ' + blue + '66"></div>' +
             '</div>' +
-            '<span style="color:' + blue + ';text-shadow:0 0 3px ' + blueDim + ';font-size:1.46cqw;font-family:' + F + ';flex-shrink:0">' + (diskHome.value?(diskHome.value/1000).toFixed(1):'?') + 'T/' + (diskHome.extra.total?(diskHome.extra.total/1000).toFixed(1):'?') + 'T</span>' +
+            '<span style="color:' + blue + ';text-shadow:0 0 3px ' + blueDim + ';font-size:1.46cqw;font-family:' + F + ';flex-shrink:0">' + fmtCapacity(diskHome) + '/' + fmtCapacityTotal(diskHome) + '</span>' +
           '</div>' :
           '<span style="color:' + (V.ghost||'#0A1A15') + ';font-size:1.76cqw;font-family:' + F + '">SECONDARY \u2014 NONE</span>') +
       '</div>' +

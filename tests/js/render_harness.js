@@ -79,6 +79,13 @@ const REGISTRY = [
   { family: 'Terminal', variant: 'hacker', fns: [terminalScreen1, terminalScreen2] },
 ];
 
+// Screens that print the SECONDARY (/home) capacity as a "used / total"
+// string. Used by the LARGE_DISK assertions below.
+const TIB_CAPACITY_SCREENS = [
+  'panelGoldScreen1', 'panelCoralScreen1', 'panelTealScreen1',
+  'scanScreen1', 'tubeScreen1', 'vfdScreen1',
+];
+
 const failures = [];
 function fail(fixture, label, reason) {
   failures.push('FAIL ' + fixture + ' ' + label + ': ' + reason);
@@ -111,6 +118,21 @@ for (const fixtureName of Object.keys(FIX)) {
       // A raw '<img' can only appear if esc() was skipped.
       if (fixtureName === 'HOSTILE' && /<\s*img/i.test(html)) {
         fail(fixtureName, label, 'unescaped metric reached output');
+      }
+
+      // A >=1 TiB disk must never render as 0.0. disk.py switches to TiB units
+      // at that size; a renderer that assumes GiB divides by 1000 and produces
+      // "0.0T". The LARGE_DISK fixture's /home is 1.2 TiB of 4.0 TiB.
+      if (fixtureName === 'LARGE_DISK' && /(^|[^\d])0\.0\s*T/.test(html)) {
+        fail(fixtureName, label, 'TiB-unit disk rendered as 0.0T');
+      }
+      // ...and the negative check alone would also pass on a renderer that
+      // dropped the capacity entirely, so pin the expected string for the six
+      // screens that actually print it. (Terminal formats it as "1.2/4T" and
+      // has always been unit-aware, so it is not in this list.)
+      if (fixtureName === 'LARGE_DISK' && TIB_CAPACITY_SCREENS.indexOf(fn.name) !== -1 &&
+          !/1\.2T\s*\/\s*4\.0T/.test(html)) {
+        fail(fixtureName, label, 'expected /home capacity "1.2T / 4.0T" missing');
       }
     });
   }

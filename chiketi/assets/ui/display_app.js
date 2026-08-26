@@ -69,6 +69,18 @@ function getScreenRegistry(c) {
   return screens;
 }
 
+/* Rotation durations arrive from the server (--rotate-interval and the
+   per-screen config), so the page must not trust them. A 0, negative, NaN or
+   non-numeric duration makes setTimeout(onRotate, 0) reschedule itself
+   forever, re-rendering ~130KB of innerHTML every iteration. Bounds match
+   ROTATE_MIN_S/ROTATE_MAX_S in __main__.py and the API clamp in server.py. */
+const ROTATE_MIN_S = 3, ROTATE_MAX_S = 600, ROTATE_FALLBACK_S = 10;
+function clampDuration(v) {
+  const n = Number(v);
+  if (!isFinite(n) || n <= 0) return ROTATE_FALLBACK_S;
+  return Math.max(ROTATE_MIN_S, Math.min(ROTATE_MAX_S, n));
+}
+
 /* Build the list of enabled screens as lightweight metadata (no HTML).
    Only the currently-visible screen's renderer runs, in renderDisplay(). */
 function buildEnabledScreens() {
@@ -79,12 +91,12 @@ function buildEnabledScreens() {
     return !cfg || cfg.enabled !== false;
   }).map(s => {
     const cfg = screenRotation[s.id];
-    return { id: s.id, name: s.name, fn: s.fn, duration: (cfg && cfg.duration) || defaultDuration };
+    return { id: s.id, name: s.name, fn: s.fn, duration: clampDuration((cfg && cfg.duration) || defaultDuration) };
   });
   if (list.length === 0) {
     // Fallback: show first screen if all disabled
     const s0 = allScreens[0];
-    list = [{ id: s0.id, name: s0.name, fn: s0.fn, duration: defaultDuration }];
+    list = [{ id: s0.id, name: s0.name, fn: s0.fn, duration: clampDuration(defaultDuration) }];
   }
   return list;
 }
@@ -111,7 +123,11 @@ async function poll() {
 
     // Apply per-screen rotation config
     if (displayData.screen_rotation) screenRotation = displayData.screen_rotation;
-    if (typeof displayData.default_duration === 'number') defaultDuration = displayData.default_duration;
+    // Clamp: a 0/negative duration turns scheduleRotate() into a hot
+    // setTimeout(0) loop that re-renders the whole screen continuously.
+    if (typeof displayData.default_duration === 'number' && isFinite(displayData.default_duration)) {
+      defaultDuration = clampDuration(displayData.default_duration);
+    }
 
     const newFamily = themeData.active_family;
     const newVariant = themeData.active_variant;
@@ -133,7 +149,8 @@ async function poll() {
 function scheduleRotate() {
   if (rotateTimer) { clearTimeout(rotateTimer); rotateTimer = null; }
   if (enabledScreens.length <= 1) return;
-  const durationMs = ((enabledScreens[currentScreenIdx] || {}).duration || defaultDuration) * 1000;
+  const raw = (enabledScreens[currentScreenIdx] || {}).duration || defaultDuration;
+  const durationMs = clampDuration(raw) * 1000;
   // Next rotation is `durationMs` after the last one, but never before any
   // active manual-pause window expires.
   const target = Math.max(lastRotate + durationMs, pauseUntil);

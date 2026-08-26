@@ -19,7 +19,7 @@ Copy these verbatim into every task's requirements.
 - **No breaking changes.** Anything that works today must still work after every phase. Specifically: `chiketi` with no arguments must still bind `0.0.0.0:7777` with no auth; the control panel must still work without a token; every existing CLI flag keeps its current meaning.
 - **Python floor is 3.11.** No syntax or stdlib newer than 3.11.
 - **Runtime dependencies stay at `psutil` only.** `nvidia-ml-py` stays optional under the `[nvidia]` extra. Do not add a runtime dependency for any reason.
-- **No build step for the UI.** `chiketi/assets/ui/*.js` is served as-is and concatenated by `server.py`. It must remain valid standalone ES2017 that `node --check` accepts. No imports, no bundler, no TypeScript.
+- **No build step for the UI.** `chiketi/assets/ui/*.js` is served as-is and concatenated by `server.py`. It must remain valid ES2017. Syntax-check with `./scripts/check_js.sh` — NOT `node --check`, which cannot parse `display_app.js`/`control_app.js` because they are `<script>`-wrapped for inlining. No imports, no bundler, no TypeScript.
 - **`ruff check .` must pass** after every task. Do NOT run `ruff format` — this project has never adopted it and reformatting 18 files would bury real changes in noise.
 - **`pytest -q` must pass** after every task. The suite is 94 tests at plan time and only grows.
 - **Never edit `docs/site/data.js`, `docs/site/dashboard.js`, or `docs/site/dashboard.css` by hand.** They are generated. Run `python scripts/gen_site_assets.py` and commit the result.

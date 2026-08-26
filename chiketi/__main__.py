@@ -5,8 +5,15 @@ from __future__ import annotations
 import argparse
 import sys
 
+# Bounds for --rotate-interval, matching the clamp the control API already
+# applies to per-screen durations (server.py). Below 3s the display thrashes;
+# 0 or negative turns the browser's setTimeout(onRotate, ...) into a hot loop.
+ROTATE_MIN_S = 3
+ROTATE_MAX_S = 600
 
-def main() -> None:
+
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the CLI parser. Split out so tests can exercise it."""
     parser = argparse.ArgumentParser(
         prog="chiketi",
         description="System stats dashboard for 7\" GeeekPi display",
@@ -15,7 +22,7 @@ def main() -> None:
         "--rotate-interval",
         type=int,
         default=None,
-        help="Seconds between auto-rotation (default: 10)",
+        help=f"Seconds between auto-rotation, {ROTATE_MIN_S}-{ROTATE_MAX_S} (default: 10)",
     )
     parser.add_argument(
         "--theme",
@@ -37,8 +44,26 @@ def main() -> None:
         help="Optional shared secret required on control POSTs (X-Chiketi-Token "
              "header). Can also be set via the CHIKETI_TOKEN env var.",
     )
+    return parser
 
+
+def validate_args(args: argparse.Namespace) -> None:
+    """Reject out-of-range values. Exits with status 2, like argparse errors."""
+    if args.rotate_interval is not None and not (
+        ROTATE_MIN_S <= args.rotate_interval <= ROTATE_MAX_S
+    ):
+        print(
+            f"chiketi: --rotate-interval must be between {ROTATE_MIN_S} and "
+            f"{ROTATE_MAX_S} seconds (got {args.rotate_interval})",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
+    validate_args(args)
 
     if args.theme:
         from chiketi.themes import set_active_theme

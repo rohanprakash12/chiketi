@@ -49,3 +49,27 @@ function lBar(color, pct) {
   if (pct == null) return '';
   return `<div class="l-bar"><div class="l-bar-fill" style="width:${Math.max(0,Math.min(100,pct))}%;background:${color}"></div></div>`;
 }
+
+/* Format a disk capacity metric for display, honouring the unit the collector
+   chose. disk.py emits TiB for volumes >= 1 TiB and GiB below that, so a
+   renderer that assumes one or the other is wrong half the time.
+   Returns e.g. "1.2T", "300G", or "?" when unavailable. */
+function fmtCapacity(d) {
+  if (!d || !d.available || d.value == null || isNaN(d.value)) return '?';
+  const unit = String(d.unit || 'GiB');
+  let tib;
+  if (unit === 'TiB') tib = Number(d.value);
+  else if (unit === 'MiB') tib = Number(d.value) / (1024 * 1024);
+  else tib = Number(d.value) / 1024;          // GiB, the collector's default
+  if (tib >= 1) return tib.toFixed(1) + 'T';
+  const gib = tib * 1024;
+  if (gib >= 1) return Math.round(gib) + 'G';
+  return Math.round(gib * 1024) + 'M';
+}
+
+/* Same, for the `extra.total` companion field, which carries no unit of its
+   own -- it is always in the same unit as its parent metric. */
+function fmtCapacityTotal(d) {
+  if (!d || !d.available || !d.extra || d.extra.total == null) return '?';
+  return fmtCapacity({ available: true, value: d.extra.total, unit: d.unit });
+}
