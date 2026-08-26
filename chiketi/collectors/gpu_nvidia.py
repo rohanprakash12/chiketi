@@ -165,16 +165,15 @@ class GpuNvidiaCollector(MetricCollector):
     # every card
     # ------------------------------------------------------------------
 
-    def collect(self) -> dict[str, MetricValue]:
-        metrics: dict[str, MetricValue] = {}
+    def read_cards(self) -> list[dict]:
+        """Every NVIDIA card NVML can see. Empty when there are none."""
         if not _ensure_nvml():
-            return self._all_unavailable(metrics)
-
+            return []
         try:
             import pynvml
             count = pynvml.nvmlDeviceGetCount()
         except Exception:
-            return self._all_unavailable(metrics)
+            return []
 
         cards: list[dict] = []
         for i in range(count):
@@ -185,10 +184,17 @@ class GpuNvidiaCollector(MetricCollector):
             except Exception:
                 continue
             try:
-                cards.append(self._read_card(pynvml, handle, i))
+                card = self._read_card(pynvml, handle, i)
             except Exception:
                 continue
+            card["source"] = "nvml"
+            card["vendor"] = "NVIDIA"
+            cards.append(card)
+        return cards
 
+    def collect(self) -> dict[str, MetricValue]:
+        metrics: dict[str, MetricValue] = {}
+        cards = self.read_cards()
         if not cards:
             return self._all_unavailable(metrics)
 

@@ -9,7 +9,7 @@ from chiketi.collectors.disk import DiskCollector
 from chiketi.collectors.network import NetworkCollector
 from chiketi.collectors.ping import PingCollector
 from chiketi.collectors.system import SystemCollector
-from chiketi.collectors.gpu_nvidia import GpuNvidiaCollector
+from chiketi.collectors.gpu import GpuCollector
 from chiketi.collectors.llm import LlmCollector
 from chiketi.collectors.claude import ClaudeCollector
 
@@ -25,8 +25,9 @@ def get_collectors() -> list[MetricCollector]:
         PingCollector(),
     ]
 
-    # GPU - nvidia (no-ops when NVML is unavailable)
-    collectors.append(GpuNvidiaCollector())
+    # GPU - NVIDIA via NVML, AMD/Intel via sysfs, merged.
+    # No-ops when the machine has no card either source can see.
+    collectors.append(GpuCollector())
 
     # LLM backend (auto-detects llama.cpp, Ollama, vLLM)
     collectors.append(LlmCollector())
