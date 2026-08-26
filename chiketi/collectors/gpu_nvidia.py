@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 
 from chiketi.collectors.base import MetricCollector, MetricValue
+from chiketi.collectors.gpu_sysfs import short_name
 
 _nvml_initialized = False
 _nvml_last_attempt = 0.0
@@ -189,6 +190,10 @@ class GpuNvidiaCollector(MetricCollector):
                 continue
             card["source"] = "nvml"
             card["vendor"] = "NVIDIA"
+            # NVML does not report the kernel module or a short name; without
+            # these the screen header renders "-- | <bus id>" on a real card.
+            card["driver"] = "nvidia"
+            card["short_name"] = short_name(card.get("name")) or card.get("name")
             cards.append(card)
         return cards
 

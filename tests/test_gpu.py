@@ -434,3 +434,56 @@ class TestSymlinkResolution:
         _write(os.path.join(dev, "gpu_busy_percent"), "50\n")
         cards = read_sysfs_cards(root)
         assert all(c["bus_id"] != "device" for c in cards)
+
+
+class TestShortNameVendorPrefix:
+    """NVML returns "NVIDIA GeForce RTX 3090 Ti". The tile already carries a
+    vendor badge, so the prefix is redundancy in a field that has ~26
+    characters -- but stripping it must not strip away meaning."""
+
+    @pytest.mark.parametrize("full,expect", [
+        ("NVIDIA GeForce RTX 3090 Ti", "GeForce RTX 3090 Ti"),
+        ("Intel Arc A770", "Arc A770"),
+        ("AMD Radeon RX 7900 XT", "Radeon RX 7900 XT"),
+        # The numeric fallback keeps its vendor: "0x744c" alone names nothing.
+        ("AMD 0x744c", "AMD 0x744c"),
+        ("Intel 0x56a0", "Intel 0x56a0"),
+        # A bare vendor is all there is; do not strip to empty.
+        ("NVIDIA", "NVIDIA"),
+        # Bracketed names are unaffected by the prefix rule.
+        ("Navi 31 [Radeon RX 7900 XT/7900 XTX]", "Radeon RX 7900 XT"),
+    ])
+    def test_prefix_stripped_only_when_meaning_survives(self, full, expect):
+        assert short_name(full) == expect
+
+
+class TestNvmlCardShape:
+    """Fields the real RTX 3090 Ti came back missing: without them the screen
+    header renders "-- | <bus id>"."""
+
+    def test_nvml_cards_carry_driver_and_short_name(self, monkeypatch):
+        from chiketi.collectors.gpu_nvidia import GpuNvidiaCollector
+        col = GpuNvidiaCollector()
+        monkeypatch.setattr("chiketi.collectors.gpu_nvidia._ensure_nvml", lambda: True)
+
+        class FakeNvml:
+            NVML_TEMPERATURE_GPU = 0
+            NVML_CLOCK_GRAPHICS = 0
+            NVML_CLOCK_MEM = 1
+            @staticmethod
+            def nvmlDeviceGetCount(): return 1
+            @staticmethod
+            def nvmlDeviceGetHandleByIndex(i): return object()
+            @staticmethod
+            def nvmlDeviceGetName(h): return "NVIDIA GeForce RTX 3090 Ti"
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        fake = FakeNvml()
+        monkeypatch.setitem(__import__("sys").modules, "pynvml", fake)
+        cards = col.read_cards()
+        assert len(cards) == 1
+        assert cards[0]["driver"] == "nvidia"
+        assert cards[0]["short_name"] == "GeForce RTX 3090 Ti"
+        assert cards[0]["vendor"] == "NVIDIA"
+        assert cards[0]["source"] == "nvml"

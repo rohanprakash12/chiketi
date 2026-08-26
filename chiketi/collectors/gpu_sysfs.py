@@ -255,6 +255,17 @@ def short_name(full: str | None) -> str | None:
             text = inner
     # "RX 6700/6700 XT/6750 XT / 6800M" -> the first board on the list.
     text = text.split("/")[0].strip()
+    # NVML returns "NVIDIA GeForce RTX 3090 Ti"; the tile already carries a
+    # vendor badge, so the prefix is 7 characters of redundancy in a field
+    # that has to fit ~26.
+    for vendor in ("NVIDIA ", "AMD ", "ATI ", "Intel "):
+        if text.upper().startswith(vendor.upper()) and len(text) > len(vendor):
+            rest = text[len(vendor):].strip()
+            # Not when the remainder is the bare PCI id fallback: "AMD 0x744c"
+            # is at least identifiable, "0x744c" on its own is not.
+            if rest and not rest.lower().startswith("0x"):
+                text = rest
+            break
     return text or None
 
 
