@@ -33,7 +33,8 @@ def _write(path: str, content: str) -> None:
 
 
 def make_card(root: str, n: int, *, vendor: str, attrs: dict | None = None,
-              hwmon: dict | None = None, pci: str | None = None) -> str:
+              hwmon: dict | None = None, pci: str | None = None,
+              driver: str | None = "amdgpu") -> str:
     """Build one cardN device directory. Returns the device path."""
     pci = pci or f"0000:0{n}:00.0"
     # The real tree has card0/device as a symlink to the PCI node; the code
@@ -46,6 +47,11 @@ def make_card(root: str, n: int, *, vendor: str, attrs: dict | None = None,
     if hwmon:
         for k, v in hwmon.items():
             _write(os.path.join(pci_dir, "hwmon", "hwmon3", k), str(v) + "\n")
+    if driver:
+        # The real tree links device/driver at /sys/bus/pci/drivers/<name>.
+        drv_dir = os.path.join(root, "_drivers", driver)
+        os.makedirs(drv_dir, exist_ok=True)
+        os.symlink(drv_dir, os.path.join(pci_dir, "driver"))
     card_dir = os.path.join(root, f"card{n}")
     os.makedirs(card_dir, exist_ok=True)
     os.symlink(pci_dir, os.path.join(card_dir, "device"))
@@ -385,3 +391,46 @@ class TestPciIdNaming:
     ])
     def test_short_name(self, full, expect):
         assert short_name(full) == expect
+
+
+class TestSymlinkResolution:
+    """os.path.realpath() on a MISSING link returns the path unchanged, so a
+    bare basename() yields the node's own name. That produced driver="driver"
+    and would have produced bus_id="device", silently breaking the NVML
+    dedupe - a card listed twice, once full and once nearly blank."""
+
+    def test_driver_name_resolved(self, drm):
+        make_card(drm, 0, vendor="0x1002", attrs=AMD_ATTRS, hwmon=AMD_HWMON,
+                  driver="amdgpu")
+        (card,) = read_sysfs_cards(drm)
+        assert card["driver"] == "amdgpu"
+
+    def test_intel_driver_name_resolved(self, drm):
+        make_card(drm, 0, vendor="0x8086", attrs=INTEL_ATTRS,
+                  hwmon=INTEL_HWMON, driver="i915")
+        (card,) = read_sysfs_cards(drm)
+        assert card["driver"] == "i915"
+
+    def test_unbound_card_reports_no_driver_not_the_word_driver(self, drm):
+        """A card claimed by vfio, or with no module loaded, has no link."""
+        make_card(drm, 0, vendor="0x1002", attrs=AMD_ATTRS, hwmon=AMD_HWMON,
+                  driver=None)
+        (card,) = read_sysfs_cards(drm)
+        assert card["driver"] is None
+
+    def test_bus_id_is_the_pci_address(self, drm):
+        make_card(drm, 0, vendor="0x1002", attrs=AMD_ATTRS, hwmon=AMD_HWMON,
+                  pci="0000:0c:00.0")
+        (card,) = read_sysfs_cards(drm)
+        assert card["bus_id"] == "0000:0c:00.0"
+        assert normalize_bus_id(card["bus_id"]) == "0c:00.0"
+
+    def test_bus_id_never_reports_the_literal_node_name(self, drm, tmp_path):
+        """If device/ were a real directory rather than a link, the old code
+        returned "device" - which normalises to None and breaks the dedupe."""
+        root = str(tmp_path / "drm2")
+        dev = os.path.join(root, "card0", "device")
+        _write(os.path.join(dev, "vendor"), "0x1002\n")
+        _write(os.path.join(dev, "gpu_busy_percent"), "50\n")
+        cards = read_sysfs_cards(root)
+        assert all(c["bus_id"] != "device" for c in cards)

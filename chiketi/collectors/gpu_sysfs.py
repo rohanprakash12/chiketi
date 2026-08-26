@@ -169,12 +169,30 @@ def _parse_dpm_clock(raw: str | None) -> tuple[int | None, int | None]:
     return current, (max(freqs) if freqs else None)
 
 
-def _pci_address(device_dir: str) -> str | None:
-    """The card's PCI address, used to dedupe against NVML's busId."""
+def _resolve_link(path: str) -> str | None:
+    """Basename of what a sysfs symlink points at, or None.
+
+    The existence check is load-bearing. os.path.realpath() on a MISSING link
+    returns the literal path unchanged, so a bare basename() yields the node's
+    own name - "driver" instead of "amdgpu", "device" instead of the PCI
+    address. Both are plausible-looking strings that would sail into the
+    dashboard, and the PCI one would break the NVML dedupe silently.
+    """
     try:
-        return os.path.basename(os.path.realpath(device_dir)) or None
+        if not os.path.exists(path):
+            return None
+        resolved = os.path.realpath(path)
+        if resolved == os.path.abspath(path):
+            # Not a link at all - nothing was resolved.
+            return None
+        return os.path.basename(resolved) or None
     except Exception:
         return None
+
+
+def _pci_address(device_dir: str) -> str | None:
+    """The card's PCI address, used to dedupe against NVML's busId."""
+    return _resolve_link(device_dir)
 
 
 def normalize_bus_id(bus_id: str | None) -> str | None:
@@ -192,10 +210,8 @@ def normalize_bus_id(bus_id: str | None) -> str | None:
 
 
 def _driver_name(device_dir: str) -> str | None:
-    try:
-        return os.path.basename(os.path.realpath(os.path.join(device_dir, "driver"))) or None
-    except Exception:
-        return None
+    """The bound kernel driver (amdgpu, i915, xe), or None if nothing is."""
+    return _resolve_link(os.path.join(device_dir, "driver"))
 
 
 def _card_name(device_dir: str, vendor_id: str | None, driver: str | None) -> str:
