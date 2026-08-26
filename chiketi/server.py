@@ -54,6 +54,13 @@ _display_height: int = 600
 # Populated with defaults on first /api/display GET
 _screen_rotation: dict = {}
 
+# The theme value that should be written to the state file. Deliberately
+# distinct from the *active* theme: an explicit `--theme` flag is a one-off
+# override, so it must not become permanent just because the user later moved
+# the brightness slider. None means "nothing has claimed the persisted theme",
+# in which case _persist() records whatever is live.
+_persisted_theme: str | None = None
+
 # Cache for UI asset files (read once, then served inline at render time)
 _UI_ASSET_CACHE: dict = {}
 
@@ -228,6 +235,70 @@ def _display_payload(display_on: bool) -> dict:
         }
 
 
+def apply_saved_state(saved: dict) -> None:
+    """Adopt settings loaded from the state file. Never raises.
+
+    Called once at startup, after any CLI flag has already been applied. The
+    theme is NOT set here -- app.run() does that, because it alone knows
+    whether a --theme flag should win. Every field is re-checked rather than
+    trusted: this is public API and a caller may hand us anything.
+    """
+    global _display_output, _display_brightness
+    global _display_width, _display_height
+    global _screen_rotation, _persisted_theme
+    if not isinstance(saved, dict):
+        return
+    with _STATE_LOCK:
+        theme = saved.get("theme")
+        _persisted_theme = theme if isinstance(theme, str) and theme else None
+        output = saved.get("output")
+        if isinstance(output, str):
+            _display_output = output
+        brightness = saved.get("brightness")
+        if isinstance(brightness, (int, float)) and not isinstance(brightness, bool):
+            _display_brightness = float(brightness)
+        width = saved.get("width")
+        height = saved.get("height")
+        if (isinstance(width, int) and not isinstance(width, bool)
+                and isinstance(height, int) and not isinstance(height, bool)):
+            # Composite write: both halves land under the same lock hold.
+            _display_width = width
+            _display_height = height
+        rotation = saved.get("screen_rotation")
+        if isinstance(rotation, dict):
+            # Detached copy: the caller keeps its own dict, and a later mutation
+            # of either side must not reach through into the other.
+            _screen_rotation = {
+                sid: dict(cfg) for sid, cfg in rotation.items()
+                if isinstance(sid, str) and isinstance(cfg, dict)
+            }
+
+
+def _persist() -> None:
+    """Best-effort save of the current settings.
+
+    Deliberately swallows everything: a read-only or full HOME is a supported
+    situation, and persistence must never turn a working control POST into a
+    500. save_state() already returns False rather than raising, but this runs
+    on a request thread, so the guard covers the snapshot build too.
+    """
+    try:
+        from chiketi.state import save_state
+        with _STATE_LOCK:
+            snapshot = {
+                "theme": _persisted_theme or
+                f"{get_active_family()}/{get_active_theme().name}",
+                "screen_rotation": {k: dict(v) for k, v in _screen_rotation.items()},
+                "brightness": _display_brightness,
+                "output": _display_output,
+                "width": _display_width,
+                "height": _display_height,
+            }
+        save_state(snapshot)
+    except Exception:
+        pass
+
+
 def set_metrics_source(fn):
     """Register a callable that returns the latest metrics dict."""
     global _get_metrics
@@ -382,6 +453,14 @@ class ControlHandler(BaseHTTPRequestHandler):
                 # Short variant name (backward compat)
                 key = rest
             if set_active_theme(key):
+                global _persisted_theme
+                with _STATE_LOCK:
+                    # Canonical family/variant, so a short-name POST
+                    # ("hacker") is stored in the same form as everything else.
+                    _persisted_theme = (
+                        f"{get_active_family()}/{get_active_theme().name}"
+                    )
+                _persist()
                 self._json_response({
                     "active_family": get_active_family(),
                     "active_variant": get_active_theme().name,
@@ -459,6 +538,7 @@ class ControlHandler(BaseHTTPRequestHandler):
                         "brightness applied via xrandr" if applied
                         else "saved, but xrandr could not apply it"
                     )
+                _persist()
                 self._json_response(resp)
             except Exception as e:
                 self.send_error(400, str(e))

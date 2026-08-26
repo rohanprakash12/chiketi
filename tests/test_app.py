@@ -11,7 +11,10 @@ import threading
 import time
 from unittest import mock
 
+import pytest
+
 import chiketi.app as app_mod
+import chiketi.themes as themes
 from chiketi.app import DisplayManager, MetricEngine
 from chiketi.collectors.base import MetricValue
 from chiketi.config import Timing
@@ -416,3 +419,159 @@ class TestTurnOffGuards:
         app_mod._safe_turn_off(mgr)          # must not raise
         app_mod._safe_turn_off(None)         # must not raise
         assert "display shutdown failed" in capsys.readouterr().err
+
+
+class TestRunRestoresSavedState:
+    """run() resolves precedence: CLI flag > saved state > built-in default."""
+
+    @staticmethod
+    def _run(monkeypatch, **kwargs) -> int:
+        """Call app.run() with every blocking/external piece stubbed out."""
+        import chiketi.server as server_mod
+
+        monkeypatch.setattr(app_mod, "MetricEngine", mock.MagicMock())
+        monkeypatch.setattr(
+            app_mod, "DisplayManager", lambda url: mock.MagicMock(_chromium=None)
+        )
+        monkeypatch.setattr(server_mod, "start_server", lambda **kw: None)
+        monkeypatch.setattr(app_mod.signal, "signal", lambda *a: None)
+
+        def _pause():
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(app_mod.signal, "pause", _pause)
+        return app_mod.run(**kwargs)
+
+    @pytest.fixture(autouse=True)
+    def _restore(self):
+        import chiketi.server as server_mod
+
+        saved_mgr = app_mod._display_mgr
+        yield
+        app_mod._display_mgr = saved_mgr
+        server_mod._display_brightness = 1.0
+        server_mod._display_output = ""
+        server_mod._display_width = 1024
+        server_mod._display_height = 600
+        server_mod._screen_rotation = {}
+        server_mod._persisted_theme = None
+
+    def test_saved_state_is_applied(self, monkeypatch, restore_active_theme):
+        import chiketi.server as server_mod
+        from chiketi.state import DEFAULT_STATE, save_state
+
+        save_state(dict(DEFAULT_STATE, theme="Vintage/VFD", brightness=1.7,
+                        width=800, height=480, output="HDMI-1",
+                        screen_rotation={"cpu": {"enabled": False, "duration": 20}}))
+        themes.set_active_theme("Panel/Gold")
+
+        assert self._run(monkeypatch) == 0
+
+        assert themes.get_active_theme().name == "VFD"
+        assert server_mod._display_brightness == 1.7
+        assert server_mod._display_output == "HDMI-1"
+        assert (server_mod._display_width, server_mod._display_height) == (800, 480)
+        assert server_mod._screen_rotation == {
+            "cpu": {"enabled": False, "duration": 20}
+        }
+
+    def test_cli_theme_beats_saved_theme(self, monkeypatch, restore_active_theme):
+        import chiketi.server as server_mod
+        from chiketi.state import DEFAULT_STATE, save_state
+
+        save_state(dict(DEFAULT_STATE, theme="Vintage/VFD", brightness=1.7))
+        # What __main__ does for `--theme Terminal/amber`.
+        themes.set_active_theme("Terminal/amber")
+
+        assert self._run(monkeypatch, theme_from_cli=True) == 0
+
+        assert themes.get_active_theme().name == "amber"
+        # Everything that isn't the theme still comes from the file...
+        assert server_mod._display_brightness == 1.7
+        # ...and the file still records the theme the flag overrode, so the
+        # one-off flag never becomes permanent.
+        assert server_mod._persisted_theme == "Vintage/VFD"
+
+    def test_missing_state_file_keeps_defaults(self, monkeypatch, restore_active_theme):
+        import chiketi.server as server_mod
+
+        themes.set_active_theme("Panel/Gold")
+        assert self._run(monkeypatch) == 0
+        assert themes.get_active_theme().name == "Gold"
+        assert server_mod._display_brightness == 1.0
+
+    def test_corrupt_state_file_does_not_stop_startup(
+        self, monkeypatch, restore_active_theme
+    ):
+        import os as _os
+
+        from chiketi.state import state_path
+
+        path = state_path()
+        _os.makedirs(_os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("[" * 60000 + "]" * 60000)   # RecursionError from json
+        themes.set_active_theme("Panel/Gold")
+        assert self._run(monkeypatch) == 0
+        assert themes.get_active_theme().name == "Gold"
+
+    def test_signature_stays_backward_compatible(self, monkeypatch,
+                                                 restore_active_theme):
+        assert self._run(monkeypatch, bind_host="127.0.0.1", token=None) == 0
+
+
+class TestDisplayRestoreOnBoot:
+    """A machine reboot resets xrandr, so a restored brightness must be
+    re-applied or /api/display reports a value the screen is not at."""
+
+    def test_restore_runs_off_the_critical_path(self, monkeypatch, tmp_path):
+        """It must never delay or block boot: a slow xrandr must not hold run()."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        from chiketi.state import DEFAULT_STATE, save_state
+        save_state(dict(DEFAULT_STATE, output="HDMI-1", brightness=1.6))
+
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_apply(output, brightness):
+            started.set()
+            release.wait(10)
+            return True
+
+        monkeypatch.setattr(
+            "chiketi.server._apply_display_settings", slow_apply, raising=False
+        )
+        monkeypatch.setattr(app_mod, "DisplayManager",
+                            lambda url: mock.MagicMock(_chromium=None, is_on=False))
+        monkeypatch.setattr("chiketi.server.start_server", lambda **kw: None)
+        monkeypatch.setattr(app_mod.signal, "pause", lambda: (_ for _ in ()).throw(
+            KeyboardInterrupt()))
+
+        engine = mock.MagicMock()
+        monkeypatch.setattr(app_mod, "MetricEngine", lambda: engine)
+
+        began = time.monotonic()
+        app_mod.run()
+        elapsed = time.monotonic() - began
+        release.set()
+
+        assert started.wait(5), "restore never ran"
+        assert elapsed < 3.0, f"a slow xrandr held boot for {elapsed:.1f}s"
+
+    def test_no_restore_when_no_output_saved(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        calls = []
+        monkeypatch.setattr(
+            "chiketi.server._apply_display_settings",
+            lambda o, b: calls.append((o, b)) or True,
+            raising=False,
+        )
+        monkeypatch.setattr(app_mod, "DisplayManager",
+                            lambda url: mock.MagicMock(_chromium=None, is_on=False))
+        monkeypatch.setattr("chiketi.server.start_server", lambda **kw: None)
+        monkeypatch.setattr(app_mod.signal, "pause", lambda: (_ for _ in ()).throw(
+            KeyboardInterrupt()))
+        monkeypatch.setattr(app_mod, "MetricEngine", lambda: mock.MagicMock())
+        app_mod.run()
+        time.sleep(0.3)
+        assert calls == [], "restored xrandr with no saved output"

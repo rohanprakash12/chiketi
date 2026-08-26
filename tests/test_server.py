@@ -7,6 +7,7 @@ runs in a daemon thread, and is shut down at the end. No display / GPU needed.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import threading
 import urllib.request
@@ -94,6 +95,13 @@ class TestSerializeMetrics:
 
 
 class TestApplyDisplaySettings:
+    def teardown_method(self):
+        # _apply_display_settings writes the module globals on success; without
+        # this the "HDMI-1"/0.8 pair leaked into every later test, and now that
+        # a POST persists those globals to disk the leak would be written out.
+        server._display_output = ""
+        server._display_brightness = 1.0
+
     def test_empty_output_returns_false(self):
         assert _apply_display_settings("", 1.0) is False
 
@@ -745,3 +753,184 @@ class TestBrightnessPersistence:
                     data = json.loads(r.read())
         assert data["applied"] is True
         assert data["applied_detail"] == "brightness applied via xrandr"
+
+
+class TestPersistence:
+    """Settings survive a restart; a save failure never fails the request."""
+
+    def teardown_method(self):
+        server._display_output = ""
+        server._display_brightness = 1.0
+        server._display_width = 1024
+        server._display_height = 600
+        server._screen_rotation = {}
+        server._persisted_theme = None
+        server._XRANDR_CACHE = []
+        server._XRANDR_CACHE_TS = 0.0
+
+    def _post(self, srv, path, body):
+        req = urllib.request.Request(
+            srv.url(path), data=json.dumps(body).encode(),
+            method="POST", headers={"Content-Type": "application/json"},
+        )
+        return urllib.request.urlopen(req, timeout=5)
+
+    @staticmethod
+    def _on_disk() -> dict:
+        from chiketi.state import state_path
+        with open(state_path(), encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_display_post_writes_state_file(self):
+        with _LiveServer() as srv:
+            with self._post(srv, "/api/display", {
+                "brightness": 1.6,
+                "width": 800, "height": 480,
+                "screen_rotation": {"cpu": {"enabled": False, "duration": 25}},
+            }) as r:
+                assert r.status == 200
+        saved = self._on_disk()
+        assert saved["brightness"] == 1.6
+        assert saved["width"] == 800
+        assert saved["height"] == 480
+        assert saved["screen_rotation"] == {"cpu": {"enabled": False, "duration": 25}}
+
+    def test_theme_post_writes_state_file(self, restore_active_theme):
+        with _LiveServer() as srv:
+            with self._post(srv, "/api/theme/Vintage/VFD", {}) as r:
+                assert r.status == 200
+        assert self._on_disk()["theme"] == "Vintage/VFD"
+
+    def test_short_theme_name_persists_canonical_key(self, restore_active_theme):
+        with _LiveServer() as srv:
+            with self._post(srv, "/api/theme/hacker", {}) as r:
+                assert r.status == 200
+        assert self._on_disk()["theme"] == "Terminal/hacker"
+
+    def test_rejected_theme_is_not_persisted(self, restore_active_theme):
+        with _LiveServer() as srv:
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                self._post(srv, "/api/theme/Nope/Nope", {})
+            assert ei.value.code == 400
+        from chiketi.state import state_path
+        assert not os.path.exists(state_path())
+
+    def test_settings_survive_a_restart(self, restore_active_theme):
+        """POST settings, wipe every global as a process restart would, reload."""
+        with _LiveServer() as srv:
+            self._post(srv, "/api/theme/Panel/Teal", {}).close()
+            self._post(srv, "/api/display", {
+                "brightness": 1.9, "width": 1280, "height": 720,
+                "screen_rotation": {"net": {"enabled": True, "duration": 30}},
+            }).close()
+
+        # --- simulate the restart ---
+        self.teardown_method()
+        themes.set_active_theme("Panel/Gold")
+
+        from chiketi.state import load_state
+        saved = load_state()
+        themes.set_active_theme(saved["theme"])
+        server.apply_saved_state(saved)
+
+        assert themes.get_active_theme().name == "Teal"
+        assert server._display_brightness == 1.9
+        assert server._display_width == 1280
+        assert server._display_height == 720
+        assert server._screen_rotation == {"net": {"enabled": True, "duration": 30}}
+
+        with _LiveServer() as srv:
+            with urllib.request.urlopen(srv.url("/api/display"), timeout=5) as r:
+                payload = json.loads(r.read())
+        assert payload["brightness"] == 1.9
+        assert payload["screen_rotation"] == {"net": {"enabled": True, "duration": 30}}
+
+    def test_save_failure_does_not_fail_the_request(self):
+        """A read-only HOME is supported: the panel keeps working."""
+        with mock.patch("chiketi.state.save_state", return_value=False) as ms:
+            with _LiveServer() as srv:
+                with self._post(srv, "/api/display", {"brightness": 1.3}) as r:
+                    assert r.status == 200
+                    assert json.loads(r.read())["brightness"] == 1.3
+        assert ms.called
+
+    def test_save_raising_does_not_fail_the_request(self):
+        with mock.patch("chiketi.state.save_state", side_effect=RuntimeError("boom")):
+            with _LiveServer() as srv:
+                with self._post(srv, "/api/display", {"brightness": 1.3}) as r:
+                    assert r.status == 200
+
+    def test_cli_theme_is_not_written_back(self, restore_active_theme):
+        """A one-off --theme must not become permanent via an unrelated POST."""
+        # State as app.run() leaves it: file says Panel/Teal, --theme forced VFD.
+        server.apply_saved_state({"theme": "Panel/Teal"})
+        themes.set_active_theme("Vintage/VFD")
+        with _LiveServer() as srv:
+            self._post(srv, "/api/display", {"brightness": 1.1}).close()
+        saved = self._on_disk()
+        assert saved["theme"] == "Panel/Teal"
+        assert saved["brightness"] == 1.1
+        # ...but an explicit theme change from the panel does stick.
+        with _LiveServer() as srv:
+            self._post(srv, "/api/theme/Terminal/amber", {}).close()
+        assert self._on_disk()["theme"] == "Terminal/amber"
+
+    def test_persist_falls_back_to_active_theme(self, restore_active_theme):
+        """No apply_saved_state() call (bare start_server): record what's live."""
+        themes.set_active_theme("Vintage/Tubes")
+        with _LiveServer() as srv:
+            self._post(srv, "/api/display", {"brightness": 1.2}).close()
+        assert self._on_disk()["theme"] == "Vintage/Tubes"
+
+    def test_apply_saved_state_accepts_defaults(self):
+        from chiketi.state import DEFAULT_STATE
+        server.apply_saved_state(dict(DEFAULT_STATE))
+        assert server._display_brightness == 1.0
+        assert server._display_output == ""
+        assert (server._display_width, server._display_height) == (1024, 600)
+        assert server._screen_rotation == {}
+
+    @pytest.mark.parametrize("junk", [None, 5, "x", [], {"theme": 7, "width": "wide"}])
+    def test_apply_saved_state_never_raises(self, junk):
+        server.apply_saved_state(junk)
+        assert server._display_width == 1024
+
+    def test_apply_saved_state_detaches_rotation(self):
+        saved = {"screen_rotation": {"cpu": {"enabled": True, "duration": 7}}}
+        server.apply_saved_state(saved)
+        server._screen_rotation["cpu"]["duration"] = 99
+        assert saved["screen_rotation"]["cpu"]["duration"] == 7
+
+
+class TestDisplayDimensionClamp:
+    """The POST path clamps width/height independently of state._sanitize.
+
+    A mutation removing this clamp survived the whole suite: the persisted
+    file stayed clamped by the state layer, but the live in-memory value --
+    what /api/display reports and what the kiosk page sizes itself to -- did
+    not.
+    """
+
+    @pytest.mark.parametrize(
+        "sent_w,sent_h,want_w,want_h",
+        [
+            (99999, 99999, 3840, 2160),   # above the ceiling
+            (1, 1, 320, 200),             # below the floor
+            (-5, -5, 320, 200),           # negative
+            (1280, 720, 1280, 720),       # in range, untouched
+            (320, 200, 320, 200),         # exactly the floor
+            (3840, 2160, 3840, 2160),     # exactly the ceiling
+        ],
+    )
+    def test_live_dimensions_are_clamped(self, sent_w, sent_h, want_w, want_h):
+        body = json.dumps({"width": sent_w, "height": sent_h}).encode()
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/display"), data=body, method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                payload = json.loads(resp.read())
+        # Both the response and the live globals must reflect the clamp.
+        assert (payload["width"], payload["height"]) == (want_w, want_h)
+        assert (server._display_width, server._display_height) == (want_w, want_h)

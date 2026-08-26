@@ -77,7 +77,13 @@ def main() -> None:
 
     from chiketi.app import run
 
-    sys.exit(run(bind_host=args.bind, token=args.token))
+    sys.exit(run(
+        bind_host=args.bind,
+        token=args.token,
+        # An explicit --theme outranks the saved state, and is never
+        # written back to it: a one-off flag must not become permanent.
+        theme_from_cli=bool(args.theme),
+    ))
 
 
 if __name__ == "__main__":

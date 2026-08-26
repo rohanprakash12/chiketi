@@ -515,16 +515,34 @@ def _safe_turn_off(mgr: DisplayManager | None) -> None:
 def run(
     bind_host: str = "0.0.0.0",
     token: str | None = None,
+    theme_from_cli: bool = False,
 ) -> int:
-    """Start metric engine, HTTP server, and Chromium kiosk. Returns exit code."""
+    """Start metric engine, HTTP server, and Chromium kiosk. Returns exit code.
+
+    theme_from_cli says an explicit --theme has already set the active theme.
+    Precedence is CLI flag > saved state > built-in default, so the saved theme
+    is only applied when no flag was given. It defaults to False to keep the
+    previous two-argument signature working.
+    """
     global _display_mgr
 
     # Start metric collection thread
     engine = MetricEngine()
     engine.start()
 
-    from chiketi.server import start_server, set_metrics_source, CONTROL_PORT
+    from chiketi.server import (
+        start_server, set_metrics_source, apply_saved_state, CONTROL_PORT,
+    )
     display_url = f"http://localhost:{CONTROL_PORT}/display"
+
+    # Restore what a previous run saved. load_state() never raises and always
+    # degrades to defaults, so a corrupt file cannot stop the dashboard booting.
+    from chiketi.state import load_state
+    saved = load_state()
+    if not theme_from_cli:
+        from chiketi.themes import set_active_theme
+        set_active_theme(saved.get("theme", ""))
+    apply_saved_state(saved)
 
     # Create the display manager up front so start_server() adopts it instead
     # of constructing a second one (which would re-probe the session twice).
@@ -541,6 +559,32 @@ def run(
 
     print(f"chiketi: server running on http://localhost:{CONTROL_PORT}/")
     print(f"chiketi: display at {display_url}")
+
+    # Re-apply the restored brightness to the physical display.
+    #
+    # After a chiketi-only restart X still holds the last-applied brightness,
+    # so reporting matches reality. After a MACHINE reboot -- the normal
+    # restart for a Pi kiosk -- xrandr is back at 1.0 while /api/display would
+    # report the restored value, which is exactly the "panel lies about what
+    # it applied" defect Phase 2 removed.
+    #
+    # Off the critical path deliberately: this shells out to xrandr with a 5s
+    # timeout, and nothing about restoring a setting may delay or prevent the
+    # dashboard booting. _apply_display_settings is already fully guarded and
+    # returns False on any failure, which /api/display surfaces as
+    # applied: false, the same as the POST path.
+    if saved.get("output"):
+        def _restore_display() -> None:
+            try:
+                from chiketi.server import _apply_display_settings
+                ok = _apply_display_settings(saved["output"], saved["brightness"])
+                if not ok:
+                    print("chiketi: could not re-apply saved display settings "
+                          f"to {saved['output']}", file=sys.stderr)
+            except Exception as exc:
+                print(f"chiketi: display restore failed: {exc}", file=sys.stderr)
+
+        threading.Thread(target=_restore_display, daemon=True).start()
 
     # Auto-start the kiosk
     if _display_mgr._chromium:
