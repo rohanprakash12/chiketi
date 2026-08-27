@@ -69,9 +69,12 @@ eval(
 
 // Mirrors getScreenRegistry() in display_app.js.
 const REGISTRY = [
-  { family: 'Panel', variant: 'Gold', fns: [panelGoldScreen1, panelGoldScreen2] },
-  { family: 'Panel', variant: 'Coral', fns: [panelCoralScreen1, panelCoralScreen2] },
-  { family: 'Panel', variant: 'Teal', fns: [panelTealScreen1, panelTealScreen2] },
+  { family: 'Panel', variant: 'Gold', fns: [panelGoldScreen1, panelGoldScreen2],
+    gpu: panelGoldGpuScreen },
+  { family: 'Panel', variant: 'Coral', fns: [panelCoralScreen1, panelCoralScreen2],
+    gpu: panelCoralGpuScreen },
+  { family: 'Panel', variant: 'Teal', fns: [panelTealScreen1, panelTealScreen2],
+    gpu: panelTealGpuScreen },
   { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanScreen2] },
   { family: 'Vintage', variant: 'Tubes', fns: [tubeScreen1, tubeScreen2] },
   { family: 'Vintage', variant: 'VFD', fns: [vfdScreen1, vfdScreen2] },
@@ -88,11 +91,10 @@ const TIB_CAPACITY_SCREENS = [
 // Screens that print the live LLM backend as a panel title. Note the panel is
 // on screen1 for Panel/Vintage and on screen2 for Terminal.
 //
-// panelGoldScreen1 is deliberately absent: the Bridge Station rebuild moved
-// the NPU readout off screen 1 to make room for the chronometer, and it
-// returns when Gold's screen 2 is rebuilt. Re-add it then.
+// The whole Panel family is deliberately absent: the Bridge Station rebuild
+// moved the NPU readout off screen 1 to make room for the chronometer, and it
+// returns when the family's screen 2 is rebuilt. Re-add all three then.
 const BACKEND_TITLE_SCREENS = [
-  'panelCoralScreen1', 'panelTealScreen1',
   'scanScreen1', 'tubeScreen1', 'vfdScreen1', 'terminalScreen2',
 ];
 
@@ -135,7 +137,7 @@ const CLEAN_TAGS = {};
   metrics = FIX.FULL;
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    entry.fns.concat([claudeScreen3, panelGoldGpuScreen]).forEach(function (fn) {
+    entry.fns.concat([claudeScreen3, entry.gpu || panelGoldGpuScreen]).forEach(function (fn) {
       if (CLEAN_TAGS[fn.name]) return;
       try {
         CLEAN_TAGS[fn.name] = tokenize(fn(colors)).tags;
@@ -186,7 +188,7 @@ for (const fixtureName of Object.keys(FIX)) {
   metrics = FIX[fixtureName];
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3, panelGoldGpuScreen]);
+    const fns = entry.fns.concat([claudeScreen3, entry.gpu || panelGoldGpuScreen]);
     fns.forEach(function (fn, i) {
       const label = entry.family + '/' + entry.variant + ' screen' + (i + 1) + ' (' + fn.name + ')';
       let html;
@@ -215,7 +217,7 @@ for (const fixtureName of Object.keys(FIX)) {
       // viewer cannot tell that apart from a genuinely idle card, and the
       // whole point of carrying nulls through the collector is to say
       // "unknown" rather than to invent a number.
-      if (fixtureName === 'GPU_SPARSE' && fn.name === 'panelGoldGpuScreen') {
+      if (fixtureName === 'GPU_SPARSE' && /GpuScreen$/.test(fn.name)) {
         if (/>\s*0%\s*</.test(html)) {
           fail(fixtureName, label, 'absent utilisation rendered as 0%');
         }
@@ -228,21 +230,21 @@ for (const fixtureName of Object.keys(FIX)) {
       // data is unavailable -- the screen said "not exposed by nvidia" on a
       // real 3090 Ti, which is simply false. FULL's card is an idle NVML one.
       if ((fixtureName === 'FULL' || fixtureName === 'GPU_IDLE') &&
-          fn.name === 'panelGoldGpuScreen') {
+          /GpuScreen$/.test(fn.name)) {
         if (/NOT EXPOSED BY NVIDIA/i.test(html)) {
           fail(fixtureName, label, 'claims NVIDIA does not expose per-process VRAM');
         }
       }
 
       // The empty state has to say why it is empty.
-      if (fixtureName === 'GPU_NONE' && fn.name === 'panelGoldGpuScreen' &&
+      if (fixtureName === 'GPU_NONE' && /GpuScreen$/.test(fn.name) &&
           !/NO GPU DETECTED/.test(html)) {
         fail(fixtureName, label, 'no-GPU state does not explain itself');
       }
 
       // More cards than the grid holds: declare the overflow, never truncate
       // silently. GPU_MANY carries seven.
-      if (fixtureName === 'GPU_MANY' && fn.name === 'panelGoldGpuScreen' &&
+      if (fixtureName === 'GPU_MANY' && /GpuScreen$/.test(fn.name) &&
           !/\+3 MORE NOT SHOWN/.test(html)) {
         fail(fixtureName, label, 'cards dropped from the grid without saying so');
       }
@@ -293,7 +295,7 @@ const STRING_KEYS = Object.keys(FIX.FULL).filter(function (k) {
 for (const key of STRING_KEYS) {
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3, panelGoldGpuScreen]);
+    const fns = entry.fns.concat([claudeScreen3, entry.gpu || panelGoldGpuScreen]);
     fns.forEach(function (fn, i) {
       metrics = Object.assign({}, FIX.FULL);
       metrics[key] = Object.assign({}, FIX.FULL[key], { value: PAYLOAD });

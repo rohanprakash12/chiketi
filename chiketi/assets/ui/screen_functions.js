@@ -273,94 +273,6 @@ function panelGoldScreen2(c) {
   `</div></div>`;
 }
 
-function panelCoralScreen1(c) {
-  const T = PANEL_SPEC.coral || {};
-  const F = "'Antonio', sans-serif";
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-
-  function coralThermColor(t) {
-    if (t >= 90) return T.thermOrange || '#FF9933';
-    if (t >= 70) return T.thermYellow || '#FFCC66';
-    if (t >= 50) return T.thermGreen || '#99CC66';
-    return T.thermBlue || '#99CCFF';
-  }
-  function coralBar(label, temp) {
-    const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
-    const flash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
-    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;font-family:${F};width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:#1a1a2a;border-radius:999px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${coralThermColor(temp)};border-radius:999px;transition:width 0.8s ease${flash}"></div></div></div>`;
-  }
-  function coralHdr(title, color, rightText) {
-    return `<div style="display:flex;align-items:center;gap:0.59cqw;margin-bottom:0.59cqw"><div style="background:${color};border-radius:999px;height:2.34cqw;padding:0 1.46cqw;display:flex;align-items:center"><span style="color:#000;font-size:1.76cqw;font-family:${F};text-transform:uppercase;letter-spacing:0.15cqw">${title}</span></div><div style="flex:1;height:0.44cqw;background:${color};border-radius:2px"></div>${rightText?`<span style="color:${color};font-size:2.05cqw;font-family:${F};text-transform:uppercase;letter-spacing:0.15cqw">${rightText}</span>`:''}</div>`;
-  }
-  const donutOpts = {critColor: T.mars||'#FF2200', valColor: T.paleCanary||'#FFFF99', bgRing: '#1a1a2a', labelColor: T.tanoi||'#FFCC99', fontWeight: '400', valSize: '4.10cqw', labelSize: '2.64cqw'};
-
-  return `<div class="screen-frame"><div style="background:#000;width:100%;height:100%;display:flex;flex-direction:column;padding:0.88cqw;gap:0.59cqw;font-family:${F}">` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${coralHdr('Core Systems', T.goldenTanoi||'#FFCC66', hostStr)}</div>` +
-      `<div style="flex:1">${coralHdr('Thermals', T.neonCarrot||'#FF9933', thermalStatus)}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;justify-content:space-around;align-items:center">` +
-        donut(cpuUsage.available?cpuUsage.value:0, 'CPU', T.neonCarrot||'#FF9933', 170, 14, F, donutOpts) +
-        donut(ramPct.available?ramPct.value:0, 'RAM', T.anakiwa||'#99CCFF', 170, 14, F, donutOpts) +
-        donut(diskRootPct.available?diskRootPct.value:0, 'SSD', T.lilac||'#CC99CC', 170, 14, F, donutOpts) +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">` +
-        coralBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        coralBar('MB', mbTemp.available?mbTemp.value:20) +
-        coralBar('GPU', gpuTemp.available?gpuTemp.value:20) +
-        thermalScale(T.tanoi||'#FFCC99', F, '5.57cqw') +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;align-items:center">` +
-      `<div style="flex:1">` +
-        (diskHome.available ?
-          `<div style="position:relative;height:2.93cqw;background:${T.eggplant||'#664466'};border-radius:999px;overflow:hidden">` +
-            `<div style="position:absolute;top:0;left:0;height:100%;width:${secPct}%;background:${T.goldenTanoi||'#FFCC66'};border-radius:999px;transition:width 0.8s ease"></div>` +
-            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;color:#000"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
-          `</div>` :
-          `<div style="height:2.93cqw;background:#111;border-radius:999px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.76cqw;color:${T.eggplant||'#664466'}">SECONDARY \u2014 NONE</div>`) +
-      `</div>` +
-      `<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:1.17cqw">` +
-        fanStrip('#AAAAAA', F, '') +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${coralHdr('Comms', T.anakiwa||'#99CCFF', speedStr)}</div>` +
-      `<div style="flex:1">${coralHdr('NPU', T.lilac||'#CC99CC', backendTitle().toLowerCase())}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">IP</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">MAC</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${mac.available?esc(String(mac.value)):'N/A'}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${T.anakiwa||'#99CCFF'}"/></svg><span style="color:${T.anakiwa||'#99CCFF'};font-size:4.98cqw">${ul.available?ul.value+' '+ul.unit:'0'}</span></div><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,22 4,10 20,10" fill="${T.mariner||'#3366CC'}"/></svg><span style="color:${T.mariner||'#3366CC'};font-size:4.98cqw">${dl.available?dl.value+' '+dl.unit:'0'}</span></div></div>` +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">MODEL</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:3.81cqw">${cleanModel()}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">QUANT</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:3.81cqw">${mv('llama.quant')}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">CTX</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:3.81cqw">${mv('llama.context')}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between"><div><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw">T/S </span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.98cqw">${tokSec.available?Math.round(tokSec.value):'--'}</span></div><div><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw">VRAM </span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.98cqw">${vramStr}</span></div></div>` +
-      `</div>` +
-    `</div>` +
-  `</div></div>`;
-}
-
 function panelCoralScreen2(c) {
   const T = PANEL_SPEC.coral || {};
   const FONT = "'Antonio', sans-serif";
@@ -397,99 +309,6 @@ function panelCoralScreen2(c) {
         `<div style="color:${li};font-size:5.57cqw;letter-spacing:0.59cqw;margin-top:0.59cqw">${dateStr}</div>` +
       `</div>` +
       `<div style="height:2.93cqw;background:${ank};display:flex;align-items:center;justify-content:flex-end;padding-right:1.76cqw"><span style="color:#000;font-size:1.90cqw;letter-spacing:0.29cqw">SHIP CHRONOMETER</span></div>` +
-    `</div>` +
-  `</div></div>`;
-}
-
-function panelTealScreen1(c) {
-  const D = PANEL_SPEC.teal || {};
-  const F = "'Rajdhani', sans-serif";
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-
-  function tealThermColor(t) {
-    if (t >= 90) return D.thermOrange || '#DD7733';
-    if (t >= 70) return D.thermYellow || '#CCAA44';
-    if (t >= 50) return D.thermGreen || '#55AA77';
-    return D.thermBlue || '#4488AA';
-  }
-  function tealBar(label, temp) {
-    const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
-    const flash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
-    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-family:${F};font-weight:600;width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${tealThermColor(temp)};border-radius:2px;transition:width 0.8s ease${flash}"></div></div></div>`;
-  }
-  function tealHdr(title, color, rightText) {
-    return `<div style="display:flex;align-items:center;gap:0;height:2.93cqw;margin-bottom:0.59cqw">` +
-      `<svg width="2.05cqw" height="2.93cqw" viewBox="0 0 14 20" style="flex-shrink:0"><polygon points="14,0 14,20 0,20" fill="${color}"/></svg>` +
-      `<div style="background:${color};height:100%;padding:0 1.46cqw;display:flex;align-items:center"><span style="color:${D.void||'#111419'};font-size:1.90cqw;font-family:${F};font-weight:600;text-transform:uppercase;letter-spacing:0.29cqw">${title}</span></div>` +
-      `<div style="flex:1;height:0.29cqw;background:${color};opacity:0.4"></div>` +
-      (rightText ? `<span style="color:${color};font-size:2.05cqw;font-family:${F};font-weight:600;text-transform:uppercase;margin-left:0.88cqw">${rightText}</span>` : '') +
-    `</div>`;
-  }
-  const donutOpts = {critColor: D.alert||'#FF4444', valColor: D.pale||'#AAAACC', bgRing: D.navy||'#2F3749', labelColor: D.steel||'#9EA5BA', linecap: 'butt', fontWeight: '600', labelFW: '600', valSize: '4.10cqw', labelSize: '2.64cqw'};
-
-  const bg = D.void || '#111419';
-  return `<div class="screen-frame"><div style="background:${bg};width:100%;height:100%;display:flex;flex-direction:column;padding:0.88cqw;gap:0.59cqw;font-family:${F}">` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${tealHdr('Core Systems', D.teal||'#2A9D8F', hostStr)}</div>` +
-      `<div style="flex:1">${tealHdr('Thermals', D.burnt||'#E7442A', thermalStatus)}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;justify-content:space-around;align-items:center">` +
-        donut(cpuUsage.available?cpuUsage.value:0, 'CPU', D.burnt||'#E7442A', 170, 14, F, donutOpts) +
-        donut(ramPct.available?ramPct.value:0, 'RAM', D.teal||'#2A9D8F', 170, 14, F, donutOpts) +
-        donut(diskRootPct.available?diskRootPct.value:0, 'SSD', D.lavender||'#8888BB', 170, 14, F, donutOpts) +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">` +
-        tealBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        tealBar('MB', mbTemp.available?mbTemp.value:20) +
-        tealBar('GPU', gpuTemp.available?gpuTemp.value:20) +
-        thermalScale(D.steel||'#9EA5BA', F) +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;align-items:center">` +
-      `<div style="flex:1">` +
-        (diskHome.available ?
-          `<div style="position:relative;height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;overflow:hidden">` +
-            `<div style="position:absolute;top:0;left:0;height:100%;width:${secPct}%;background:${D.teal||'#2A9D8F'};border-radius:2px;transition:width 0.8s ease"></div>` +
-            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;font-weight:600;color:${D.void||'#111419'}"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
-          `</div>` :
-          `<div style="height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.76cqw;color:${D.slate||'#6D748C'}">SECONDARY \u2014 NONE</div>`) +
-      `</div>` +
-      `<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:1.17cqw">` +
-        fanStrip('#888899', F, '') +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${tealHdr('Comms', D.lavender||'#8888BB', '')}</div>` +
-      `<div style="flex:1">${tealHdr('NPU', D.warm||'#CCAA77', backendTitle())}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">IP</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">MAC</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${mac.available?esc(String(mac.value)):'N/A'}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${D.teal||'#2A9D8F'}"/></svg><span style="color:${D.teal||'#2A9D8F'};font-size:4.98cqw;font-weight:600">${ul.available?ul.value+' '+ul.unit:'0'}</span></div><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,22 4,10 20,10" fill="${D.lavender||'#8888BB'}"/></svg><span style="color:${D.lavender||'#8888BB'};font-size:4.98cqw;font-weight:600">${dl.available?dl.value+' '+dl.unit:'0'}</span></div></div>` +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">MODEL</span><span style="color:${D.pale||'#AAAACC'};font-size:3.81cqw;font-weight:600">${cleanModel()}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">QUANT</span><span style="color:${D.pale||'#AAAACC'};font-size:3.81cqw;font-weight:600">${mv('llama.quant')}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">CTX</span><span style="color:${D.pale||'#AAAACC'};font-size:3.81cqw;font-weight:600">${mv('llama.context')}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between"><div><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">T/S </span><span style="color:${D.cyan||'#66CCCC'};font-size:4.98cqw;font-weight:600">${tokSec.available?Math.round(tokSec.value):'--'}</span></div><div><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">VRAM </span><span style="color:${D.cyan||'#66CCCC'};font-size:4.98cqw;font-weight:600">${vramStr}</span></div></div>` +
-      `</div>` +
     `</div>` +
   `</div></div>`;
 }
@@ -1496,16 +1315,114 @@ function claudeScreen3(c) {
 /* px -> cqw against the 1024px kiosk width. */
 function gq(px) { return (px / 1024 * 100).toFixed(3) + 'cqw'; }
 
-const BS_F = "'Chakra Petch', sans-serif";
-const BS_LABEL = '#d8d8d8';   /* mid-greys disappear on a cheap 7" panel */
-const BS_DIM = '#9a9a9a';
+/* Gold and Coral glow; Teal deliberately does not. A skin that says no gets
+   the declaration omitted rather than set to `none`, so there is nothing for
+   a later rule to have to override. */
+function bsGlow(px, color, alpha) {
+  return bsS().glow ? `text-shadow:0 0 ${gq(px)} ${color}${alpha || '99'}` : '';
+}
+
+/* ── Skins ───────────────────────────────────────────────────────────────
+ * The Bridge Station layout is one set of code; the chrome that frames it is
+ * per family. Gold draws a glowing spine down the left of every region, Teal
+ * an angular chevron tab across the top, Coral a rounded pill. Fonts, palette,
+ * bar geometry and thermal colours come out of the skin too, so the screens
+ * below never name a colour that belongs to one family only.
+ *
+ * Three copies of this layout would have drifted apart by the second edit.
+ */
+const _T = PANEL_SPEC.teal || {};
+const _C = PANEL_SPEC.coral || {};
+
+/* Gold: a hard-edged 12px spine, segmented bars, wide uppercase tracking. */
+const BS_SKIN_GOLD = {
+  key: 'gold', font: "'Chakra Petch', sans-serif", fw: '700', bg: '#000',
+  label: '#d8d8d8',        /* mid-greys disappear on a cheap 7" panel */
+  dim: '#9a9a9a', bright: '#ffffff', text: '#e6e6e6', soft: '#dcdcdc',
+  track: '#161616', edge: '#202020', ring: '#141414',
+  r: 0, ls: '0.22em', seg: true, glow: true,
+  a1: GOLD, a2: TEAL, a3: AMBER, a4: GREEN,
+  dCpu: GOLD, dRam: PANEL_SPEC.colors.blue, dVram: GREEN,
+  cPrimary: GOLD, cSecondary: TEAL,
+  cLink: GREEN, cPing: AMBER, cRecv: PANEL_SPEC.colors.thermBlue || '#2288DD',
+  cSend: GREEN, cIp: '#efefef', cMac: '#cfcfcf',
+  kHour: GOLD, kSec: AMBER, kDay: GREEN, kDate: '#dcdcdc',
+  crit: PANEL_SPEC.colors.red, warn: PANEL_SPEC.colors.thermOrange || '#FF7700',
+  cPower: AMBER, tick: '#b4b4b4',
+  therm: _thermColor,
+  vNvidia: GREEN, vAmd: PANEL_SPEC.colors.red, vIntel: PANEL_SPEC.colors.blue,
+};
+
+/* Teal: chevron tabs, navy tracks, 2px corners, Rajdhani semibold, no glow. */
+const BS_SKIN_TEAL = {
+  key: 'teal', font: "'Rajdhani', sans-serif", fw: '600', bg: _T.void || '#111419',
+  label: _T.steel || '#9EA5BA', dim: _T.slate || '#6D748C',
+  bright: _T.pale || '#AAAACC', text: _T.pale || '#AAAACC', soft: _T.steel || '#9EA5BA',
+  track: _T.navy || '#2F3749', edge: _T.navy || '#2F3749', ring: _T.navy || '#2F3749',
+  r: 2, ls: '0.15em', seg: false, glow: false,
+  a1: _T.teal || '#2A9D8F', a2: _T.lavender || '#8888BB',
+  a3: _T.burnt || '#E7442A', a4: _T.cyan || '#66CCCC',
+  dCpu: _T.burnt || '#E7442A', dRam: _T.teal || '#2A9D8F', dVram: _T.lavender || '#8888BB',
+  cPrimary: _T.teal || '#2A9D8F', cSecondary: _T.lavender || '#8888BB',
+  cLink: _T.teal || '#2A9D8F', cPing: _T.warm || '#CCAA77',
+  cRecv: _T.lavender || '#8888BB', cSend: _T.teal || '#2A9D8F',
+  cIp: _T.pale || '#AAAACC', cMac: _T.steel || '#9EA5BA',
+  kHour: _T.pale || '#AAAACC', kSec: _T.burnt || '#E7442A',
+  kDay: _T.teal || '#2A9D8F', kDate: _T.lavender || '#8888BB',
+  crit: _T.alert || '#FF4444', warn: _T.thermOrange || '#DD7733',
+  cPower: _T.warm || '#CCAA77', tick: _T.steel || '#9EA5BA',
+  therm: function (t) {
+    if (t >= 90) return _T.thermOrange || '#DD7733';
+    if (t >= 70) return _T.thermYellow || '#CCAA44';
+    if (t >= 50) return _T.thermGreen || '#55AA77';
+    return _T.thermBlue || '#4488AA';
+  },
+  vNvidia: _T.thermGreen || '#55AA77', vAmd: _T.thermOrange || '#DD7733',
+  vIntel: _T.thermBlue || '#4488AA',
+};
+
+/* Coral: rounded pills, fully rounded bars, Antonio at its regular weight. */
+const BS_SKIN_CORAL = {
+  key: 'coral', font: "'Antonio', sans-serif", fw: '400', bg: '#000',
+  label: _C.tanoi || '#FFCC99', dim: '#A67FA6',
+  bright: _C.paleCanary || '#FFFF99', text: _C.paleCanary || '#FFFF99',
+  soft: _C.tanoi || '#FFCC99',
+  track: '#1a1a2a', edge: '#26263a', ring: '#1a1a2a',
+  r: 999, ls: '0.15em', seg: false, glow: true,
+  a1: _C.goldenTanoi || '#FFCC66', a2: _C.anakiwa || '#99CCFF',
+  a3: _C.neonCarrot || '#FF9933', a4: _C.lilac || '#CC99CC',
+  dCpu: _C.neonCarrot || '#FF9933', dRam: _C.anakiwa || '#99CCFF',
+  dVram: _C.lilac || '#CC99CC',
+  cPrimary: _C.goldenTanoi || '#FFCC66', cSecondary: _C.lilac || '#CC99CC',
+  cLink: _C.anakiwa || '#99CCFF', cPing: _C.neonCarrot || '#FF9933',
+  cRecv: _C.mariner || '#3366CC', cSend: _C.anakiwa || '#99CCFF',
+  cIp: _C.paleCanary || '#FFFF99', cMac: _C.tanoi || '#FFCC99',
+  kHour: _C.goldenTanoi || '#FFCC66', kSec: _C.tanoi || '#FFCC99',
+  kDay: _C.anakiwa || '#99CCFF', kDate: _C.lilac || '#CC99CC',
+  crit: _C.mars || '#FF2200', warn: _C.thermOrange || '#FF9933',
+  cPower: _C.neonCarrot || '#FF9933', tick: _C.tanoi || '#FFCC99',
+  therm: function (t) {
+    if (t >= 90) return _C.thermOrange || '#FF9933';
+    if (t >= 70) return _C.thermYellow || '#FFCC66';
+    if (t >= 50) return _C.thermGreen || '#99CC66';
+    return _C.thermBlue || '#99CCFF';
+  },
+  vNvidia: _C.thermGreen || '#99CC66', vAmd: _C.neonCarrot || '#FF9933',
+  vIntel: _C.anakiwa || '#99CCFF',
+};
+
+/* The active skin. Every screen entry point sets it before rendering; the
+   fallback keeps a stray call from rendering nothing rather than throwing. */
+let _bsSkin = BS_SKIN_GOLD;
+function bsSkin(s) { _bsSkin = s || BS_SKIN_GOLD; }
+function bsS() { return _bsSkin; }
 
 function gpuVendorColor(vendor) {
-  const C = PANEL_SPEC.colors;
-  if (vendor === 'NVIDIA') return C.green || '#B9C92F';
-  if (vendor === 'AMD') return C.red || '#BF0F0F';
-  if (vendor === 'Intel') return C.blue || '#165FC5';
-  return GOLD;
+  const S = bsS();
+  if (vendor === 'NVIDIA') return S.vNvidia;
+  if (vendor === 'AMD') return S.vAmd;
+  if (vendor === 'Intel') return S.vIntel;
+  return S.a1;
 }
 
 /* A value the driver never reported is shown as absent. Printing 0 where the
@@ -1519,27 +1436,68 @@ function bsNum(v) {
   return (typeof v === 'number' && isFinite(v)) ? v : 0;
 }
 
-/* Spine-and-title region: the Bridge Station vocabulary, one per section. */
+/* One section of the board. The rectangle and the body layout are shared;
+   only the chrome that frames them changes between families. */
 function bsRegion(x, y, w, h, title, color, right, body, justify) {
-  const SW = 12;
+  const S = bsS();
+  const inset = S.key === 'gold' ? 28 : 0;      /* clear of the spine */
+  const top = S.key === 'gold' ? 32 : 36;       /* clear of the tab */
   return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
-    `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
-      `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
-    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${BS_F};` +
-      `font-size:${gq(16)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
-      `text-shadow:0 0 ${gq(10)} ${color}99;white-space:nowrap">${title}</div>` +
-    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${color};font-family:${BS_F};` +
-      `font-size:${gq(13)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
-      `opacity:0.85;white-space:nowrap">${right}</div>` : '') +
-    `<div style="position:absolute;left:${gq(SW + 16)};top:${gq(32)};right:0;bottom:${gq(6)};` +
+    (S.key === 'gold' ? _bsChromeSpine(title, color, right)
+                      : _bsChromeTab(title, color, right)) +
+    `<div style="position:absolute;left:${gq(inset)};top:${gq(top)};right:0;bottom:${gq(6)};` +
       `display:flex;flex-direction:column;justify-content:${justify || 'space-between'};` +
       `overflow:hidden">${body}</div></div>`;
 }
 
-/* Segmented bar. A non-zero reading always lights at least one cell: a real
-   but sub-1% value rendered as a wholly empty bar reads as broken, not small. */
+/* Gold: a glowing spine down the left edge, the title floating beside it. */
+function _bsChromeSpine(title, color, right) {
+  const S = bsS(), SW = 12;
+  return `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
+      `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
+    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${S.font};` +
+      `font-size:${gq(16)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `${bsGlow(10, color)};white-space:nowrap">${title}</div>` +
+    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${color};font-family:${S.font};` +
+      `font-size:${gq(13)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `opacity:0.85;white-space:nowrap">${right}</div>` : '');
+}
+
+/* Teal and Coral: a header tab across the top, a rule running out of it, and
+   the status text riding the rule's far end. Teal's tab is chamfered, Coral's
+   is a pill -- the one shape each family already used everywhere else. */
+function _bsChromeTab(title, color, right) {
+  const S = bsS(), HH = 26;
+  const pill = S.key === 'coral';
+  const nose = pill ? ''
+    : `<svg width="${gq(18)}" height="${gq(HH)}" viewBox="0 0 14 20" style="flex-shrink:0">` +
+      `<polygon points="14,0 14,20 0,20" fill="${color}"/></svg>`;
+  return `<div style="position:absolute;left:0;top:0;width:100%;height:${gq(HH)};` +
+      `display:flex;align-items:center;gap:${pill ? gq(9) : '0'}">` + nose +
+    `<div style="background:${color};height:100%;padding:0 ${gq(15)};display:flex;align-items:center;` +
+      `border-radius:${pill ? '999px' : '0'};flex-shrink:0">` +
+      `<span style="color:#000;font-family:${S.font};font-size:${gq(16)};font-weight:${S.fw};` +
+        `text-transform:uppercase;letter-spacing:${S.ls};white-space:nowrap">${title}</span></div>` +
+    `<div style="flex:1;height:${gq(pill ? 5 : 3)};background:${color};` +
+      `border-radius:${pill ? '999px' : '0'};opacity:${pill ? '1' : '0.4'}"></div>` +
+    (right ? `<span style="color:${color};font-family:${S.font};font-size:${gq(15)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `margin-left:${gq(9)};white-space:nowrap">${right}</span>` : '') + `</div>`;
+}
+
+/* A meter. Gold segments it, and a non-zero reading always lights at least
+   one cell: a real but sub-1% value drawn as a wholly empty bar reads as
+   broken rather than small. Teal and Coral keep the continuous track they
+   already used everywhere, squared off or fully rounded to taste. */
 function bsSegBar(pct, color, w, h, cells, gap) {
+  const S = bsS();
   const p = Math.max(0, Math.min(100, bsNum(pct)));
+  if (!S.seg) {
+    const r = S.r >= 999 ? '999px' : S.r + 'px';
+    return `<div style="width:${gq(w)};height:${gq(h)};background:${S.track};border-radius:${r};` +
+      `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${p}%;background:${color};` +
+      `border-radius:${r};transition:width 0.8s ease"></div></div>`;
+  }
   const cw = (w - gap * (cells - 1)) / cells;
   let n = Math.round(cells * p / 100);
   if (n === 0 && p > 0) n = 1;
@@ -1547,17 +1505,17 @@ function bsSegBar(pct, color, w, h, cells, gap) {
   for (let i = 0; i < cells; i++) {
     html += `<div style="width:${gq(cw)};height:${gq(h)};flex-shrink:0;` +
       (i < n ? `background:${color};box-shadow:0 0 ${gq(6)} ${color}aa` :
-               `background:#161616;border:1px solid #202020`) + `"></div>`;
+               `background:${S.track};border:1px solid ${S.edge}`) + `"></div>`;
   }
   return html + `</div>`;
 }
 
 function bsKv(label, value, color, valPx, labPx) {
   return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:${gq(12)}">` +
-    `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(labPx || 13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;white-space:nowrap">${label}</span>` +
-    `<span style="color:${color};font-family:${BS_F};font-size:${gq(valPx || 22)};font-weight:700;` +
-      `font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 ${gq(8)} ${color}99">${value}</span></div>`;
+    `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(labPx || 13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};white-space:nowrap">${label}</span>` +
+    `<span style="color:${color};font-family:${bsS().font};font-size:${gq(valPx || 22)};font-weight:${bsS().fw};` +
+      `font-variant-numeric:tabular-nums;white-space:nowrap;${bsGlow(8, color, '99')}">${value}</span></div>`;
 }
 
 /* A readout bound to the width of its own bar. Letting it span the flex row
@@ -1602,7 +1560,7 @@ function gpuName(card) {
 }
 
 function gpuTempColor(card) {
-  return (card.temp === null || card.temp === undefined) ? BS_DIM : _thermColor(card.temp);
+  return (card.temp === null || card.temp === undefined) ? bsS().dim : bsS().therm(card.temp);
 }
 
 /* Donut with its caption BELOW the ring. The shared donut() puts the label
@@ -1610,39 +1568,40 @@ function gpuTempColor(card) {
    clipped by its overflow:hidden. */
 function bsGauge(pct, caption, color, size, sw, opts) {
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(4)}">` +
-    donut(pct, '', color, size, sw, BS_F, opts) +
-    `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `line-height:1;text-transform:uppercase;letter-spacing:0.22em">${caption}</div></div>`;
+    donut(pct, '', color, size, sw, bsS().font, opts) +
+    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${caption}</div></div>`;
 }
 
 /* ── layout A: one card, everything ── */
 function gpuLayoutSingle(card) {
+  const S = bsS();
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: '#fff', linecap: 'butt', valSize: gq(44), labelSize: gq(13),
-                 labelColor: BS_LABEL};
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(44), labelSize: gq(13),
+                 labelColor: bsS().label};
 
   const head = `<div style="position:absolute;left:${gq(24)};top:${gq(16)};right:${gq(24)};` +
-    `display:flex;align-items:center;gap:${gq(14)};font-family:${BS_F}">` +
-    `<span style="font-size:${gq(11)};font-weight:700;color:#000;background:${col};` +
-      `padding:${gq(2)} ${gq(9)};border-radius:2px;text-transform:uppercase;letter-spacing:0.22em;` +
+    `display:flex;align-items:center;gap:${gq(14)};font-family:${bsS().font}">` +
+    `<span style="font-size:${gq(11)};font-weight:${bsS().fw};color:#000;background:${col};` +
+      `padding:${gq(2)} ${gq(9)};border-radius:2px;text-transform:uppercase;letter-spacing:${bsS().ls};` +
       `box-shadow:0 0 ${gq(12)} ${col}88">${esc(String(card.vendor || 'GPU'))}</span>` +
-    `<span style="color:#fff;font-size:${gq(27)};font-weight:700;text-shadow:0 0 ${gq(10)} ${col}99;` +
+    `<span style="color:${bsS().bright};font-size:${gq(27)};font-weight:${bsS().fw};${bsGlow(10, col, '99')};` +
       `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${gpuName(card)}</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${BS_LABEL};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;white-space:nowrap">${bsVal(card.driver)} &nbsp;|&nbsp; ${bsVal(card.bus_id)}</span></div>`;
+    `<span style="color:${bsS().label};font-size:${gq(12)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.driver)} &nbsp;|&nbsp; ${bsVal(card.bus_id)}</span></div>`;
 
   const utilBody = (card.util === null || card.util === undefined)
-    ? `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
     : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
 
   const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
-    ? `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
-    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.vram_percent), 'VRAM', TEAL, 152, 11, dOpts)}</div>`;
+    ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 152, 11, dOpts)}</div>`;
 
   const procs = asList({available: true, value: card.processes});
   let procBody, procRight;
@@ -1652,78 +1611,79 @@ function gpuLayoutSingle(card) {
       const pr = procs[i] || {};
       const tot = bsNum(card.vram_total);
       const pct = tot > 0 ? Math.round(bsNum(pr.vram_mib) / tot * 100) : 0;
-      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${BS_F}">` +
-        `<span style="color:#fff;font-size:${gq(17)};font-weight:700;width:${gq(118)};overflow:hidden;` +
+      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${bsS().font}">` +
+        `<span style="color:${bsS().bright};font-size:${gq(17)};font-weight:${bsS().fw};width:${gq(118)};overflow:hidden;` +
           `text-overflow:ellipsis;white-space:nowrap">${esc(String(pr.name || '?'))}</span>` +
-        `<span style="color:${BS_DIM};font-size:${gq(13)};width:${gq(54)}">${bsVal(pr.pid)}</span>` +
-        bsSegBar(pct, TEAL, 560, 13, 30, 3) +
-        `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700;width:${gq(74)};text-align:right;` +
+        `<span style="color:${bsS().dim};font-size:${gq(13)};width:${gq(54)}">${bsVal(pr.pid)}</span>` +
+        bsSegBar(pct, S.a2, 560, 13, 30, 3) +
+        `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw};width:${gq(74)};text-align:right;` +
           `font-variant-numeric:tabular-nums">${bsVal(pr.vram_mib)}M</span></div>`;
     }
     procRight = procs.length + ' ACTIVE';
   } else if (card.source === 'nvml') {
     // An empty list from NVML means the card is idle, NOT that the data is
     // unavailable. Saying "not exposed by nvidia" here was simply false.
-    procBody = `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em">NO COMPUTE PROCESSES ON THIS CARD</div>`;
+    procBody = `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls}">NO COMPUTE PROCESSES ON THIS CARD</div>`;
     procRight = 'IDLE';
   } else {
     // sysfs genuinely has no per-process accounting. Say that, rather than
     // leaving a box that looks like it failed to load.
-    procBody = `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em">PER-PROCESS VRAM NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`;
+    procBody = `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls}">PER-PROCESS VRAM NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`;
     procRight = 'UNAVAILABLE';
   }
 
   return head +
     bsRegion(24, 62, 300, 240, 'PROCESSOR', col, '', utilBody, 'center') +
-    bsRegion(348, 62, 300, 240, 'MEMORY', TEAL, '', vramBody, 'center') +
-    bsRegion(672, 62, 328, 240, 'TELEMETRY', GOLD, '',
+    bsRegion(348, 62, 300, 240, 'MEMORY', S.a2, '', vramBody, 'center') +
+    bsRegion(672, 62, 328, 240, 'TELEMETRY', S.a1, '',
       bsKv('TEMP', bsVal(card.temp, '°C'), tc, 30) +
-      bsKv('POWER', bsVal(card.power) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`, AMBER, 30) +
-      bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">/ ${bsVal(card.clock_gpu_max)} MHz</span>`, '#e6e6e6', 26) +
-      bsKv('MEMORY', bsVal(card.clock_mem) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">MHz</span>`, '#e6e6e6', 26),
+      bsKv('POWER', bsVal(card.power) + ` <span style="font-size:${gq(16)};color:${bsS().dim}">/ ${bsVal(card.power_limit)} W</span>`, S.cPower, 30) +
+      bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(16)};color:${bsS().dim}">/ ${bsVal(card.clock_gpu_max)} MHz</span>`, '#e6e6e6', 26) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ` <span style="font-size:${gq(16)};color:${bsS().dim}">MHz</span>`, '#e6e6e6', 26),
       'space-around') +
     bsRegion(24, 312, 624, 116, 'LOAD', col, '',
-      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), AMBER, 596, 34, 14, 12) +
-      bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), TEAL, 596, 34, 14, 12),
+      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 596, 34, 14, 12) +
+      bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a2, 596, 34, 14, 12),
       'space-around') +
     bsRegion(672, 312, 328, 116, 'COOLING', tc, '',
       `<div style="display:flex;align-items:center;gap:${gq(18)}">` +
         fanIcon(tc, gq(54), gpuFanRpm(card)) +
-        `<div><div style="color:#fff;font-family:${BS_F};font-size:${gq(30)};font-weight:700;` +
-          `font-variant-numeric:tabular-nums;text-shadow:0 0 ${gq(8)} ${tc}99">${gpuFanText(card)}</div>` +
-        `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-          `text-transform:uppercase;letter-spacing:0.22em">FAN</div></div></div>`, 'center') +
-    bsRegion(24, 446, 976, 132, 'PROCESSES', TEAL, procRight, procBody, 'space-around');
+        `<div><div style="color:${bsS().bright};font-family:${bsS().font};font-size:${gq(30)};font-weight:${bsS().fw};` +
+          `font-variant-numeric:tabular-nums;${bsGlow(8, tc, '99')}">${gpuFanText(card)}</div>` +
+        `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+          `text-transform:uppercase;letter-spacing:${bsS().ls}">FAN</div></div></div>`, 'center') +
+    bsRegion(24, 446, 976, 132, 'PROCESSES', S.a2, procRight, procBody, 'space-around');
 }
 
 /* ── layout B: two cards ── */
 function gpuCardPanel(card, x, y, w, h) {
+  const S = bsS();
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: '#fff', linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
 
   const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
-    bsMetered('VRAM', bsVal(card.vram_used) + ` <span style="font-size:${gq(15)};color:${BS_DIM}">/ ${bsVal(card.vram_total)} MiB</span>`,
-               bsNum(card.vram_percent), TEAL, 330, 26, 23, 13) +
-    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(15)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`,
-               gpuPowerPct(card), AMBER, 330, 26, 23, 13) +
-    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), GOLD, 330, 26, 23, 13) +
+    bsMetered('VRAM', bsVal(card.vram_used) + ` <span style="font-size:${gq(15)};color:${bsS().dim}">/ ${bsVal(card.vram_total)} MiB</span>`,
+               bsNum(card.vram_percent), S.a2, 330, 26, 23, 13) +
+    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(15)};color:${bsS().dim}">/ ${bsVal(card.power_limit)} W</span>`,
+               gpuPowerPct(card), S.cPower, 330, 26, 23, 13) +
+    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 330, 26, 23, 13) +
     `</div>`;
 
   // Fixed width, not flex:1. Stretching this column ran its labels back
   // underneath the bars in the middle column.
   const right = `<div style="width:${gq(236)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
     bsKv('TEMP', bsVal(card.temp, '°C'), tc, 26) +
-    bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(14)};color:${BS_DIM}">MHz</span>`, '#e6e6e6', 22) +
+    bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(14)};color:${bsS().dim}">MHz</span>`, '#e6e6e6', 22) +
     `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(30), gpuFanRpm(card)) +
-      `<span style="color:#e6e6e6;font-family:${BS_F};font-size:${gq(17)};font-weight:700;` +
-      `text-shadow:0 0 ${gq(6)} ${tc}99">${gpuFanText(card)}</span></div></div>`;
+      `<span style="color:${bsS().text};font-family:${bsS().font};font-size:${gq(17)};font-weight:${bsS().fw};` +
+      `${bsGlow(6, tc, '99')}">${gpuFanText(card)}</span></div></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
-    donut(bsNum(card.util), '', col, 138, 10, BS_F, dOpts) +
+    donut(bsNum(card.util), '', col, 138, 10, bsS().font, dOpts) +
     stats + `<div style="flex:1"></div>` + right + `</div>`;
 
   return bsRegion(x, y, w, h, gpuName(card), col,
@@ -1732,10 +1692,11 @@ function gpuCardPanel(card, x, y, w, h) {
 
 /* ── layout C: three or more ── */
 function gpuTile(card, x, y, w, h) {
+  const S = bsS();
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: '#fff', linecap: 'butt', valSize: gq(29), labelSize: gq(11)};
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(29), labelSize: gq(11)};
   // Used keeps a decimal at every magnitude -- rounding 18.3 to 18 on a 24G
   // card throws away the only digit that moves. The total is a fixed board
   // spec, so an integer is right there.
@@ -1743,20 +1704,20 @@ function gpuTile(card, x, y, w, h) {
   const gibTotal = function (mib) { return Math.round(bsNum(mib) / 1024); };
 
   const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
-    bsMetered('VRAM', gibUsed(card.vram_used) + ` <span style="font-size:${gq(12)};color:${BS_DIM}">/ ${gibTotal(card.vram_total)} G</span>`,
-               bsNum(card.vram_percent), TEAL, 214, 20, 19, 11) +
-    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(12)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`,
-               gpuPowerPct(card), AMBER, 214, 20, 19, 11) + `</div>`;
+    bsMetered('VRAM', gibUsed(card.vram_used) + ` <span style="font-size:${gq(12)};color:${bsS().dim}">/ ${gibTotal(card.vram_total)} G</span>`,
+               bsNum(card.vram_percent), S.a2, 214, 20, 19, 11) +
+    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(12)};color:${bsS().dim}">/ ${bsVal(card.power_limit)} W</span>`,
+               gpuPowerPct(card), S.cPower, 214, 20, 19, 11) + `</div>`;
 
-  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${BS_F}">` +
+  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${bsS().font}">` +
     fanIcon(tc, gq(24), gpuFanRpm(card)) +
-    `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700">${bsVal(card.temp, '°C')}</span>` +
+    `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw}">${bsVal(card.temp, '°C')}</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${BS_LABEL};font-size:${gq(11)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
+    `<span style="color:${bsS().label};font-size:${gq(11)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
-    donut(bsNum(card.util), '', col, 104, 8, BS_F, dOpts) + stack + `</div>` + footer;
+    donut(bsNum(card.util), '', col, 104, 8, bsS().font, dOpts) + stack + `</div>` + footer;
 
   return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
 }
@@ -1768,28 +1729,28 @@ function gpuHeader(cards) {
   }
   const total = anyPower ? ` &nbsp;|&nbsp; ${Math.round(watts)} W TOTAL` : '';
   return `<div style="position:absolute;left:${gq(24)};top:${gq(14)};right:${gq(24)};` +
-    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${BS_F}">` +
-    `<span style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</span>` +
+    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${bsS().font}">` +
+    `<span style="color:${bsS().a1};font-size:${gq(19)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};${bsGlow(10, bsS().a1, '99')}">GRAPHICS</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${BS_LABEL};font-size:${gq(13)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em">${cards.length} CARD${cards.length === 1 ? '' : 'S'}${total}</span></div>`;
+    `<span style="color:${bsS().label};font-size:${gq(13)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls}">${cards.length} CARD${cards.length === 1 ? '' : 'S'}${total}</span></div>`;
 }
 
-function panelGoldGpuScreen(c) {
+function bsGpuScreen(c) {
   const cards = asList(m('gpu.cards'));
   const frame = (body) => `<div class="screen-frame"><div style="position:relative;width:100%;` +
-    `height:100%;background:#000;font-family:${BS_F};overflow:hidden">${body}</div></div>`;
+    `height:100%;background:${bsS().bg};font-family:${bsS().font};overflow:hidden">${body}</div></div>`;
 
   if (!cards.length) {
     // A machine with no card the collector can read. Say so plainly; the
     // screen can be switched off in Settings > Screen Rotation.
     return frame(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;` +
       `align-items:center;justify-content:center;gap:${gq(10)}">` +
-      `<div style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
-        `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</div>` +
-      `<div style="color:${BS_DIM};font-size:${gq(15)};font-weight:700;text-transform:uppercase;` +
-        `letter-spacing:0.22em">NO GPU DETECTED</div></div>`);
+      `<div style="color:${bsS().a1};font-size:${gq(19)};font-weight:${bsS().fw};text-transform:uppercase;` +
+        `letter-spacing:${bsS().ls};${bsGlow(10, bsS().a1, '99')}">GRAPHICS</div>` +
+      `<div style="color:${bsS().dim};font-size:${gq(15)};font-weight:${bsS().fw};text-transform:uppercase;` +
+        `letter-spacing:${bsS().ls}">NO GPU DETECTED</div></div>`);
   }
 
   if (cards.length === 1) return frame(gpuLayoutSingle(cards[0]));
@@ -1808,12 +1769,16 @@ function panelGoldGpuScreen(c) {
   // Beyond four the grid has no room; say what is not shown rather than
   // silently truncating the list.
   if (cards.length > 4) {
-    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${BS_DIM};` +
-      `font-family:${BS_F};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em">+${cards.length - 4} MORE NOT SHOWN</div>`;
+    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${bsS().dim};` +
+      `font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls}">+${cards.length - 4} MORE NOT SHOWN</div>`;
   }
   return frame(body);
 }
+
+function panelGoldGpuScreen(c) { bsSkin(BS_SKIN_GOLD); return bsGpuScreen(c); }
+function panelTealGpuScreen(c) { bsSkin(BS_SKIN_TEAL); return bsGpuScreen(c); }
+function panelCoralGpuScreen(c) { bsSkin(BS_SKIN_CORAL); return bsGpuScreen(c); }
 
 /* ── Bridge Station: screen 1 ────────────────────────────────────────────
  * CORE / THERMALS / COMMS / CHRONOMETER, in the same spine vocabulary as the
@@ -1828,16 +1793,16 @@ function panelGoldGpuScreen(c) {
    than continuous so a glance reads roughly how hot without parsing digits. */
 function bsThermRow(label, temp, w) {
   const known = (temp !== null && temp !== undefined && isFinite(temp));
-  const c = known ? _thermColor(temp) : BS_DIM;
+  const c = known ? _thermColor(temp) : bsS().dim;
   // The scale runs 20-120C, matching the tick labels printed beneath it.
   const pct = known ? Math.max(0, Math.min(100, ((temp - 20) / 100) * 100)) : 0;
   return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
-    `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;width:${gq(34)};flex-shrink:0">${label}</span>` +
+    `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};width:${gq(34)};flex-shrink:0">${label}</span>` +
     bsSegBar(pct, c, w, 16, 14, 4) +
-    `<span style="color:${c};font-family:${BS_F};font-size:${gq(18)};font-weight:700;` +
+    `<span style="color:${c};font-family:${bsS().font};font-size:${gq(18)};font-weight:${bsS().fw};` +
       `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
-      `text-shadow:0 0 ${gq(8)} ${c}99">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
+      `${bsGlow(8, c, '99')}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
 }
 
 /* One icon per fan detected, each turning at its own rate.
@@ -1849,13 +1814,14 @@ function bsFanGroup(label, color, rpms) {
   for (const r of rpms) icons += fanIcon(color, gq(26), r);
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(6)}">` +
     `<div style="display:flex;gap:${gq(9)}">${icons}</div>` +
-    `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-      `line-height:1;text-transform:uppercase;letter-spacing:0.22em">${label}</div></div>`;
+    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</div></div>`;
 }
 
 function bsWiredIcon(color, lit) {
+  const halo = bsS().glow ? `;filter:drop-shadow(0 0 ${gq(6)} ${color})` : '';
   return `<svg width="${gq(26)}" height="${gq(26)}" viewBox="0 0 24 24" ` +
-    `style="opacity:${lit ? 1 : 0.3};filter:drop-shadow(0 0 ${gq(6)} ${color})">` +
+    `style="opacity:${lit ? 1 : 0.3}${halo}">` +
     `<rect x="4" y="9" width="16" height="9" rx="1.5" fill="${color}"/>` +
     `<rect x="9" y="4" width="6" height="5" fill="${color}"/>` +
     `<rect x="7" y="18" width="2" height="3" fill="${color}"/>` +
@@ -1875,16 +1841,40 @@ function bsCapacityBar(label, cap, pct, color, w) {
   return `<div style="width:${gq(w)}">` +
     `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
       `margin-bottom:${gq(5)}">` +
-      `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-        `text-transform:uppercase;letter-spacing:0.22em">${label}</span>` +
-      `<span style="color:#dcdcdc;font-family:${BS_F};font-size:${gq(14)};font-weight:700;` +
+      `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+        `text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</span>` +
+      `<span style="color:${bsS().soft};font-family:${bsS().font};font-size:${gq(14)};font-weight:${bsS().fw};` +
         `font-variant-numeric:tabular-nums">${cap}</span></div>` +
-    bsSegBar(pct, color, w, 11, 26, 3) + `</div>`;
+    bsSegBar(pct, color, w, bsS().seg ? 11 : 15, 26, 3) + `</div>`;
 }
 
-function panelGoldScreen1(c) {
-  const BLUE = PANEL_SPEC.colors.blue;
-  const RED = PANEL_SPEC.colors.red;
+/* Gold segments its thermal track; Teal and Coral keep the continuous bar
+   they already had. Same reading either way -- label, track, degrees. */
+function bsThermRowSolid(label, temp, w) {
+  const S = bsS();
+  const known = (temp !== null && temp !== undefined && isFinite(temp));
+  const c = known ? S.therm(temp) : S.dim;
+  const pct = known ? Math.max(0, Math.min(100, ((temp - 20) / 100) * 100)) : 0;
+  const flash = known && temp >= 100 ? ';animation:blink 0.5s infinite' : '';
+  const r = S.r >= 999 ? '999px' : S.r + 'px';
+  return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
+    `<span style="color:${S.label};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
+      `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(38)};flex-shrink:0">${label}</span>` +
+    `<div style="width:${gq(w)};height:${gq(18)};background:${S.track};border-radius:${r};` +
+      `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;background:${c};` +
+      `border-radius:${r};transition:width 0.8s ease${flash}"></div></div>` +
+    `<span style="color:${c};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
+      `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+      `${bsGlow(8, c)}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
+}
+
+/* ── Bridge Station: screen 1, in whichever skin is active ────────────────
+ * CORE / THERMALS / COMMS / CHRONOMETER. One information layout across the
+ * whole Panel family: the same readings land in the same quadrant whichever
+ * theme is on, so switching themes never means re-learning the board.
+ */
+function bsScreen1(c) {
+  const S = bsS();
 
   const cpu = m('cpu.usage'), ram = m('mem.ram_percent'), vram = m('gpu.vram_percent');
   const root = m('disk.root_used'), rootPct = m('disk.root_percent');
@@ -1894,24 +1884,25 @@ function panelGoldScreen1(c) {
   const speed = m('net.speed'), dl = m('net.dl'), ul = m('net.ul'), ping = m('net.ping');
   const host = m('sys.hostname');
 
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: RED, linecap: 'butt', valSize: gq(30), labelSize: gq(12)};
+  const dOpts = {anticlockwise: true, ticks: S.key === 'gold', bgRing: S.ring,
+                 valColor: S.bright, critColor: S.crit, linecap: 'butt',
+                 fontWeight: S.fw, valSize: gq(30), labelSize: gq(12)};
 
   // ── CORE
   const core =
     `<div style="display:flex;justify-content:space-around;align-items:center">` +
-      bsGauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', GOLD, 104, 9, dOpts) +
-      bsGauge(bsNum(ram.available ? ram.value : 0), 'RAM', BLUE, 104, 9, dOpts) +
-      bsGauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', GREEN, 104, 9, dOpts) +
+      bsGauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', S.dCpu, 104, 9, dOpts) +
+      bsGauge(bsNum(ram.available ? ram.value : 0), 'RAM', S.dRam, 104, 9, dOpts) +
+      bsGauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', S.dVram, 104, 9, dOpts) +
     `</div>` +
     `<div style="display:flex;flex-direction:column;gap:${gq(11)};margin-top:${gq(14)}">` +
       bsCapacityBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
-                    bsNum(rootPct.available ? rootPct.value : 0), GOLD, 428) +
+                    bsNum(rootPct.available ? rootPct.value : 0), S.cPrimary, 428) +
       (home.available
         ? bsCapacityBar('SECONDARY', `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`,
-                        bsNum(homePct.available ? homePct.value : 0), TEAL, 428)
-        : `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-          `text-transform:uppercase;letter-spacing:0.22em">SECONDARY &mdash; NONE</div>`) +
+                        bsNum(homePct.available ? homePct.value : 0), S.cSecondary, 428)
+        : `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};font-weight:${S.fw};` +
+          `text-transform:uppercase;letter-spacing:${S.ls}">SECONDARY &mdash; NONE</div>`) +
     `</div>`;
 
   // ── THERMALS
@@ -1919,70 +1910,59 @@ function panelGoldScreen1(c) {
   const hottest = temps.length ? Math.max.apply(null, temps) : null;
   const status = hottest === null ? 'NO SENSORS'
                : hottest >= 110 ? 'CRITICAL' : hottest >= 90 ? 'WARNING' : 'NOMINAL';
-  const statusColor = hottest === null ? BS_DIM
-                    : hottest >= 110 ? RED : hottest >= 90 ? (PANEL_SPEC.colors.thermOrange || '#FF7700') : GREEN;
+  const statusColor = hottest === null ? S.dim
+                    : hottest >= 110 ? S.crit : hottest >= 90 ? S.warn : S.therm(60);
 
+  // The scale has to start and stop exactly where the bars do, or the tick
+  // labels point at temperatures the bars never reach.
+  const labW = S.seg ? 34 : 38, gap = 11, scaleW = S.seg ? 300 : 340;
+  const bodyW = 486 - (S.key === 'gold' ? 28 : 0);
   let scale = `<div style="display:flex;justify-content:space-between;` +
-    `margin-left:${gq(45)};margin-right:${gq(60)}">`;
+    `margin-left:${gq(labW + gap)};margin-right:${gq(bodyW - labW - gap - scaleW)}">`;
   for (const t of [20, 50, 70, 90, 110, 120]) {
-    scale += `<span style="color:#b4b4b4;font-family:${BS_F};font-size:${gq(11)}">${t}</span>`;
+    scale += `<span style="color:${S.tick};font-family:${S.font};font-size:${gq(12)}">${t}</span>`;
   }
   scale += `</div>`;
 
-  const cpuFans = asList(m('cpu.fans_cpu'));
-  const caseFans = asList(m('cpu.fans_case'));
-  const gpuFanPct = m('gpu.fan');
-  // gpu.fan is a duty percentage, not a tachometer reading; map it onto a
-  // comparable range so the icon turns at a rate the eye can compare.
-  const gpuFans = gpuFanPct.available && gpuFanPct.value !== null
-    ? [Math.round(bsNum(gpuFanPct.value) / 100 * 2400)] : [];
-  const fanRow = cpuFans.length || caseFans.length || gpuFans.length
-    ? `<div style="display:flex;justify-content:space-around;align-items:flex-end">` +
-      bsFanGroup('CPU', GOLD, cpuFans) + bsFanGroup('CASE', TEAL, caseFans) +
-      bsFanGroup('GPU', GREEN, gpuFans) + `</div>`
-    : `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-      `text-align:center;text-transform:uppercase;letter-spacing:0.22em">NO FANS DETECTED</div>`;
-
+  const row = S.seg ? bsThermRow : bsThermRowSolid;
   const therm =
     `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
-      bsThermRow('CPU', cpuT.available ? cpuT.value : null, 300) +
-      bsThermRow('MB', mbT.available ? mbT.value : null, 300) +
-      bsThermRow('GPU', gpuT.available ? gpuT.value : null, 300) +
+      row('CPU', cpuT.available ? cpuT.value : null, scaleW) +
+      row('MB', mbT.available ? mbT.value : null, scaleW) +
+      row('GPU', gpuT.available ? gpuT.value : null, scaleW) +
       scale +
-    `</div>` + fanRow;
+    `</div>` + bsFanRow();
 
   // ── COMMS
   const linkUp = ip.available;
-  const identity =
-    `<div style="display:flex;justify-content:flex-end;align-items:center;gap:${gq(12)}">` +
-      bsWiredIcon(linkUp ? GREEN : BS_DIM, linkUp) +
-      `<div style="text-align:right">` +
-        `<div style="color:#f2f2f2;font-family:${BS_F};font-size:${gq(21)};font-weight:700;` +
-          `line-height:1.05;text-shadow:0 0 ${gq(8)} #f2f2f299">` +
-          `${iface.available ? esc(String(iface.value)) : '--'}</div>` +
-        `<div style="color:${linkUp ? GREEN : BS_DIM};font-family:${BS_F};font-size:${gq(11)};` +
-          `font-weight:700;margin-top:${gq(2)};text-transform:uppercase;letter-spacing:0.22em">` +
-          `${linkUp ? 'LINK ACTIVE' : 'NO LINK'}</div></div>` +
-      `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(1)};` +
-        `margin-left:${gq(4)}">` + bsWifiIcon(BS_DIM, false) +
-        `<span style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(9)};font-weight:700;` +
-        `text-transform:uppercase;letter-spacing:0.22em">OFF</span></div></div>`;
-
   const speedStr = speed.available
     ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GbE' : speed.value + ' Mb')
     : '--';
+  const identity =
+    `<div style="display:flex;justify-content:flex-end;align-items:center;gap:${gq(12)}">` +
+      bsWiredIcon(linkUp ? S.cLink : S.dim, linkUp) +
+      `<div style="text-align:right">` +
+        `<div style="color:${S.bright};font-family:${S.font};font-size:${gq(21)};font-weight:${S.fw};` +
+          `line-height:1.05;${bsGlow(8, S.bright)}">` +
+          `${iface.available ? esc(String(iface.value)) : '--'}</div>` +
+        `<div style="color:${linkUp ? S.cLink : S.dim};font-family:${S.font};font-size:${gq(11)};` +
+          `font-weight:${S.fw};margin-top:${gq(2)};text-transform:uppercase;letter-spacing:${S.ls}">` +
+          `${linkUp ? 'LINK ACTIVE' : 'NO LINK'}</div></div>` +
+      `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(1)};` +
+        `margin-left:${gq(4)}">` + bsWifiIcon(S.dim, false) +
+        `<span style="color:${S.dim};font-family:${S.font};font-size:${gq(9)};font-weight:${S.fw};` +
+        `text-transform:uppercase;letter-spacing:${S.ls}">OFF</span></div></div>`;
+
+  const unit = (d) => `<span style="font-size:${gq(13)};color:${S.dim}">${esc(String(d.unit))}</span>`;
   const comms = identity +
     `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(22)};` +
       `row-gap:${gq(18)}">` +
-      bsKv('LINK', speedStr, GREEN, 22) +
-      bsKv('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', AMBER, 22) +
-      bsKv('RECV', dl.available ? `${esc(String(dl.value))} <span style="font-size:${gq(13)};` +
-           `color:${BS_DIM}">${esc(String(dl.unit))}</span>` : '--',
-           PANEL_SPEC.colors.thermBlue || '#2288DD', 22) +
-      bsKv('SEND', ul.available ? `${esc(String(ul.value))} <span style="font-size:${gq(13)};` +
-           `color:${BS_DIM}">${esc(String(ul.unit))}</span>` : '--', GREEN, 22) +
-      bsKv('IP', ip.available ? esc(String(ip.value)) : '--', '#efefef', 18) +
-      bsKv('MAC', mac.available ? esc(String(mac.value)) : '--', '#cfcfcf', 15) +
+      bsKv('LINK', speedStr, S.cLink, 22) +
+      bsKv('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', S.cPing, 22) +
+      bsKv('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 22) +
+      bsKv('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 22) +
+      bsKv('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 18) +
+      bsKv('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 15) +
     `</div>`;
 
   // ── CHRONOMETER
@@ -1997,25 +1977,54 @@ function panelGoldScreen1(c) {
     `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;` +
       `height:100%;gap:${gq(2)}">` +
       `<div style="display:flex;align-items:baseline;gap:${gq(8)}">` +
-        `<span style="color:${GOLD};font-family:${BS_F};font-size:${gq(72)};font-weight:700;` +
+        `<span style="color:${S.kHour};font-family:${S.font};font-size:${gq(72)};font-weight:${S.fw};` +
           `line-height:1;font-variant-numeric:tabular-nums;` +
-          `text-shadow:0 0 ${gq(26)} ${GOLD}66">${hh}:${mmn}</span>` +
-        `<span style="color:${AMBER};font-family:${BS_F};font-size:${gq(32)};font-weight:700;` +
-          `font-variant-numeric:tabular-nums;text-shadow:0 0 ${gq(14)} ${AMBER}99">${ss}</span></div>` +
-      `<div style="color:${GREEN};font-family:${BS_F};font-size:${gq(19)};font-weight:700;` +
+          `${bsGlow(26, S.kHour, '66')}">${hh}:${mmn}</span>` +
+        `<span style="color:${S.kSec};font-family:${S.font};font-size:${gq(32)};font-weight:${S.fw};` +
+          `font-variant-numeric:tabular-nums;${bsGlow(14, S.kSec)}">${ss}</span></div>` +
+      `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
         `letter-spacing:0.3em;margin-top:${gq(12)};text-transform:uppercase;` +
-        `text-shadow:0 0 ${gq(10)} ${GREEN}99">${days[now.getDay()]}</div>` +
-      `<div style="color:#dcdcdc;font-family:${BS_F};font-size:${gq(15)};font-weight:700;` +
-        `letter-spacing:0.22em;text-transform:uppercase">` +
+        `${bsGlow(10, S.kDay)}">${days[now.getDay()]}</div>` +
+      `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
+        `letter-spacing:${S.ls};text-transform:uppercase">` +
         `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}</div></div>`;
 
   return `<div class="screen-frame"><div style="position:relative;width:100%;height:100%;` +
-    `background:#000;font-family:${BS_F};overflow:hidden">` +
-    bsRegion(16, 18, 486, 272, 'CORE', GOLD,
+    `background:${S.bg};font-family:${S.font};overflow:hidden">` +
+    bsRegion(16, 18, 486, 272, 'CORE', S.a1,
              host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
-    bsRegion(522, 18, 486, 272, 'THERMALS', AMBER,
+    bsRegion(522, 18, 486, 272, 'THERMALS', S.a3,
              `<span style="color:${statusColor}">${status}</span>`, therm, 'space-evenly') +
-    bsRegion(16, 312, 486, 272, 'COMMS', TEAL, '', comms, 'space-evenly') +
-    bsRegion(522, 312, 486, 272, 'CHRONOMETER', GOLD, '', chrono, 'center') +
+    bsRegion(16, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly') +
+    bsRegion(522, 312, 486, 272, 'CHRONOMETER', S.a1, '', chrono, 'center') +
     `</div></div>`;
 }
+
+/* Gold labels each fan group and colours it; Teal and Coral keep the compact
+   monochrome strip they already used, so their thermals panel is untouched. */
+function bsFanRow() {
+  const S = bsS();
+  if (S.key !== 'gold') {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(S.label, S.font, '') + `</div>`;
+  }
+  const cpuFans = asList(m('cpu.fans_cpu'));
+  const caseFans = asList(m('cpu.fans_case'));
+  const gpuFanPct = m('gpu.fan');
+  // gpu.fan is a duty percentage, not a tachometer reading; map it onto a
+  // comparable range so the icon turns at a rate the eye can compare.
+  const gpuFans = gpuFanPct.available && gpuFanPct.value !== null
+    ? [Math.round(bsNum(gpuFanPct.value) / 100 * 2400)] : [];
+  if (!cpuFans.length && !caseFans.length && !gpuFans.length) {
+    return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(12)};` +
+      `font-weight:${S.fw};text-align:center;text-transform:uppercase;` +
+      `letter-spacing:${S.ls}">NO FANS DETECTED</div>`;
+  }
+  return `<div style="display:flex;justify-content:space-around;align-items:flex-end">` +
+    bsFanGroup('CPU', S.a1, cpuFans) + bsFanGroup('CASE', S.a2, caseFans) +
+    bsFanGroup('GPU', S.dVram, gpuFans) + `</div>`;
+}
+
+function panelGoldScreen1(c) { bsSkin(BS_SKIN_GOLD); return bsScreen1(c); }
+function panelTealScreen1(c) { bsSkin(BS_SKIN_TEAL); return bsScreen1(c); }
+function panelCoralScreen1(c) { bsSkin(BS_SKIN_CORAL); return bsScreen1(c); }
