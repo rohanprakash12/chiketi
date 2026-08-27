@@ -465,7 +465,24 @@ function scanScreen2(c) {
    VINTAGE / TUBES (Nixie + Magic Eye + IN-13 Bargraph + Dekatron)
    ═══════════════════════════════════════ */
 
-function nixieDigit(value, size, showTube) {
+/* A nixie is a stack of ten wire cathodes in a neon-filled envelope, with an
+ * anode mesh in front. Three things follow from that and none of them were
+ * here:
+ *
+ *   - the unlit cathodes do not go away. They sit behind the lit one as dark
+ *     wire ghosts, and they are the single most recognisable thing about the
+ *     tube. Without them a nixie is just a glowing numeral.
+ *   - neon glow discharge runs orange-red (585nm and 640nm dominate). A white
+ *     core reads as an LED; the brightest point on a real cathode is still
+ *     orange.
+ *   - the anode mesh crosses in front of everything, so the glow is seen
+ *     through a fine grid.
+ *
+ * opts: {ghosts, mesh, neon} -- each independently, so the difference is
+ * arguable rather than asserted.
+ */
+function nixieDigit(value, size, showTube, opts) {
+  opts = opts || {};
   const N = PANEL_SPEC.tubes || {};
   const NIXIE = "'Nixie One', cursive";
   const bright = N.bright || '#FF6E0B';
@@ -497,10 +514,35 @@ function nixieDigit(value, size, showTube) {
 
     /* Active digit with 5-layer glow */
     const digitPos = showTube ? 'position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);' : 'position:relative;';
-    const textGlow = '0 0 ' + Math.max(2,size*0.03) + 'px #FFFFFF, 0 0 ' + Math.max(8,size*0.1) + 'px #FFAA55, 0 0 ' + Math.max(16,size*0.22) + 'px #FF6600, 0 0 ' + Math.max(32,size*0.45) + 'px rgba(255,68,0,0.5), 0 0 ' + Math.max(60,size*0.8) + 'px rgba(255,0,0,0.2)';
+    const textGlow = opts.neon
+      ? '0 0 ' + Math.max(2,size*0.025) + 'px #FFD8A8, 0 0 ' + Math.max(6,size*0.075) + 'px #FF8A2B, 0 0 ' + Math.max(14,size*0.18) + 'px #FF5A0A, 0 0 ' + Math.max(28,size*0.40) + 'px rgba(255,58,0,0.62), 0 0 ' + Math.max(54,size*0.75) + 'px rgba(220,20,0,0.30)'
+      : '0 0 ' + Math.max(2,size*0.03) + 'px #FFFFFF, 0 0 ' + Math.max(8,size*0.1) + 'px #FFAA55, 0 0 ' + Math.max(16,size*0.22) + 'px #FF6600, 0 0 ' + Math.max(32,size*0.45) + 'px rgba(255,68,0,0.5), 0 0 ' + Math.max(60,size*0.8) + 'px rgba(255,0,0,0.2)';
+    const litColor = opts.neon ? '#FF8B33' : '#FFAA55';
     const flickerDur = (2.5 + Math.random() * 2).toFixed(1);
     const microDur = (0.8 + Math.random() * 0.5).toFixed(1);
-    html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:#FFAA55;text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
+    if (opts.ghosts && isDigit) {
+      const n = parseInt(ch, 10);
+      // Two cathodes in front of the lit one and one behind it: enough to read
+      // as a stack without turning the tube to soup.
+      const stack = [{d: (n + 1) % 10, o: 0.30, dx: -0.018, dy: 0.012},
+                     {d: (n + 3) % 10, o: 0.20, dx: 0.022, dy: -0.010},
+                     {d: (n + 7) % 10, o: 0.13, dx: -0.008, dy: -0.020}];
+      for (const g of stack) {
+        html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + NIXIE +
+          ';color:#6B5140;opacity:' + g.o + ';z-index:' + (10 + stack.indexOf(g)) +
+          ';margin-left:' + (size * g.dx).toFixed(2) + 'px;margin-top:' + (size * g.dy).toFixed(2) +
+          'px;text-shadow:none;pointer-events:none">' + g.d + '</span>';
+      }
+    }
+    html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:' + litColor + ';text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
+    if (opts.mesh) {
+      // An IN-14 anode carries something like 25 wires across the face; at
+      // size*0.075 the grid read as a screen door rather than as a mesh.
+      const pitch = Math.max(2, Math.round(size * 0.042));
+      html += '<div style="position:absolute;inset:0;z-index:14;pointer-events:none;opacity:0.30;' +
+        'background-image:repeating-linear-gradient(0deg,' + mesh + '00 0,' + mesh + '00 ' + (pitch-1) + 'px,' + mesh + 'cc ' + (pitch-1) + 'px,' + mesh + 'cc ' + pitch + 'px),' +
+        'repeating-linear-gradient(90deg,' + mesh + '00 0,' + mesh + '00 ' + (pitch-1) + 'px,' + mesh + 'aa ' + (pitch-1) + 'px,' + mesh + 'aa ' + pitch + 'px)"></div>';
+    }
 
     /* Glass reflections for showTube */
     if (showTube) {
@@ -512,22 +554,19 @@ function nixieDigit(value, size, showTube) {
   return html;
 }
 
-function bargraphBar(pct, label, color, flash) {
+/* A filament in its glass: a wide dim halo, a tighter warm one, then a
+   white-hot wire down the middle. Everything on this board that shows a
+   quantity burns -- nothing in the tube era emitted a flat block of colour. */
+function tubeFilament(pct, color, flash, id, height) {
   const N = PANEL_SPEC.tubes || {};
-  const MONO = "'IBM Plex Mono', monospace";
-  const barColor = color || N.barStd || '#FF6622';
   const interior = N.interior || '#0C0A06';
   const glass = N.glass || '#332818';
   const cathode = N.cathode || '#1A1410';
-  const svgW = 300;
-  const h = 30;
-  const barW = (Math.max(0, pct) / 100) * (svgW - 4);
-  const fid = svgId('glow-', label);
-
-  const flashStyle = flash ? 'animation:blink 0.5s infinite;' : '';
-  return '<div style="display:flex;align-items:center;gap:0.88cqw;' + flashStyle + '">' +
-    '<span style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 2px ' + (N.label||'#AA8855') + '33;font-size:2.64cqw;font-family:' + MONO + ';width:4.10cqw;text-align:right;flex-shrink:0">' + label + '</span>' +
-    '<svg width="100%" height="' + h + '" viewBox="0 0 ' + svgW + ' ' + h + '" preserveAspectRatio="none" style="overflow:visible;flex:1">' +
+  const svgW = 300, h = height || 30;
+  const barW = (Math.max(0, Math.min(100, pct)) / 100) * (svgW - 4);
+  const fid = svgId('glow-', id);
+  return '<svg width="100%" height="' + h + '" viewBox="0 0 ' + svgW + ' ' + h + '" ' +
+    'preserveAspectRatio="none" style="overflow:visible;flex:1 1 0;min-width:0">' +
       '<defs>' +
         '<filter id="' + fid + '-w" x="-50%" y="-300%" width="200%" height="700%"><feGaussianBlur in="SourceGraphic" stdDeviation="8 4"/></filter>' +
         '<filter id="' + fid + '-m" x="-30%" y="-200%" width="160%" height="500%"><feGaussianBlur in="SourceGraphic" stdDeviation="4 3"/></filter>' +
@@ -535,18 +574,46 @@ function bargraphBar(pct, label, color, flash) {
       '</defs>' +
       '<rect x="0" y="0" width="' + svgW + '" height="' + h + '" rx="11" ry="11" fill="' + interior + '" stroke="' + glass + '44" stroke-width="1"/>' +
       '<line x1="4" y1="' + (h/2) + '" x2="' + (svgW-4) + '" y2="' + (h/2) + '" stroke="' + cathode + '" stroke-width="0.5" opacity="0.35"/>' +
-      '<rect x="2" y="' + (h/2-6) + '" width="' + Math.max(0,barW) + '" height="12" rx="6" ry="6" fill="' + barColor + '" opacity="0.5" filter="url(#' + fid + '-w)" style="transition:width 0.8s ease"/>' +
-      '<rect x="2" y="' + (h/2-4) + '" width="' + Math.max(0,barW) + '" height="8" rx="4" ry="4" fill="' + barColor + '" opacity="0.7" filter="url(#' + fid + '-m)" style="transition:width 0.8s ease"/>' +
+      '<rect x="2" y="' + (h/2-6) + '" width="' + Math.max(0,barW) + '" height="12" rx="6" ry="6" fill="' + color + '" opacity="0.5" filter="url(#' + fid + '-w)" style="transition:width 0.8s ease"/>' +
+      '<rect x="2" y="' + (h/2-4) + '" width="' + Math.max(0,barW) + '" height="8" rx="4" ry="4" fill="' + color + '" opacity="0.7" filter="url(#' + fid + '-m)" style="transition:width 0.8s ease"/>' +
       '<rect x="2" y="' + (h/2-2) + '" width="' + Math.max(0,barW) + '" height="4" rx="2" ry="2" fill="#FFCC88" opacity="0.85" filter="url(#' + fid + '-t)" style="transition:width 0.8s ease"/>' +
       '<rect x="2" y="' + (h/2-0.75) + '" width="' + Math.max(0,barW) + '" height="1.5" rx="0.75" ry="0.75" fill="#FFDDAA" style="transition:width 0.8s ease"/>' +
-    '</svg></div>';
+    '</svg>';
 }
 
-function magicEye(pct, label, size) {
+function bargraphBar(pct, label, color, flash) {
+  const N = PANEL_SPEC.tubes || {};
+  const MONO = "'IBM Plex Mono', monospace";
+  const barColor = color || N.barStd || '#FF6622';
+  const flashStyle = flash ? 'animation:blink 0.5s infinite;' : '';
+  return '<div style="display:flex;align-items:center;gap:0.88cqw;' + flashStyle + '">' +
+    '<span style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 2px ' + (N.label||'#AA8855') + '33;font-size:2.64cqw;font-family:' + MONO + ';width:4.10cqw;text-align:right;flex-shrink:0">' + label + '</span>' +
+    tubeFilament(pct, barColor, false, label) +
+  '</div>';
+}
+
+/* Phosphor. Zinc silicate is the green everyone pictures, but the envelope
+   does not care what is painted on the target -- the ramp below is the only
+   thing that makes one read as green and the other as cyan. */
+const EYE_PHOSPHOR = {
+  green: {rich: ['#e8ffd8','#b6ff8e','#74ff52','#32e033','#15a825','#065c14'],
+          plain: ['#baff9f','#7fff63','#46ef3f','#1fc62c','#0c7e1c'],
+          halo: '#31e13a', bloom: '50,255,90', text: '140,255,160', ink: '#eefdeb'},
+  cyan:  {rich: ['#dffaff','#8fe8ff','#52ccff','#2f9fe0','#1a6fa8','#063f5c'],
+          plain: ['#a9f0ff','#63dcff','#3fbcef','#2c8ac6','#0c4d7e'],
+          halo: '#31b0e1', bloom: '50,180,255', text: '150,225,255', ink: '#ebf8fd'},
+};
+
+function magicEye(pct, label, size, opts) {
+  opts = opts || {};
+  const P = EYE_PHOSPHOR[opts.phosphor] || EYE_PHOSPHOR.green;
   const eid = svgId('', label);
   const cx = 210, cy = 210, rOuter = 146, rInner = 66;
   const minAngle = 4, maxAngle = 320;
-  const wedgeAngle = minAngle + (pct / 100) * (maxAngle - minAngle);
+  // A real EM34 closes its shadow as the signal rises -- a strong reading is
+  // a lit eye, not a dark one. Inverted, a pegged CPU reads as a dead tube.
+  const drive = opts.invert ? (100 - Math.max(0, Math.min(100, pct))) : pct;
+  const wedgeAngle = minAngle + (drive / 100) * (maxAngle - minAngle);
   const startDeg = -wedgeAngle / 2;
   const endDeg = wedgeAngle / 2;
   function polar(r, deg) {
@@ -568,27 +635,34 @@ function magicEye(pct, label, size) {
 
   return '<div style="text-align:center">' +
     '<div style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 3px ' + (N.label||'#AA8855') + '44;font-size:2.34cqw;font-family:' + MONO + ';letter-spacing:3px;margin-bottom:3px">' + label + '</div>' +
-    '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto;filter:drop-shadow(0 0 ' + (4*s) + 'px rgba(50,255,90,0.08)) drop-shadow(0 0 ' + (10*s) + 'px rgba(50,255,90,0.06))">' +
+    '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto;filter:drop-shadow(0 0 ' + (4*s) + 'px rgba(' + P.bloom + ',0.08)) drop-shadow(0 0 ' + (10*s) + 'px rgba(' + P.bloom + ',0.06))">' +
       '<svg viewBox="0 0 420 420" width="' + size + '" height="' + size + '" style="display:block">' +
         '<defs>' +
           '<filter id="og-' + eid + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
           '<filter id="sb-' + eid + '" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>' +
-          '<radialGradient id="ph-' + eid + '" cx="50%" cy="47%" r="50%"><stop offset="0%" stop-color="#baff9f"/><stop offset="26%" stop-color="#7fff63" stop-opacity="0.98"/><stop offset="52%" stop-color="#46ef3f" stop-opacity="0.95"/><stop offset="78%" stop-color="#1fc62c" stop-opacity="0.92"/><stop offset="100%" stop-color="#0c7e1c" stop-opacity="0.90"/></radialGradient>' +
-          '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.40)"/></radialGradient>' +
+          (opts.rich
+          ? '<radialGradient id="ph-' + eid + '" cx="46%" cy="40%" r="58%"><stop offset="0%" stop-color="' + P.rich[0] + '"/><stop offset="14%" stop-color="' + P.rich[1] + '" stop-opacity="0.99"/><stop offset="34%" stop-color="' + P.rich[2] + '" stop-opacity="0.97"/><stop offset="58%" stop-color="' + P.rich[3] + '" stop-opacity="0.94"/><stop offset="80%" stop-color="' + P.rich[4] + '" stop-opacity="0.90"/><stop offset="100%" stop-color="' + P.rich[5] + '" stop-opacity="0.88"/></radialGradient>'
+          : '<radialGradient id="ph-' + eid + '" cx="50%" cy="47%" r="50%"><stop offset="0%" stop-color="' + P.plain[0] + '"/><stop offset="26%" stop-color="' + P.plain[1] + '" stop-opacity="0.98"/><stop offset="52%" stop-color="' + P.plain[2] + '" stop-opacity="0.95"/><stop offset="78%" stop-color="' + P.plain[3] + '" stop-opacity="0.92"/><stop offset="100%" stop-color="' + P.plain[4] + '" stop-opacity="0.90"/></radialGradient>') +
+          (opts.rich
+          ? '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="48%" stop-color="rgba(0,0,0,0)"/><stop offset="82%" stop-color="rgba(0,0,0,0.34)"/><stop offset="100%" stop-color="rgba(0,0,0,0.72)"/></radialGradient>'
+          : '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.40)"/></radialGradient>') +
           '<clipPath id="fc-' + eid + '"><circle cx="210" cy="210" r="146"/></clipPath>' +
           '<mask id="fm-' + eid + '"><rect width="420" height="420" fill="black"/><circle cx="210" cy="210" r="146" fill="white"/><circle cx="210" cy="210" r="66" fill="black"/></mask>' +
         '</defs>' +
-        '<circle cx="210" cy="210" r="132" fill="#31e13a" opacity="0.12" filter="url(#og-' + eid + ')"/>' +
+        '<circle cx="210" cy="210" r="132" fill="' + P.halo + '" opacity="0.12" filter="url(#og-' + eid + ')"/>' +
         '<g mask="url(#fm-' + eid + ')">' +
           '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" filter="url(#og-' + eid + ')" opacity="0.78"/>' +
           '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" opacity="0.92"/>' +
           '<path d="' + softPath + '" fill="rgba(0,0,0,0.34)" filter="url(#sb-' + eid + ')" style="transition:d 0.5s ease"/>' +
           '<path d="' + shadowPath + '" fill="rgba(0,0,0,0.96)" style="transition:d 0.5s ease"/>' +
           '<circle cx="210" cy="210" r="146" fill="url(#rf-' + eid + ')" opacity="0.95"/>' +
+          (opts.rich
+            ? '<ellipse cx="168" cy="122" rx="62" ry="34" fill="#ffffff" opacity="0.07" transform="rotate(-28 168 122)"/>'
+            : '') +
         '</g>' +
       '</svg>' +
       '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + holeSize + 'px;height:' + holeSize + 'px;border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + (5*s) + 'px ' + (10*s) + 'px rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:grid;place-items:center">' +
-        '<span style="color:#eefdeb;font-size:' + Math.max(11, holeSize*0.3) + 'px;font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(140,255,160,0.10),0 0 8px rgba(140,255,160,0.05)">' + Math.round(pct) + '%</span>' +
+        '<span style="color:' + P.ink + ';font-size:' + Math.max(11, holeSize*0.3) + 'px;font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
       '</div>' +
     '</div>' +
   '</div>';
@@ -651,17 +725,17 @@ function tubeScreen2(c) {
   return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:' + MONO + '">' +
     '<div style="color:' + barDim + ';text-shadow:0 0 3px ' + barDim + '44;font-size:1.76cqw;letter-spacing:8px;margin-bottom:2.05cqw">NIXIE TUBE CHRONOMETER</div>' +
     '<div style="display:flex;align-items:center;gap:5px">' +
-      nixieDigit(hh[0], 125, true) +
-      nixieDigit(hh[1], 125, true) +
-      '<span style="color:#FFAA55;font-size:11.72cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #fff,0 0 8px #FFAA55,0 0 16px #FF6600,0 0 32px #FF4400AA,0 0 50px #FF000044;animation:blink 1s infinite;margin:0 3px">:</span>' +
-      nixieDigit(mm[0], 125, true) +
-      nixieDigit(mm[1], 125, true) +
+      nixieDigit(hh[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(hh[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
+      '<span style="color:#FF8B33;font-size:11.72cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 16px #FF5A0A,0 0 32px #FF3A00AA,0 0 50px #DC140044;animation:blink 1s infinite;margin:0 3px">:</span>' +
+      nixieDigit(mm[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(mm[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
       '<div style="width:12px"></div>' +
-      nixieDigit(ss[0], 70, true) +
-      nixieDigit(ss[1], 70, true) +
+      nixieDigit(ss[0], 70, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(ss[1], 70, true, {neon: true, ghosts: true, mesh: true}) +
     '</div>' +
-    '<div style="color:#FFAA55;text-shadow:0 0 3px #fff,0 0 8px #FFAA55,0 0 18px #FF660066,0 0 35px #FF440033;font-size:4.69cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
-    '<div style="color:#FFAA55;text-shadow:0 0 3px #fff,0 0 8px #FFAA55,0 0 18px #FF660066,0 0 35px #FF440033;font-size:5.27cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:4.69cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:5.27cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
     '<div style="display:flex;align-items:center;gap:1.46cqw;margin-top:2.34cqw">' +
       [dekOrange, warm, eyeStd, '#8855DD', eyeStd, warm, dekOrange].map(function(c) { return '<div style="width:0.73cqw;height:0.73cqw;border-radius:50%;background:' + c + ';box-shadow:0 0 4px ' + c + ',0 0 8px ' + c + '66,0 0 14px ' + c + '22;opacity:0.7"></div>'; }).join('') +
     '</div>' +
@@ -1352,15 +1426,21 @@ const BS_SKIN_TUBE = {
     return `text-shadow:0 0 ${r}px ${color},0 0 ${r * 3}px ${color}55`;
   },
   overlay: '',
+  /* The GPU screen's meters are bars like any other, so they burn like any
+     other. This is the one place the family had two vocabularies. */
   barFn: function (pct, color, w, h) {
-    return `<div style="width:${gq(w)};height:${gq(h)};background:${_NX.interior || '#0C0A06'};` +
-      `border:1px solid ${_NX.glass || '#332818'}44;border-radius:999px;overflow:hidden;` +
-      `flex-shrink:0;display:flex;align-items:center;padding:0 2px">` +
-      `<div style="height:${Math.max(2, gqPx(h) - 8)}px;width:${pct}%;background:${color};` +
-      `border-radius:999px;transition:width 0.8s ease;` +
-      `box-shadow:0 0 6px ${color},0 0 14px ${color}66"></div></div>`;
+    return `<div style="width:${gq(w)};flex-shrink:0;display:flex;align-items:center">` +
+      tubeFilament(pct, color, false, 'bar' + Math.round(w) + 'x' + Math.round(h),
+                   Math.max(16, Math.round(h) + 6)) + `</div>`;
   },
-  gauge: function (pct, cap, which) { return magicEye(pct, cap, 118); },
+  gauge: function (pct, cap, which) {
+    return magicEye(pct, cap, 110, {rich: true, invert: true});
+  },
+  capGap: gq(6), capTop: gq(4),
+  gpuGauge: function (pct, cap, color, size, kind) {
+    return magicEye(pct, cap, size, {rich: true, invert: true,
+                                     phosphor: kind === 'vram' ? 'cyan' : 'green'});
+  },
   thermRowFn: function (label, temp) {
     const t = (temp === null || temp === undefined) ? 20 : temp;
     const pct = Math.max(0, Math.min(100, ((Math.max(20, Math.min(120, t)) - 20) / 100) * 100));
@@ -1381,13 +1461,27 @@ const BS_SKIN_TUBE = {
       `font-family:${PLEX}">NO FANS DETECTED</span>`;
     return h + `</div>`;
   },
+  /* The storage rows burn like the thermal rows: nothing here is a flat pill.
+     Primary takes the standard filament, secondary a cooler-running one, the
+     way a lower-current wire sits further down the colour temperature. */
   capBar: function (label, cap, pct, which) {
-    const col = which === 'primary' ? (_NX.barStd || '#FF6622') : '#4488DD';
-    return _capInline(label, cap, pct, col, _NX.interior || '#0C0A06', '#FFEEDD',
-                      PLEX, 26, '999px', 5, (_NX.glass || '#332818') + '66');
+    const col = which === 'primary' ? (_NX.barStd || '#FF6622') : '#6699DD';
+    return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
+      `<span style="color:${_NX.label || '#AA8855'};text-shadow:0 0 2px ${_NX.label || '#AA8855'}33;` +
+        `font-size:${gq(17)};font-family:${PLEX};width:${gq(98)};flex-shrink:0;` +
+        `white-space:nowrap">${label}</span>` +
+      tubeFilament(pct, col, false, 'cap' + label, 21) +
+      `<span style="color:#FFDDBB;text-shadow:0 0 3px ${col}88;font-size:${gq(16)};` +
+        `font-family:${PLEX};width:${gq(116)};text-align:right;flex-shrink:0;` +
+        `white-space:nowrap">${cap}</span></div>`;
   },
   capNone: function (label) {
-    return _capNone(label, _NX.barDim || '#CC4400', PLEX, 26, _NX.interior || '#0C0A06', '999px');
+    return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
+      `<span style="color:${_NX.label || '#AA8855'};font-size:${gq(17)};font-family:${PLEX};` +
+        `width:${gq(98)};flex-shrink:0;white-space:nowrap">${label}</span>` +
+      tubeFilament(0, _NX.barDim || '#CC4400', false, 'capNone' + label, 21) +
+      `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(16)};font-family:${PLEX};` +
+        `width:${gq(116)};text-align:right;flex-shrink:0;white-space:nowrap">NONE</span></div>`;
   },
   clockFn: function (hh, mm, ss, day, date) {
     const lab = _NX.label || '#AA8855';
@@ -1703,12 +1797,16 @@ function gpuLayoutSingle(card) {
   const utilBody = (card.util === null || card.util === undefined)
     ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
-    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
+    : `<div style="display:flex;justify-content:center">${S.gpuGauge
+        ? S.gpuGauge(bsNum(card.util), 'UTILISATION', col, 150, 'util')
+        : bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
 
   const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
     ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
-    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 152, 11, dOpts)}</div>`;
+    : `<div style="display:flex;justify-content:center">${S.gpuGauge
+        ? S.gpuGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 150, 'vram')
+        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 152, 11, dOpts)}</div>`;
 
   const procs = asList({available: true, value: card.processes});
   let procBody, procRight;
@@ -1790,7 +1888,8 @@ function gpuCardPanel(card, x, y, w, h) {
       `${bsGlow(6, tc, '99')}">${gpuFanText(card)}</span></div></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
-    donut(bsNum(card.util), '', col, 138, 10, bsS().font, dOpts) +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 132, 'util')
+                : donut(bsNum(card.util), '', col, 138, 10, bsS().font, dOpts)) +
     stats + `<div style="flex:1"></div>` + right + `</div>`;
 
   return bsRegion(x, y, w, h, gpuName(card), col,
@@ -1824,7 +1923,9 @@ function gpuTile(card, x, y, w, h) {
       `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
-    donut(bsNum(card.util), '', col, 104, 8, bsS().font, dOpts) + stack + `</div>` + footer;
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 100, 'util')
+                : donut(bsNum(card.util), '', col, 104, 8, bsS().font, dOpts)) +
+    stack + `</div>` + footer;
 
   return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
 }
@@ -2038,7 +2139,8 @@ function bsScreen1(c) {
       gauge(bsNum(ram.available ? ram.value : 0), 'RAM', 'ram') +
       gauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', 'vram') +
     `</div>` +
-    `<div style="display:flex;flex-direction:column;gap:${gq(11)};margin-top:${gq(14)}">` +
+    `<div style="display:flex;flex-direction:column;gap:${S.capGap || 11};` +
+      `margin-top:${S.capTop || gq(14)}">` +
       capBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
              bsNum(rootPct.available ? rootPct.value : 0), 'primary') +
       (home.available
