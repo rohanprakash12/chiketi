@@ -1525,6 +1525,8 @@ class TestDiskSeparateHome:
 
     def test_same_filesystem_uses_st_dev(self, tmp_path):
         import chiketi.collectors.disk as disk_mod
-        a = tmp_path / "a"; a.mkdir()
-        b = tmp_path / "b"; b.mkdir()
+        a = tmp_path / "a"
+        a.mkdir()
+        b = tmp_path / "b"
+        b.mkdir()
         assert disk_mod._same_filesystem(str(a), str(b)) is True
