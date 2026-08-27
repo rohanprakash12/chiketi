@@ -1993,10 +1993,10 @@ function bsScreen1(c) {
     `background:${S.bg};font-family:${S.font};overflow:hidden">` +
     bsRegion(16, 18, 486, 272, 'CORE', S.a1,
              host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
-    bsRegion(522, 18, 486, 272, 'THERMALS', S.a3,
+    bsRegion(522, 18, 486, 272, 'CHRONOMETER', S.a1, '', chrono, 'center') +
+    bsRegion(16, 312, 486, 272, 'THERMALS', S.a3,
              `<span style="color:${statusColor}">${status}</span>`, therm, 'space-evenly') +
-    bsRegion(16, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly') +
-    bsRegion(522, 312, 486, 272, 'CHRONOMETER', S.a1, '', chrono, 'center') +
+    bsRegion(522, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly') +
     `</div></div>`;
 }
 
