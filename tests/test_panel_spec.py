@@ -10,7 +10,7 @@ from chiketi.panel_spec import web_spec
 class TestWebSpec:
     def test_top_level_keys(self):
         spec = web_spec()
-        for key in ("colors", "coral", "teal", "scanlines", "tubes", "vfd"):
+        for key in ("colors", "tng", "ds9", "scanlines", "tubes", "vfd"):
             assert key in spec, f"missing top-level key {key!r}"
 
     def test_json_serializable(self):
@@ -36,10 +36,12 @@ class TestWebSpec:
         # The px tokens were dropped: no renderer ever read them.
         assert "sizes" not in web_spec()
 
-    def test_teal_palette_keys(self):
-        teal = web_spec()["teal"]
-        assert teal["teal"] == "#2A9D8F"
-        assert teal["navy"] == "#2F3749"
+    def test_ds9_palette_keys(self):
+        # web_spec()["ds9"] is DS9's palette; web_spec()["colors"]["teal"] is a
+        # colour TOS uses. They were both called "teal" until the rename.
+        ds9 = web_spec()["ds9"]
+        assert ds9["teal"] == "#2A9D8F"
+        assert ds9["navy"] == "#2F3749"
 
     def test_returns_fresh_dict(self):
         # JS uses PANEL_SPEC.colors.gold etc.; ensure nested dicts exist.

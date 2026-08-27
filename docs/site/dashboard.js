@@ -338,7 +338,7 @@ function terminalScreen2(c) {
     `</div></div>`;
 }
 
-function panelGoldScreen2(c) {
+function sfTosScreen2(c) {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
@@ -364,8 +364,8 @@ function panelGoldScreen2(c) {
   `</div></div>`;
 }
 
-function panelCoralScreen2(c) {
-  const T = PANEL_SPEC.coral || {};
+function sfTngScreen2(c) {
+  const T = PANEL_SPEC.tng || {};
   const FONT = "'Antonio', sans-serif";
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
@@ -404,8 +404,8 @@ function panelCoralScreen2(c) {
   `</div></div>`;
 }
 
-function panelTealScreen2(c) {
-  const D = PANEL_SPEC.teal || {};
+function sfDs9Screen2(c) {
+  const D = PANEL_SPEC.ds9 || {};
   const FONT = "'Rajdhani', sans-serif";
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
@@ -1187,11 +1187,11 @@ function bsGlow(px, color, alpha) {
  *
  * Three copies of this layout would have drifted apart by the second edit.
  */
-const _T = PANEL_SPEC.teal || {};
-const _C = PANEL_SPEC.coral || {};
+const _T = PANEL_SPEC.ds9 || {};
+const _C = PANEL_SPEC.tng || {};
 
 /* Gold: a hard-edged 12px spine, segmented bars, wide uppercase tracking. */
-const BS_SKIN_GOLD = {
+const BS_SKIN_TOS = {
   key: 'gold', chrome: 'spine', font: "'Chakra Petch', sans-serif", fw: '700', bg: '#000',
   label: '#d8d8d8',        /* mid-greys disappear on a cheap 7" panel */
   dim: '#9a9a9a', bright: '#ffffff', text: '#e6e6e6', soft: '#dcdcdc',
@@ -1210,7 +1210,7 @@ const BS_SKIN_GOLD = {
 };
 
 /* Teal: chevron tabs, navy tracks, 2px corners, Rajdhani semibold, no glow. */
-const BS_SKIN_TEAL = {
+const BS_SKIN_DS9 = {
   key: 'teal', chrome: 'tab', font: "'Rajdhani', sans-serif", fw: '600', bg: _T.void || '#111419',
   label: _T.steel || '#9EA5BA', dim: _T.slate || '#6D748C',
   bright: _T.pale || '#AAAACC', text: _T.pale || '#AAAACC', soft: _T.steel || '#9EA5BA',
@@ -1238,7 +1238,7 @@ const BS_SKIN_TEAL = {
 };
 
 /* Coral: rounded pills, fully rounded bars, Antonio at its regular weight. */
-const BS_SKIN_CORAL = {
+const BS_SKIN_TNG = {
   key: 'coral', chrome: 'tab', font: "'Antonio', sans-serif", fw: '400', bg: '#000',
   label: _C.tanoi || '#FFCC99', dim: '#A67FA6',
   bright: _C.paleCanary || '#FFFF99', text: _C.paleCanary || '#FFFF99',
@@ -1684,8 +1684,8 @@ function gqPx(px) { return px; }
 
 /* The active skin. Every screen entry point sets it before rendering; the
    fallback keeps a stray call from rendering nothing rather than throwing. */
-let _bsSkin = BS_SKIN_GOLD;
-function bsSkin(s) { _bsSkin = s || BS_SKIN_GOLD; }
+let _bsSkin = BS_SKIN_TOS;
+function bsSkin(s) { _bsSkin = s || BS_SKIN_TOS; }
 function bsS() { return _bsSkin; }
 
 function gpuVendorColor(vendor) {
@@ -2067,9 +2067,9 @@ function bsGpuScreen(c) {
   return frame(body);
 }
 
-function panelGoldGpuScreen(c) { bsSkin(BS_SKIN_GOLD); return bsGpuScreen(c); }
-function panelTealGpuScreen(c) { bsSkin(BS_SKIN_TEAL); return bsGpuScreen(c); }
-function panelCoralGpuScreen(c) { bsSkin(BS_SKIN_CORAL); return bsGpuScreen(c); }
+function sfTosGpuScreen(c) { bsSkin(BS_SKIN_TOS); return bsGpuScreen(c); }
+function sfDs9GpuScreen(c) { bsSkin(BS_SKIN_DS9); return bsGpuScreen(c); }
+function sfTngGpuScreen(c) { bsSkin(BS_SKIN_TNG); return bsGpuScreen(c); }
 function scanGpuScreen(c) { bsSkin(BS_SKIN_SCAN); return bsGpuScreen(c); }
 function tubeGpuScreen(c) { bsSkin(BS_SKIN_TUBE); return bsGpuScreen(c); }
 function vfdGpuScreen(c) { bsSkin(BS_SKIN_VFD); return bsGpuScreen(c); }
@@ -2359,9 +2359,9 @@ function bsFanRow() {
     bsFanGroup('GPU', S.dVram, gpuFans) + `</div>`;
 }
 
-function panelGoldScreen1(c) { bsSkin(BS_SKIN_GOLD); return bsScreen1(c); }
-function panelTealScreen1(c) { bsSkin(BS_SKIN_TEAL); return bsScreen1(c); }
-function panelCoralScreen1(c) { bsSkin(BS_SKIN_CORAL); return bsScreen1(c); }
+function sfTosScreen1(c) { bsSkin(BS_SKIN_TOS); return bsScreen1(c); }
+function sfDs9Screen1(c) { bsSkin(BS_SKIN_DS9); return bsScreen1(c); }
+function sfTngScreen1(c) { bsSkin(BS_SKIN_TNG); return bsScreen1(c); }
 function scanScreen1(c) { bsSkin(BS_SKIN_SCAN); return bsScreen1(c); }
 function tubeScreen1(c) { bsSkin(BS_SKIN_TUBE); return bsScreen1(c); }
 function vfdScreen1(c) { bsSkin(BS_SKIN_VFD); return bsScreen1(c); }
@@ -2375,10 +2375,10 @@ function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
   return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
 function getScreen1Fn(){
-  var isPanel=activeFamily==='Sci-Fi', isVintage=activeFamily==='Vintage';
-  if(isPanel && activeVariant==='Teal') return panelTealScreen1;
-  if(isPanel && activeVariant==='Coral') return panelCoralScreen1;
-  if(isPanel) return panelGoldScreen1;
+  var isSciFi=activeFamily==='Sci-Fi', isVintage=activeFamily==='Vintage';
+  if(isSciFi && activeVariant==='DS9') return sfDs9Screen1;
+  if(isSciFi && activeVariant==='TNG') return sfTngScreen1;
+  if(isSciFi) return sfTosScreen1;
   if(isVintage && activeVariant==='Tubes') return tubeScreen1;
   if(isVintage && activeVariant==='VFD') return vfdScreen1;
   if(isVintage) return scanScreen1;

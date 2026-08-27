@@ -59,9 +59,9 @@ function getScreenRegistry(c) {
   const isCoral = isPanel && activeVariant === 'TNG';
   const isTeal = isPanel && activeVariant === 'DS9';
   let screens;
-  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:panelTealScreen1},{id:'screen2',name:'Clock',fn:panelTealScreen2}];
-  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:panelCoralScreen1},{id:'screen2',name:'Clock',fn:panelCoralScreen2}];
-  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:panelGoldScreen1},{id:'screen2',name:'Clock',fn:panelGoldScreen2}];
+  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:sfDs9Screen1},{id:'screen2',name:'Clock',fn:sfDs9Screen2}];
+  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:sfTngScreen1},{id:'screen2',name:'Clock',fn:sfTngScreen2}];
+  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:sfTosScreen1},{id:'screen2',name:'Clock',fn:sfTosScreen2}];
   else if (isVintage && activeVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'Clock',fn:tubeScreen2}];
   else if (isVintage && activeVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'Clock',fn:vfdScreen2}];
   else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'Clock',fn:scanScreen2}];
@@ -70,12 +70,12 @@ function getScreenRegistry(c) {
   // Adaptive: the screen picks its own density from gpu.count, so a
   // single-card box and a four-card rig both read correctly with no
   // configuration. Switch it off in Settings on a machine with no GPU.
-  const gpuFn = isTeal ? panelTealGpuScreen
-              : isCoral ? panelCoralGpuScreen
+  const gpuFn = isTeal ? sfDs9GpuScreen
+              : isCoral ? sfTngGpuScreen
               : isVintage && activeVariant === 'Tubes' ? tubeGpuScreen
               : isVintage && activeVariant === 'VFD' ? vfdGpuScreen
               : isVintage ? scanGpuScreen
-              : panelGoldGpuScreen;
+              : sfTosGpuScreen;
   screens.push({id:'screen4',name:'GPU',fn:gpuFn});
   return screens;
 }

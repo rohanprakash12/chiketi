@@ -76,10 +76,10 @@ function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
   return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
 function getScreen1Fn(){
-  var isPanel=activeFamily==='Sci-Fi', isVintage=activeFamily==='Vintage';
-  if(isPanel && activeVariant==='Teal') return panelTealScreen1;
-  if(isPanel && activeVariant==='Coral') return panelCoralScreen1;
-  if(isPanel) return panelGoldScreen1;
+  var isSciFi=activeFamily==='Sci-Fi', isVintage=activeFamily==='Vintage';
+  if(isSciFi && activeVariant==='DS9') return sfDs9Screen1;
+  if(isSciFi && activeVariant==='TNG') return sfTngScreen1;
+  if(isSciFi) return sfTosScreen1;
   if(isVintage && activeVariant==='Tubes') return tubeScreen1;
   if(isVintage && activeVariant==='VFD') return vfdScreen1;
   if(isVintage) return scanScreen1;

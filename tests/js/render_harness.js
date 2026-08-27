@@ -69,12 +69,12 @@ eval(
 
 // Mirrors getScreenRegistry() in display_app.js.
 const REGISTRY = [
-  { family: 'Sci-Fi', variant: 'TOS', fns: [panelGoldScreen1, panelGoldScreen2],
-    gpu: panelGoldGpuScreen },
-  { family: 'Sci-Fi', variant: 'TNG', fns: [panelCoralScreen1, panelCoralScreen2],
-    gpu: panelCoralGpuScreen },
-  { family: 'Sci-Fi', variant: 'DS9', fns: [panelTealScreen1, panelTealScreen2],
-    gpu: panelTealGpuScreen },
+  { family: 'Sci-Fi', variant: 'TOS', fns: [sfTosScreen1, sfTosScreen2],
+    gpu: sfTosGpuScreen },
+  { family: 'Sci-Fi', variant: 'TNG', fns: [sfTngScreen1, sfTngScreen2],
+    gpu: sfTngGpuScreen },
+  { family: 'Sci-Fi', variant: 'DS9', fns: [sfDs9Screen1, sfDs9Screen2],
+    gpu: sfDs9GpuScreen },
   { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanScreen2],
     gpu: scanGpuScreen },
   { family: 'Vintage', variant: 'Tubes', fns: [tubeScreen1, tubeScreen2],
@@ -87,7 +87,7 @@ const REGISTRY = [
 // Screens that print the SECONDARY (/home) capacity as a "used / total"
 // string. Used by the LARGE_DISK assertions below.
 const TIB_CAPACITY_SCREENS = [
-  'panelGoldScreen1', 'panelCoralScreen1', 'panelTealScreen1',
+  'sfTosScreen1', 'sfTngScreen1', 'sfDs9Screen1',
   'scanScreen1', 'tubeScreen1', 'vfdScreen1',
 ];
 
@@ -139,7 +139,7 @@ const CLEAN_TAGS = {};
   metrics = FIX.FULL;
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    entry.fns.concat([claudeScreen3, entry.gpu || panelGoldGpuScreen]).forEach(function (fn) {
+    entry.fns.concat([claudeScreen3, entry.gpu || sfTosGpuScreen]).forEach(function (fn) {
       if (CLEAN_TAGS[fn.name]) return;
       try {
         CLEAN_TAGS[fn.name] = tokenize(fn(colors)).tags;
@@ -190,7 +190,7 @@ for (const fixtureName of Object.keys(FIX)) {
   metrics = FIX[fixtureName];
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3, entry.gpu || panelGoldGpuScreen]);
+    const fns = entry.fns.concat([claudeScreen3, entry.gpu || sfTosGpuScreen]);
     fns.forEach(function (fn, i) {
       const label = entry.family + '/' + entry.variant + ' screen' + (i + 1) + ' (' + fn.name + ')';
       let html;
@@ -252,7 +252,7 @@ for (const fixtureName of Object.keys(FIX)) {
       }
 
       // The LLM panel title must follow llama.backend, not a hardcoded
-      // engine name. Case-insensitive: panelCoralScreen1 renders its headers
+      // engine name. Case-insensitive: sfTngScreen1 renders its headers
       // in lower case, so it hardcoded 'llama.cpp', not 'LLAMA.CPP'.
       if (fixtureName === 'OLLAMA' && /llama\.cpp/i.test(html)) {
         fail(fixtureName, label, 'hardcoded llama.cpp shown for an ollama backend');
@@ -297,7 +297,7 @@ const STRING_KEYS = Object.keys(FIX.FULL).filter(function (k) {
 for (const key of STRING_KEYS) {
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3, entry.gpu || panelGoldGpuScreen]);
+    const fns = entry.fns.concat([claudeScreen3, entry.gpu || sfTosGpuScreen]);
     fns.forEach(function (fn, i) {
       metrics = Object.assign({}, FIX.FULL);
       metrics[key] = Object.assign({}, FIX.FULL[key], { value: PAYLOAD });

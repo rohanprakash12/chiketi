@@ -19,7 +19,7 @@ PANEL_THERM_YELLOW = "#DDCC00"
 PANEL_THERM_ORANGE = "#FF7700"
 PANEL_THERM_DARK_RED = "#AA0000"
 
-# ── Coral palette ──
+# ── TNG palette ──
 CORAL_TANOI = "#FFCC99"
 CORAL_GOLDEN_TANOI = "#FFCC66"
 CORAL_NEON_CARROT = "#FF9933"
@@ -36,7 +36,7 @@ CORAL_THERM_YELLOW = "#FFCC66"
 CORAL_THERM_ORANGE = "#FF9933"
 CORAL_THERM_DARK_RED = "#CC4444"
 
-# ── Teal palette ──
+# ── DS9 palette ──
 TEAL_BURNT = "#E7442A"
 TEAL_STEEL = "#9EA5BA"
 TEAL_SLATE = "#6D748C"
@@ -143,7 +143,7 @@ def web_spec() -> dict:
             "thermOrange": PANEL_THERM_ORANGE,
             "thermDarkRed": PANEL_THERM_DARK_RED,
         },
-        "coral": {
+        "tng": {
             "tanoi": CORAL_TANOI,
             "goldenTanoi": CORAL_GOLDEN_TANOI,
             "neonCarrot": CORAL_NEON_CARROT,
@@ -159,7 +159,7 @@ def web_spec() -> dict:
             "thermOrange": CORAL_THERM_ORANGE,
             "thermDarkRed": CORAL_THERM_DARK_RED,
         },
-        "teal": {
+        "ds9": {
             "burnt": TEAL_BURNT,
             "steel": TEAL_STEEL,
             "slate": TEAL_SLATE,
