@@ -170,6 +170,13 @@ function thermalScale(tickColor, font, marginLeft) {
   return html + `</div>`;
 }
 
+/* SVG ids are built from captions, and url(#...) will not match an id
+   containing a space. "GPU VRAM" silently unlit a whole magic eye before
+   this existed; slugify once, here, rather than at four call sites. */
+function svgId(prefix, label) {
+  return prefix + String(label == null ? '' : label).replace(/[^A-Za-z0-9_-]+/g, '');
+}
+
 /* ── Spinning fan icon — speed scales with actual RPM ── */
 function fanIcon(color, size, rpm) {
   if (!rpm || rpm <= 0) {
@@ -357,94 +364,6 @@ function panelGoldScreen2(c) {
   `</div></div>`;
 }
 
-function panelCoralScreen1(c) {
-  const T = PANEL_SPEC.coral || {};
-  const F = "'Antonio', sans-serif";
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-
-  function coralThermColor(t) {
-    if (t >= 90) return T.thermOrange || '#FF9933';
-    if (t >= 70) return T.thermYellow || '#FFCC66';
-    if (t >= 50) return T.thermGreen || '#99CC66';
-    return T.thermBlue || '#99CCFF';
-  }
-  function coralBar(label, temp) {
-    const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
-    const flash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
-    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;font-family:${F};width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:#1a1a2a;border-radius:999px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${coralThermColor(temp)};border-radius:999px;transition:width 0.8s ease${flash}"></div></div></div>`;
-  }
-  function coralHdr(title, color, rightText) {
-    return `<div style="display:flex;align-items:center;gap:0.59cqw;margin-bottom:0.59cqw"><div style="background:${color};border-radius:999px;height:2.34cqw;padding:0 1.46cqw;display:flex;align-items:center"><span style="color:#000;font-size:1.76cqw;font-family:${F};text-transform:uppercase;letter-spacing:0.15cqw">${title}</span></div><div style="flex:1;height:0.44cqw;background:${color};border-radius:2px"></div>${rightText?`<span style="color:${color};font-size:2.05cqw;font-family:${F};text-transform:uppercase;letter-spacing:0.15cqw">${rightText}</span>`:''}</div>`;
-  }
-  const donutOpts = {critColor: T.mars||'#FF2200', valColor: T.paleCanary||'#FFFF99', bgRing: '#1a1a2a', labelColor: T.tanoi||'#FFCC99', fontWeight: '400', valSize: '4.10cqw', labelSize: '2.64cqw'};
-
-  return `<div class="screen-frame"><div style="background:#000;width:100%;height:100%;display:flex;flex-direction:column;padding:0.88cqw;gap:0.59cqw;font-family:${F}">` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${coralHdr('Core Systems', T.goldenTanoi||'#FFCC66', hostStr)}</div>` +
-      `<div style="flex:1">${coralHdr('Thermals', T.neonCarrot||'#FF9933', thermalStatus)}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;justify-content:space-around;align-items:center">` +
-        donut(cpuUsage.available?cpuUsage.value:0, 'CPU', T.neonCarrot||'#FF9933', 170, 14, F, donutOpts) +
-        donut(ramPct.available?ramPct.value:0, 'RAM', T.anakiwa||'#99CCFF', 170, 14, F, donutOpts) +
-        donut(diskRootPct.available?diskRootPct.value:0, 'SSD', T.lilac||'#CC99CC', 170, 14, F, donutOpts) +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">` +
-        coralBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        coralBar('MB', mbTemp.available?mbTemp.value:20) +
-        coralBar('GPU', gpuTemp.available?gpuTemp.value:20) +
-        thermalScale(T.tanoi||'#FFCC99', F, '5.57cqw') +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;align-items:center">` +
-      `<div style="flex:1">` +
-        (diskHome.available ?
-          `<div style="position:relative;height:2.93cqw;background:${T.eggplant||'#664466'};border-radius:999px;overflow:hidden">` +
-            `<div style="position:absolute;top:0;left:0;height:100%;width:${secPct}%;background:${T.goldenTanoi||'#FFCC66'};border-radius:999px;transition:width 0.8s ease"></div>` +
-            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;color:#000"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
-          `</div>` :
-          `<div style="height:2.93cqw;background:#111;border-radius:999px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.76cqw;color:${T.eggplant||'#664466'}">SECONDARY \u2014 NONE</div>`) +
-      `</div>` +
-      `<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:1.17cqw">` +
-        fanStrip('#AAAAAA', F, '') +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${coralHdr('Comms', T.anakiwa||'#99CCFF', speedStr)}</div>` +
-      `<div style="flex:1">${coralHdr('NPU', T.lilac||'#CC99CC', backendTitle().toLowerCase())}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">IP</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">MAC</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.69cqw">${mac.available?esc(String(mac.value)):'N/A'}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${T.anakiwa||'#99CCFF'}"/></svg><span style="color:${T.anakiwa||'#99CCFF'};font-size:4.98cqw">${ul.available?ul.value+' '+ul.unit:'0'}</span></div><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,22 4,10 20,10" fill="${T.mariner||'#3366CC'}"/></svg><span style="color:${T.mariner||'#3366CC'};font-size:4.98cqw">${dl.available?dl.value+' '+dl.unit:'0'}</span></div></div>` +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">MODEL</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:3.81cqw">${cleanModel()}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">QUANT</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:3.81cqw">${mv('llama.quant')}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw;letter-spacing:0.15cqw">CTX</span><span style="color:${T.paleCanary||'#FFFF99'};font-size:3.81cqw">${mv('llama.context')}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between"><div><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw">T/S </span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.98cqw">${tokSec.available?Math.round(tokSec.value):'--'}</span></div><div><span style="color:${T.tanoi||'#FFCC99'};font-size:2.64cqw">VRAM </span><span style="color:${T.paleCanary||'#FFFF99'};font-size:4.98cqw">${vramStr}</span></div></div>` +
-      `</div>` +
-    `</div>` +
-  `</div></div>`;
-}
-
 function panelCoralScreen2(c) {
   const T = PANEL_SPEC.coral || {};
   const FONT = "'Antonio', sans-serif";
@@ -481,99 +400,6 @@ function panelCoralScreen2(c) {
         `<div style="color:${li};font-size:5.57cqw;letter-spacing:0.59cqw;margin-top:0.59cqw">${dateStr}</div>` +
       `</div>` +
       `<div style="height:2.93cqw;background:${ank};display:flex;align-items:center;justify-content:flex-end;padding-right:1.76cqw"><span style="color:#000;font-size:1.90cqw;letter-spacing:0.29cqw">SHIP CHRONOMETER</span></div>` +
-    `</div>` +
-  `</div></div>`;
-}
-
-function panelTealScreen1(c) {
-  const D = PANEL_SPEC.teal || {};
-  const F = "'Rajdhani', sans-serif";
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? `${vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value}/${vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value}` : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-
-  function tealThermColor(t) {
-    if (t >= 90) return D.thermOrange || '#DD7733';
-    if (t >= 70) return D.thermYellow || '#CCAA44';
-    if (t >= 50) return D.thermGreen || '#55AA77';
-    return D.thermBlue || '#4488AA';
-  }
-  function tealBar(label, temp) {
-    const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
-    const flash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
-    return `<div style="display:flex;align-items:center;gap:0.88cqw"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-family:${F};font-weight:600;width:4.69cqw;text-align:right;flex-shrink:0;text-transform:uppercase">${label}</span><div style="flex:1;height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${tealThermColor(temp)};border-radius:2px;transition:width 0.8s ease${flash}"></div></div></div>`;
-  }
-  function tealHdr(title, color, rightText) {
-    return `<div style="display:flex;align-items:center;gap:0;height:2.93cqw;margin-bottom:0.59cqw">` +
-      `<svg width="2.05cqw" height="2.93cqw" viewBox="0 0 14 20" style="flex-shrink:0"><polygon points="14,0 14,20 0,20" fill="${color}"/></svg>` +
-      `<div style="background:${color};height:100%;padding:0 1.46cqw;display:flex;align-items:center"><span style="color:${D.void||'#111419'};font-size:1.90cqw;font-family:${F};font-weight:600;text-transform:uppercase;letter-spacing:0.29cqw">${title}</span></div>` +
-      `<div style="flex:1;height:0.29cqw;background:${color};opacity:0.4"></div>` +
-      (rightText ? `<span style="color:${color};font-size:2.05cqw;font-family:${F};font-weight:600;text-transform:uppercase;margin-left:0.88cqw">${rightText}</span>` : '') +
-    `</div>`;
-  }
-  const donutOpts = {critColor: D.alert||'#FF4444', valColor: D.pale||'#AAAACC', bgRing: D.navy||'#2F3749', labelColor: D.steel||'#9EA5BA', linecap: 'butt', fontWeight: '600', labelFW: '600', valSize: '4.10cqw', labelSize: '2.64cqw'};
-
-  const bg = D.void || '#111419';
-  return `<div class="screen-frame"><div style="background:${bg};width:100%;height:100%;display:flex;flex-direction:column;padding:0.88cqw;gap:0.59cqw;font-family:${F}">` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${tealHdr('Core Systems', D.teal||'#2A9D8F', hostStr)}</div>` +
-      `<div style="flex:1">${tealHdr('Thermals', D.burnt||'#E7442A', thermalStatus)}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;justify-content:space-around;align-items:center">` +
-        donut(cpuUsage.available?cpuUsage.value:0, 'CPU', D.burnt||'#E7442A', 170, 14, F, donutOpts) +
-        donut(ramPct.available?ramPct.value:0, 'RAM', D.teal||'#2A9D8F', 170, 14, F, donutOpts) +
-        donut(diskRootPct.available?diskRootPct.value:0, 'SSD', D.lavender||'#8888BB', 170, 14, F, donutOpts) +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">` +
-        tealBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        tealBar('MB', mbTemp.available?mbTemp.value:20) +
-        tealBar('GPU', gpuTemp.available?gpuTemp.value:20) +
-        thermalScale(D.steel||'#9EA5BA', F) +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;align-items:center">` +
-      `<div style="flex:1">` +
-        (diskHome.available ?
-          `<div style="position:relative;height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;overflow:hidden">` +
-            `<div style="position:absolute;top:0;left:0;height:100%;width:${secPct}%;background:${D.teal||'#2A9D8F'};border-radius:2px;transition:width 0.8s ease"></div>` +
-            `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:${F};font-size:1.76cqw;font-weight:600;color:${D.void||'#111419'}"><span>SECONDARY</span><span>${fmtCapacity(diskHome)} / ${fmtCapacityTotal(diskHome)}</span></div>` +
-          `</div>` :
-          `<div style="height:2.93cqw;background:${D.navy||'#2F3749'};border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:${F};font-size:1.76cqw;color:${D.slate||'#6D748C'}">SECONDARY \u2014 NONE</div>`) +
-      `</div>` +
-      `<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:1.17cqw">` +
-        fanStrip('#888899', F, '') +
-      `</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw">` +
-      `<div style="flex:1">${tealHdr('Comms', D.lavender||'#8888BB', '')}</div>` +
-      `<div style="flex:1">${tealHdr('NPU', D.warm||'#CCAA77', backendTitle())}</div>` +
-    `</div>` +
-    `<div style="display:flex;gap:0.88cqw;flex:1">` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">IP</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${ip.available?esc(String(ip.value)):'N/A'}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600;letter-spacing:0.15cqw">MAC</span><span style="color:${D.pale||'#AAAACC'};font-size:4.69cqw;font-weight:600">${mac.available?esc(String(mac.value)):'N/A'}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,2 4,14 20,14" fill="${D.teal||'#2A9D8F'}"/></svg><span style="color:${D.teal||'#2A9D8F'};font-size:4.98cqw;font-weight:600">${ul.available?ul.value+' '+ul.unit:'0'}</span></div><div style="display:flex;align-items:center;gap:0.59cqw"><svg width="2.64cqw" height="2.64cqw" viewBox="0 0 24 24"><polygon points="12,22 4,10 20,10" fill="${D.lavender||'#8888BB'}"/></svg><span style="color:${D.lavender||'#8888BB'};font-size:4.98cqw;font-weight:600">${dl.available?dl.value+' '+dl.unit:'0'}</span></div></div>` +
-      `</div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">` +
-        `<div style="display:flex;flex-direction:column;gap:0.29cqw"><div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">MODEL</span><span style="color:${D.pale||'#AAAACC'};font-size:3.81cqw;font-weight:600">${cleanModel()}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">QUANT</span><span style="color:${D.pale||'#AAAACC'};font-size:3.81cqw;font-weight:600">${mv('llama.quant')}</span></div>` +
-        `<div style="display:flex;justify-content:space-between"><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">CTX</span><span style="color:${D.pale||'#AAAACC'};font-size:3.81cqw;font-weight:600">${mv('llama.context')}</span></div></div>` +
-        `<div style="display:flex;justify-content:space-between"><div><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">T/S </span><span style="color:${D.cyan||'#66CCCC'};font-size:4.98cqw;font-weight:600">${tokSec.available?Math.round(tokSec.value):'--'}</span></div><div><span style="color:${D.steel||'#9EA5BA'};font-size:2.64cqw;font-weight:600">VRAM </span><span style="color:${D.cyan||'#66CCCC'};font-size:4.98cqw;font-weight:600">${vramStr}</span></div></div>` +
-      `</div>` +
     `</div>` +
   `</div></div>`;
 }
@@ -621,9 +447,13 @@ function panelTealScreen2(c) {
    VINTAGE / SCANLINES
    ═══════════════════════════════════════ */
 
-function scanGlow(color, spread) {
+function scanShadow(color, spread) {
   spread = spread || 4;
-  return 'color:' + color + ';text-shadow:0 0 ' + spread + 'px ' + color + ', 0 0 ' + (spread*2) + 'px ' + color + '66';
+  return 'text-shadow:0 0 ' + spread + 'px ' + color + ', 0 0 ' + (spread * 2) + 'px ' + color + '66';
+}
+
+function scanGlow(color, spread) {
+  return 'color:' + color + ';' + scanShadow(color, spread);
 }
 
 function scanSectionLabel(text, color, rightText, rightColor) {
@@ -653,7 +483,7 @@ function scanDonut(pct, label, color, size) {
         'stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="butt" ' +
         'transform="rotate(-90 ' + cx + ' ' + cy + ')" style="transition:stroke-dashoffset 0.8s ease;filter:drop-shadow(0 0 3px ' + color + ')"/>' +
       '<text x="' + cx + '" y="' + (cy+2) + '" text-anchor="middle" dominant-baseline="central" ' +
-        'fill="' + valColor + '" font-size="3.81cqw" font-family="' + F + '" style="filter:drop-shadow(0 0 4px ' + valColor + ')">' + Math.round(pct) + '%</text>' +
+        'fill="' + valColor + '" font-size="' + (size * 0.24) + '" font-family="' + F + '" style="filter:drop-shadow(0 0 ' + (size * 0.022).toFixed(1) + 'px ' + valColor + ')">' + Math.round(pct) + '%</text>' +
     '</svg></div>';
 }
 
@@ -675,105 +505,6 @@ function scanThermBar(label, temp) {
     '</div></div>';
 }
 
-function scanScreen1(c) {
-  const S = PANEL_SPEC.scanlines || {};
-  const F = "'Share Tech Mono', monospace";
-  const cyan = S.cyan || '#00FFCC';
-  const amber = S.amber || '#FFAA00';
-  const green = S.green || '#00FF88';
-  const blue = S.blue || '#4488FF';
-  const red = S.red || '#FF3344';
-  const cyanDim = S.cyanDim || '#009977';
-  const dim = S.dim || '#334455';
-  const bg = S.bg || '#060810';
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const thermalStatusColor = anyDanger ? red : anyOrange ? amber : green;
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-
-  return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;position:relative;padding:0.88cqw;display:flex;flex-direction:column;gap:0.59cqw">' +
-    /* Scanline overlay */
-    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px);z-index:10"></div>' +
-    /* Row 1: Headers */
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + scanSectionLabel('CORE SYSTEMS', cyan, hostStr) + '</div>' +
-      '<div style="flex:1">' + scanSectionLabel('THERMALS', amber, thermalStatus, thermalStatusColor) + '</div>' +
-    '</div>' +
-    /* Row 2: Donuts | Bars */
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;justify-content:space-around;align-items:center">' +
-        scanDonut(cpuUsage.available?cpuUsage.value:0, 'CPU', amber, 170) +
-        scanDonut(ramPct.available?ramPct.value:0, 'RAM', cyan, 170) +
-        scanDonut(diskRootPct.available?diskRootPct.value:0, 'SSD', green, 170) +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">' +
-        scanThermBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        scanThermBar('MB', mbTemp.available?mbTemp.value:20) +
-        scanThermBar('GPU', gpuTemp.available?gpuTemp.value:20) +
-        thermalScale(cyanDim, F) +
-      '</div>' +
-    '</div>' +
-    /* Row 3: Secondary | Fans */
-    '<div style="display:flex;gap:1.17cqw;align-items:center">' +
-      '<div style="flex:1">' +
-        (diskHome.available ?
-          '<div style="position:relative;height:2.64cqw;background:' + dim + ';border-radius:1px;overflow:hidden">' +
-            '<div style="position:absolute;top:0;left:0;height:100%;width:' + secPct + '%;background:' + green + ';border-radius:1px;transition:width 0.8s ease;box-shadow:0 0 3px ' + green + ',0 0 6px ' + green + '44"></div>' +
-            '<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.17cqw;font-family:' + F + ';font-size:1.46cqw;color:' + bg + '">' +
-              '<span>SECONDARY</span><span>' + fmtCapacity(diskHome) + ' / ' + fmtCapacityTotal(diskHome) + '</span></div>' +
-          '</div>' :
-          '<div style="height:2.64cqw;background:' + dim + ';border-radius:1px;display:flex;align-items:center;justify-content:center;font-family:' + F + ';font-size:1.46cqw;color:' + dim + '">SECONDARY \u2014 NONE</div>') +
-      '</div>' +
-      '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
-        fanStrip(cyan, F, '') +
-      '</div>' +
-    '</div>' +
-    /* Row 4: Headers */
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + scanSectionLabel('COMMS', blue, speedStr) + '</div>' +
-      '<div style="flex:1">' + scanSectionLabel('NPU', amber, backendTitle()) + '</div>' +
-    '</div>' +
-    /* Row 5+6: Data */
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">IP</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (ip.available?esc(String(ip.value)):'N/A') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">MAC</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (mac.available?esc(String(mac.value)):'N/A') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="' + scanGlow(green, 4) + ';font-size:1.76cqw;font-family:' + F + '">\u25B2</span><span style="' + scanGlow(green, 4) + ';font-size:4.98cqw;font-family:' + F + '">' + (ul.available?ul.value+' '+ul.unit:'0') + '</span></div>' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="' + scanGlow(blue, 4) + ';font-size:1.76cqw;font-family:' + F + '">\u25BC</span><span style="' + scanGlow(blue, 4) + ';font-size:4.98cqw;font-family:' + F + '">' + (dl.available?dl.value+' '+dl.unit:'0') + '</span></div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">MODEL</span><span style="' + scanGlow(amber, 4) + ';font-size:3.81cqw;font-family:' + F + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right">' + cleanModel() + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">QUANT</span><span style="' + scanGlow(amber, 4) + ';font-size:3.81cqw;font-family:' + F + '">' + mv('llama.quant') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">CTX</span><span style="' + scanGlow(amber, 4) + ';font-size:3.81cqw;font-family:' + F + '">' + mv('llama.context') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
-          '<div><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">T/S </span><span style="' + scanGlow(cyan, 5) + ';font-size:4.98cqw;font-family:' + F + '">' + (tokSec.available?Math.round(tokSec.value):'--') + '</span></div>' +
-          '<div><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">VRAM </span><span style="' + scanGlow(cyan, 5) + ';font-size:4.98cqw;font-family:' + F + '">' + vramStr + '</span></div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div></div>';
-}
-
 function scanScreen2(c) {
   const S = PANEL_SPEC.scanlines || {};
   const F = "'Share Tech Mono', monospace";
@@ -791,9 +522,11 @@ function scanScreen2(c) {
   const dayName = days[now.getDay()];
   const dateStr = months[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
 
-  return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:' + F + '">' +
-    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px);z-index:10"></div>' +
-    '<div style="' + scanGlow(cyanDim, 3) + ';font-size:1.76cqw;letter-spacing:8px;margin-bottom:1.76cqw">VACUUM FLUORESCENT CHRONOMETER</div>' +
+  bsSkin(BS_SKIN_SCAN);
+  return bsFrame(
+    '<div style="width:100%;height:100%;display:flex;flex-direction:column;' +
+      'align-items:center;justify-content:center;font-family:' + F + '">' +
+    '<div style="' + scanGlow(cyanDim, 3) + ';font-size:1.76cqw;letter-spacing:8px;margin-bottom:1.76cqw">CATHODE RAY CHRONOMETER</div>' +
     '<div style="display:flex;align-items:baseline">' +
       '<span style="' + scanGlow(cyan, 10) + ';font-size:21.48cqw;letter-spacing:6px">' + hh + '</span>' +
       '<span style="' + scanGlow(amber, 8) + ';font-size:14.65cqw;animation:blink 1s infinite;margin:0 0.29cqw">:</span>' +
@@ -809,14 +542,31 @@ function scanScreen2(c) {
       '<div style="width:0.88cqw;height:0.88cqw;border-radius:50%;background:' + cyan + ';box-shadow:0 0 4px ' + cyan + ',0 0 8px ' + cyan + '44"></div>' +
       '<div style="flex:1;height:1px;background:' + cyan + ';opacity:0.15;box-shadow:0 0 2px ' + cyan + '"></div>' +
     '</div>' +
-  '</div></div>';
+  '</div>');
 }
 
 /* ═══════════════════════════════════════
    VINTAGE / TUBES (Nixie + Magic Eye + IN-13 Bargraph + Dekatron)
    ═══════════════════════════════════════ */
 
-function nixieDigit(value, size, showTube) {
+/* A nixie is a stack of ten wire cathodes in a neon-filled envelope, with an
+ * anode mesh in front. Three things follow from that and none of them were
+ * here:
+ *
+ *   - the unlit cathodes do not go away. They sit behind the lit one as dark
+ *     wire ghosts, and they are the single most recognisable thing about the
+ *     tube. Without them a nixie is just a glowing numeral.
+ *   - neon glow discharge runs orange-red (585nm and 640nm dominate). A white
+ *     core reads as an LED; the brightest point on a real cathode is still
+ *     orange.
+ *   - the anode mesh crosses in front of everything, so the glow is seen
+ *     through a fine grid.
+ *
+ * opts: {ghosts, mesh, neon} -- each independently, so the difference is
+ * arguable rather than asserted.
+ */
+function nixieDigit(value, size, showTube, opts) {
+  opts = opts || {};
   const N = PANEL_SPEC.tubes || {};
   const NIXIE = "'Nixie One', cursive";
   const bright = N.bright || '#FF6E0B';
@@ -848,10 +598,35 @@ function nixieDigit(value, size, showTube) {
 
     /* Active digit with 5-layer glow */
     const digitPos = showTube ? 'position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);' : 'position:relative;';
-    const textGlow = '0 0 ' + Math.max(2,size*0.03) + 'px #FFFFFF, 0 0 ' + Math.max(8,size*0.1) + 'px #FFAA55, 0 0 ' + Math.max(16,size*0.22) + 'px #FF6600, 0 0 ' + Math.max(32,size*0.45) + 'px rgba(255,68,0,0.5), 0 0 ' + Math.max(60,size*0.8) + 'px rgba(255,0,0,0.2)';
+    const textGlow = opts.neon
+      ? '0 0 ' + Math.max(2,size*0.025) + 'px #FFD8A8, 0 0 ' + Math.max(6,size*0.075) + 'px #FF8A2B, 0 0 ' + Math.max(14,size*0.18) + 'px #FF5A0A, 0 0 ' + Math.max(28,size*0.40) + 'px rgba(255,58,0,0.62), 0 0 ' + Math.max(54,size*0.75) + 'px rgba(220,20,0,0.30)'
+      : '0 0 ' + Math.max(2,size*0.03) + 'px #FFFFFF, 0 0 ' + Math.max(8,size*0.1) + 'px #FFAA55, 0 0 ' + Math.max(16,size*0.22) + 'px #FF6600, 0 0 ' + Math.max(32,size*0.45) + 'px rgba(255,68,0,0.5), 0 0 ' + Math.max(60,size*0.8) + 'px rgba(255,0,0,0.2)';
+    const litColor = opts.neon ? '#FF8B33' : '#FFAA55';
     const flickerDur = (2.5 + Math.random() * 2).toFixed(1);
     const microDur = (0.8 + Math.random() * 0.5).toFixed(1);
-    html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:#FFAA55;text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
+    if (opts.ghosts && isDigit) {
+      const n = parseInt(ch, 10);
+      // Two cathodes in front of the lit one and one behind it: enough to read
+      // as a stack without turning the tube to soup.
+      const stack = [{d: (n + 1) % 10, o: 0.30, dx: -0.018, dy: 0.012},
+                     {d: (n + 3) % 10, o: 0.20, dx: 0.022, dy: -0.010},
+                     {d: (n + 7) % 10, o: 0.13, dx: -0.008, dy: -0.020}];
+      for (const g of stack) {
+        html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + NIXIE +
+          ';color:#6B5140;opacity:' + g.o + ';z-index:' + (10 + stack.indexOf(g)) +
+          ';margin-left:' + (size * g.dx).toFixed(2) + 'px;margin-top:' + (size * g.dy).toFixed(2) +
+          'px;text-shadow:none;pointer-events:none">' + g.d + '</span>';
+      }
+    }
+    html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:' + litColor + ';text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
+    if (opts.mesh) {
+      // An IN-14 anode carries something like 25 wires across the face; at
+      // size*0.075 the grid read as a screen door rather than as a mesh.
+      const pitch = Math.max(2, Math.round(size * 0.042));
+      html += '<div style="position:absolute;inset:0;z-index:14;pointer-events:none;opacity:0.30;' +
+        'background-image:repeating-linear-gradient(0deg,' + mesh + '00 0,' + mesh + '00 ' + (pitch-1) + 'px,' + mesh + 'cc ' + (pitch-1) + 'px,' + mesh + 'cc ' + pitch + 'px),' +
+        'repeating-linear-gradient(90deg,' + mesh + '00 0,' + mesh + '00 ' + (pitch-1) + 'px,' + mesh + 'aa ' + (pitch-1) + 'px,' + mesh + 'aa ' + pitch + 'px)"></div>';
+    }
 
     /* Glass reflections for showTube */
     if (showTube) {
@@ -863,22 +638,19 @@ function nixieDigit(value, size, showTube) {
   return html;
 }
 
-function bargraphBar(pct, label, color, flash) {
+/* A filament in its glass: a wide dim halo, a tighter warm one, then a
+   white-hot wire down the middle. Everything on this board that shows a
+   quantity burns -- nothing in the tube era emitted a flat block of colour. */
+function tubeFilament(pct, color, flash, id, height) {
   const N = PANEL_SPEC.tubes || {};
-  const MONO = "'IBM Plex Mono', monospace";
-  const barColor = color || N.barStd || '#FF6622';
   const interior = N.interior || '#0C0A06';
   const glass = N.glass || '#332818';
   const cathode = N.cathode || '#1A1410';
-  const svgW = 300;
-  const h = 30;
-  const barW = (Math.max(0, pct) / 100) * (svgW - 4);
-  const fid = 'glow-' + label;
-
-  const flashStyle = flash ? 'animation:blink 0.5s infinite;' : '';
-  return '<div style="display:flex;align-items:center;gap:0.88cqw;' + flashStyle + '">' +
-    '<span style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 2px ' + (N.label||'#AA8855') + '33;font-size:2.64cqw;font-family:' + MONO + ';width:4.10cqw;text-align:right;flex-shrink:0">' + label + '</span>' +
-    '<svg width="100%" height="' + h + '" viewBox="0 0 ' + svgW + ' ' + h + '" preserveAspectRatio="none" style="overflow:visible;flex:1">' +
+  const svgW = 300, h = height || 30;
+  const barW = (Math.max(0, Math.min(100, pct)) / 100) * (svgW - 4);
+  const fid = svgId('glow-', id);
+  return '<svg width="100%" height="' + h + '" viewBox="0 0 ' + svgW + ' ' + h + '" ' +
+    'preserveAspectRatio="none" style="overflow:visible;flex:1 1 0;min-width:0">' +
       '<defs>' +
         '<filter id="' + fid + '-w" x="-50%" y="-300%" width="200%" height="700%"><feGaussianBlur in="SourceGraphic" stdDeviation="8 4"/></filter>' +
         '<filter id="' + fid + '-m" x="-30%" y="-200%" width="160%" height="500%"><feGaussianBlur in="SourceGraphic" stdDeviation="4 3"/></filter>' +
@@ -886,17 +658,46 @@ function bargraphBar(pct, label, color, flash) {
       '</defs>' +
       '<rect x="0" y="0" width="' + svgW + '" height="' + h + '" rx="11" ry="11" fill="' + interior + '" stroke="' + glass + '44" stroke-width="1"/>' +
       '<line x1="4" y1="' + (h/2) + '" x2="' + (svgW-4) + '" y2="' + (h/2) + '" stroke="' + cathode + '" stroke-width="0.5" opacity="0.35"/>' +
-      '<rect x="2" y="' + (h/2-6) + '" width="' + Math.max(0,barW) + '" height="12" rx="6" ry="6" fill="' + barColor + '" opacity="0.5" filter="url(#' + fid + '-w)" style="transition:width 0.8s ease"/>' +
-      '<rect x="2" y="' + (h/2-4) + '" width="' + Math.max(0,barW) + '" height="8" rx="4" ry="4" fill="' + barColor + '" opacity="0.7" filter="url(#' + fid + '-m)" style="transition:width 0.8s ease"/>' +
+      '<rect x="2" y="' + (h/2-6) + '" width="' + Math.max(0,barW) + '" height="12" rx="6" ry="6" fill="' + color + '" opacity="0.5" filter="url(#' + fid + '-w)" style="transition:width 0.8s ease"/>' +
+      '<rect x="2" y="' + (h/2-4) + '" width="' + Math.max(0,barW) + '" height="8" rx="4" ry="4" fill="' + color + '" opacity="0.7" filter="url(#' + fid + '-m)" style="transition:width 0.8s ease"/>' +
       '<rect x="2" y="' + (h/2-2) + '" width="' + Math.max(0,barW) + '" height="4" rx="2" ry="2" fill="#FFCC88" opacity="0.85" filter="url(#' + fid + '-t)" style="transition:width 0.8s ease"/>' +
       '<rect x="2" y="' + (h/2-0.75) + '" width="' + Math.max(0,barW) + '" height="1.5" rx="0.75" ry="0.75" fill="#FFDDAA" style="transition:width 0.8s ease"/>' +
-    '</svg></div>';
+    '</svg>';
 }
 
-function magicEye(pct, label, size) {
+function bargraphBar(pct, label, color, flash) {
+  const N = PANEL_SPEC.tubes || {};
+  const MONO = "'IBM Plex Mono', monospace";
+  const barColor = color || N.barStd || '#FF6622';
+  const flashStyle = flash ? 'animation:blink 0.5s infinite;' : '';
+  return '<div style="display:flex;align-items:center;gap:0.88cqw;' + flashStyle + '">' +
+    '<span style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 2px ' + (N.label||'#AA8855') + '33;font-size:2.64cqw;font-family:' + MONO + ';width:4.10cqw;text-align:right;flex-shrink:0">' + label + '</span>' +
+    tubeFilament(pct, barColor, false, label) +
+  '</div>';
+}
+
+/* Phosphor. Zinc silicate is the green everyone pictures, but the envelope
+   does not care what is painted on the target -- the ramp below is the only
+   thing that makes one read as green and the other as cyan. */
+const EYE_PHOSPHOR = {
+  green: {rich: ['#e8ffd8','#b6ff8e','#74ff52','#32e033','#15a825','#065c14'],
+          plain: ['#baff9f','#7fff63','#46ef3f','#1fc62c','#0c7e1c'],
+          halo: '#31e13a', bloom: '50,255,90', text: '140,255,160', ink: '#eefdeb'},
+  cyan:  {rich: ['#dffaff','#8fe8ff','#52ccff','#2f9fe0','#1a6fa8','#063f5c'],
+          plain: ['#a9f0ff','#63dcff','#3fbcef','#2c8ac6','#0c4d7e'],
+          halo: '#31b0e1', bloom: '50,180,255', text: '150,225,255', ink: '#ebf8fd'},
+};
+
+function magicEye(pct, label, size, opts) {
+  opts = opts || {};
+  const P = EYE_PHOSPHOR[opts.phosphor] || EYE_PHOSPHOR.green;
+  const eid = svgId('', label);
   const cx = 210, cy = 210, rOuter = 146, rInner = 66;
   const minAngle = 4, maxAngle = 320;
-  const wedgeAngle = minAngle + (pct / 100) * (maxAngle - minAngle);
+  // A real EM34 closes its shadow as the signal rises -- a strong reading is
+  // a lit eye, not a dark one. Inverted, a pegged CPU reads as a dead tube.
+  const drive = opts.invert ? (100 - Math.max(0, Math.min(100, pct))) : pct;
+  const wedgeAngle = minAngle + (drive / 100) * (maxAngle - minAngle);
   const startDeg = -wedgeAngle / 2;
   const endDeg = wedgeAngle / 2;
   function polar(r, deg) {
@@ -918,27 +719,34 @@ function magicEye(pct, label, size) {
 
   return '<div style="text-align:center">' +
     '<div style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 3px ' + (N.label||'#AA8855') + '44;font-size:2.34cqw;font-family:' + MONO + ';letter-spacing:3px;margin-bottom:3px">' + label + '</div>' +
-    '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto;filter:drop-shadow(0 0 ' + (4*s) + 'px rgba(50,255,90,0.08)) drop-shadow(0 0 ' + (10*s) + 'px rgba(50,255,90,0.06))">' +
+    '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto;filter:drop-shadow(0 0 ' + (4*s) + 'px rgba(' + P.bloom + ',0.08)) drop-shadow(0 0 ' + (10*s) + 'px rgba(' + P.bloom + ',0.06))">' +
       '<svg viewBox="0 0 420 420" width="' + size + '" height="' + size + '" style="display:block">' +
         '<defs>' +
-          '<filter id="og-' + label + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
-          '<filter id="sb-' + label + '" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>' +
-          '<radialGradient id="ph-' + label + '" cx="50%" cy="47%" r="50%"><stop offset="0%" stop-color="#baff9f"/><stop offset="26%" stop-color="#7fff63" stop-opacity="0.98"/><stop offset="52%" stop-color="#46ef3f" stop-opacity="0.95"/><stop offset="78%" stop-color="#1fc62c" stop-opacity="0.92"/><stop offset="100%" stop-color="#0c7e1c" stop-opacity="0.90"/></radialGradient>' +
-          '<radialGradient id="rf-' + label + '" cx="50%" cy="50%" r="58%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.40)"/></radialGradient>' +
-          '<clipPath id="fc-' + label + '"><circle cx="210" cy="210" r="146"/></clipPath>' +
-          '<mask id="fm-' + label + '"><rect width="420" height="420" fill="black"/><circle cx="210" cy="210" r="146" fill="white"/><circle cx="210" cy="210" r="66" fill="black"/></mask>' +
+          '<filter id="og-' + eid + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
+          '<filter id="sb-' + eid + '" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>' +
+          (opts.rich
+          ? '<radialGradient id="ph-' + eid + '" cx="46%" cy="40%" r="58%"><stop offset="0%" stop-color="' + P.rich[0] + '"/><stop offset="14%" stop-color="' + P.rich[1] + '" stop-opacity="0.99"/><stop offset="34%" stop-color="' + P.rich[2] + '" stop-opacity="0.97"/><stop offset="58%" stop-color="' + P.rich[3] + '" stop-opacity="0.94"/><stop offset="80%" stop-color="' + P.rich[4] + '" stop-opacity="0.90"/><stop offset="100%" stop-color="' + P.rich[5] + '" stop-opacity="0.88"/></radialGradient>'
+          : '<radialGradient id="ph-' + eid + '" cx="50%" cy="47%" r="50%"><stop offset="0%" stop-color="' + P.plain[0] + '"/><stop offset="26%" stop-color="' + P.plain[1] + '" stop-opacity="0.98"/><stop offset="52%" stop-color="' + P.plain[2] + '" stop-opacity="0.95"/><stop offset="78%" stop-color="' + P.plain[3] + '" stop-opacity="0.92"/><stop offset="100%" stop-color="' + P.plain[4] + '" stop-opacity="0.90"/></radialGradient>') +
+          (opts.rich
+          ? '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="48%" stop-color="rgba(0,0,0,0)"/><stop offset="82%" stop-color="rgba(0,0,0,0.34)"/><stop offset="100%" stop-color="rgba(0,0,0,0.72)"/></radialGradient>'
+          : '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.40)"/></radialGradient>') +
+          '<clipPath id="fc-' + eid + '"><circle cx="210" cy="210" r="146"/></clipPath>' +
+          '<mask id="fm-' + eid + '"><rect width="420" height="420" fill="black"/><circle cx="210" cy="210" r="146" fill="white"/><circle cx="210" cy="210" r="66" fill="black"/></mask>' +
         '</defs>' +
-        '<circle cx="210" cy="210" r="132" fill="#31e13a" opacity="0.12" filter="url(#og-' + label + ')"/>' +
-        '<g mask="url(#fm-' + label + ')">' +
-          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + label + ')" filter="url(#og-' + label + ')" opacity="0.78"/>' +
-          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + label + ')" opacity="0.92"/>' +
-          '<path d="' + softPath + '" fill="rgba(0,0,0,0.34)" filter="url(#sb-' + label + ')" style="transition:d 0.5s ease"/>' +
+        '<circle cx="210" cy="210" r="132" fill="' + P.halo + '" opacity="0.12" filter="url(#og-' + eid + ')"/>' +
+        '<g mask="url(#fm-' + eid + ')">' +
+          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" filter="url(#og-' + eid + ')" opacity="0.78"/>' +
+          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" opacity="0.92"/>' +
+          '<path d="' + softPath + '" fill="rgba(0,0,0,0.34)" filter="url(#sb-' + eid + ')" style="transition:d 0.5s ease"/>' +
           '<path d="' + shadowPath + '" fill="rgba(0,0,0,0.96)" style="transition:d 0.5s ease"/>' +
-          '<circle cx="210" cy="210" r="146" fill="url(#rf-' + label + ')" opacity="0.95"/>' +
+          '<circle cx="210" cy="210" r="146" fill="url(#rf-' + eid + ')" opacity="0.95"/>' +
+          (opts.rich
+            ? '<ellipse cx="168" cy="122" rx="62" ry="34" fill="#ffffff" opacity="0.07" transform="rotate(-28 168 122)"/>'
+            : '') +
         '</g>' +
       '</svg>' +
       '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + holeSize + 'px;height:' + holeSize + 'px;border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + (5*s) + 'px ' + (10*s) + 'px rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:grid;place-items:center">' +
-        '<span style="color:#eefdeb;font-size:' + Math.max(11, holeSize*0.3) + 'px;font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(140,255,160,0.10),0 0 8px rgba(140,255,160,0.05)">' + Math.round(pct) + '%</span>' +
+        '<span style="color:' + P.ink + ';font-size:' + Math.max(11, holeSize*0.3) + 'px;font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
       '</div>' +
     '</div>' +
   '</div>';
@@ -979,114 +787,6 @@ function tubeSectionLabel(text, color, rightText, rightColor) {
   '</div>';
 }
 
-function tubeScreen1(c) {
-  const N = PANEL_SPEC.tubes || {};
-  const MONO = "'IBM Plex Mono', monospace";
-  const bg = N.bg || '#0A0806';
-  const core = N.core || '#FF8833';
-  const warm = N.warm || '#FF9944';
-  const eyeStd = N.eyeStd || '#22DD22';
-  const label = N.label || '#AA8855';
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const thermalStatusColor = anyDanger ? '#FF3322' : anyOrange ? core : eyeStd;
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-  function tempColor(t) { if (t >= 90) return '#FF3322'; if (t >= 70) return '#DDCC00'; if (t >= 50) return eyeStd; return '#4488DD'; }
-  function tempFlash(t) { return t >= 100 ? ';animation:blink 0.5s infinite' : ''; }
-  function tempPct(t) { return Math.max(0, Math.min(100, ((Math.max(20, Math.min(120, t)) - 20) / 100) * 100)); }
-  return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;padding:0.88cqw;display:flex;flex-direction:column;gap:0.59cqw">' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + tubeSectionLabel('CORE SYSTEMS', core, hostStr, warm) + '</div>' +
-      '<div style="flex:1">' + tubeSectionLabel('THERMALS', warm, thermalStatus, thermalStatusColor) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;justify-content:space-around;align-items:center">' +
-        magicEye(cpuUsage.available?cpuUsage.value:0, 'CPU', 180) +
-        magicEye(ramPct.available?ramPct.value:0, 'RAM', 180) +
-        magicEye(diskRootPct.available?diskRootPct.value:0, 'SSD', 180) +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">' +
-        bargraphBar(tempPct(cpuTemp.available?cpuTemp.value:20), 'CPU', tempColor(cpuTemp.available?cpuTemp.value:20), (cpuTemp.available?cpuTemp.value:0)>=100) +
-        bargraphBar(tempPct(mbTemp.available?mbTemp.value:20), 'MB', tempColor(mbTemp.available?mbTemp.value:20), (mbTemp.available?mbTemp.value:0)>=100) +
-        bargraphBar(tempPct(gpuTemp.available?gpuTemp.value:20), 'GPU', tempColor(gpuTemp.available?gpuTemp.value:20), (gpuTemp.available?gpuTemp.value:0)>=100) +
-        '<div style="margin-left:4.10cqw;position:relative;height:2.34cqw"><div style="position:absolute;top:0;left:0;right:0;height:1px;background:' + core + '33"></div>' +
-          [20,50,70,90,110,120].map(function(t) { return '<div style="position:absolute;left:' + (((t-20)/100)*100) + '%;top:0;transform:translateX(-50%)"><div style="width:1px;height:0.88cqw;background:' + core + '66"></div><div style="color:' + core + ';text-shadow:0 0 3px ' + core + '55;font-size:1.46cqw;font-family:' + MONO + ';text-align:center;margin-top:1px">' + t + '</div></div>'; }).join('') +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;align-items:center">' +
-      '<div style="flex:1">' +
-        (diskHome.available ?
-          '<div style="position:relative;height:2.93cqw;background:#0C0A06;border:1px solid #33281844;border-radius:10px;overflow:hidden">' +
-            '<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:' + MONO + ';font-size:1.46cqw;color:#CCDDFF;text-shadow:0 0 2px #4488DD88;z-index:2;pointer-events:none"><span>SECONDARY</span><span>' + fmtCapacity(diskHome) + ' / ' + fmtCapacityTotal(diskHome) + '</span></div>' +
-          '</div>' :
-          '<div style="height:2.93cqw;background:#0C0A06;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:' + MONO + ';font-size:1.46cqw;color:' + (N.barDim||'#CC4400') + '">SECONDARY \u2014 NONE</div>') +
-      '</div>' +
-      '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
-        (function() {
-          var cpuF = m('cpu.fans_cpu'), caseF = m('cpu.fans_case'), gpuFan = m('gpu.fan'), h = '';
-          var cpuList = asList(cpuF), caseList = asList(caseF);
-          if (cpuList.length) {
-            h += '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">CPU</span>';
-            for (var i = 0; i < cpuList.length; i++) h += dekatron(cpuList[i], 24);
-          }
-          if (caseList.length) {
-            h += '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">CASE</span>';
-            for (var i = 0; i < caseList.length; i++) h += dekatron(caseList[i], 24);
-          }
-          if (gpuFan.available) {
-            h += '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">GPU</span>';
-            h += dekatron(gpuFan.value * 10, 24);
-          }
-          if (!h) h = '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + ';opacity:0.4">NO FANS</span>';
-          return h;
-        })() +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + tubeSectionLabel('COMMS', '#4488DD', speedStr) + '</div>' +
-      '<div style="flex:1">' + tubeSectionLabel('NPU', warm, backendTitle()) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">IP</span>' + nixieDigit(ip.available?esc(String(ip.value)):'N/A', 32) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">MAC</span>' + nixieDigit(mac.available?esc(String(mac.value)):'N/A', 32) + '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:1.76cqw;align-items:center">' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + eyeStd + ';text-shadow:0 0 4px ' + eyeStd + '88;font-size:1.76cqw;font-family:' + MONO + '">\u25B2</span>' + nixieDigit((ul.available?ul.value:'0'), 32) + '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">' + (ul.available?ul.unit:'B/s') + '</span></div>' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:#4488DD;text-shadow:0 0 4px #4488DD88;font-size:1.76cqw;font-family:' + MONO + '">\u25BC</span>' + nixieDigit((dl.available?dl.value:'0'), 32) + '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">' + (dl.available?dl.unit:'B/s') + '</span></div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">MODEL</span>' + nixieDigit(cleanModel(), 26) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">QUANT</span>' + nixieDigit(mv('llama.quant'), 26) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">CTX</span>' + nixieDigit(mv('llama.context'), 26) + '</div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
-          '<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">T/S</span>' + nixieDigit(tokSec.available?Math.round(tokSec.value):'--', 38) + '</div>' +
-          '<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">VRAM</span>' + nixieDigit(vramStr, 38) + '</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div></div>';
-}
-
 function tubeScreen2(c) {
   const N = PANEL_SPEC.tubes || {};
   const NIXIE = "'Nixie One', cursive";
@@ -1109,17 +809,17 @@ function tubeScreen2(c) {
   return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:' + MONO + '">' +
     '<div style="color:' + barDim + ';text-shadow:0 0 3px ' + barDim + '44;font-size:1.76cqw;letter-spacing:8px;margin-bottom:2.05cqw">NIXIE TUBE CHRONOMETER</div>' +
     '<div style="display:flex;align-items:center;gap:5px">' +
-      nixieDigit(hh[0], 125, true) +
-      nixieDigit(hh[1], 125, true) +
-      '<span style="color:#FFAA55;font-size:11.72cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #fff,0 0 8px #FFAA55,0 0 16px #FF6600,0 0 32px #FF4400AA,0 0 50px #FF000044;animation:blink 1s infinite;margin:0 3px">:</span>' +
-      nixieDigit(mm[0], 125, true) +
-      nixieDigit(mm[1], 125, true) +
+      nixieDigit(hh[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(hh[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
+      '<span style="color:#FF8B33;font-size:11.72cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 16px #FF5A0A,0 0 32px #FF3A00AA,0 0 50px #DC140044;animation:blink 1s infinite;margin:0 3px">:</span>' +
+      nixieDigit(mm[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(mm[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
       '<div style="width:12px"></div>' +
-      nixieDigit(ss[0], 70, true) +
-      nixieDigit(ss[1], 70, true) +
+      nixieDigit(ss[0], 70, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(ss[1], 70, true, {neon: true, ghosts: true, mesh: true}) +
     '</div>' +
-    '<div style="color:#FFAA55;text-shadow:0 0 3px #fff,0 0 8px #FFAA55,0 0 18px #FF660066,0 0 35px #FF440033;font-size:4.69cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
-    '<div style="color:#FFAA55;text-shadow:0 0 3px #fff,0 0 8px #FFAA55,0 0 18px #FF660066,0 0 35px #FF440033;font-size:5.27cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:4.69cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:5.27cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
     '<div style="display:flex;align-items:center;gap:1.46cqw;margin-top:2.34cqw">' +
       [dekOrange, warm, eyeStd, '#8855DD', eyeStd, warm, dekOrange].map(function(c) { return '<div style="width:0.73cqw;height:0.73cqw;border-radius:50%;background:' + c + ';box-shadow:0 0 4px ' + c + ',0 0 8px ' + c + '66,0 0 14px ' + c + '22;opacity:0.7"></div>'; }).join('') +
     '</div>' +
@@ -1163,7 +863,7 @@ function vfdDonut(pct, label, color, size) {
   const isHigh = pct > 80;
   const ac = isHigh ? (V.red || '#FF4433') : p.main;
   const ab = isHigh ? (V.redBright || '#FF7766') : p.bright;
-  const fid = 'dn-' + label;
+  const fid = svgId('dn-', label);
 
   let ticks = '';
   for (let i = 0; i < 20; i++) {
@@ -1198,7 +898,7 @@ function vfdThermalBar(temp, label) {
   const p = vfdPal(color);
   const totalSegs = 16;
   const litSegs = Math.round((pct / 100) * totalSegs);
-  const fid = 'tb-' + label;
+  const fid = svgId('tb-', label);
   const ghost = V.ghost || '#0A1A15';
 
   let segs = '<defs><filter id="' + fid + '" x="-10%" y="-50%" width="120%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.2 0.8"/></filter></defs>';
@@ -1232,117 +932,6 @@ function vfdPanel(children) {
     '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:22;background:radial-gradient(ellipse at 50% 40%,transparent 50%,rgba(0,0,0,0.15) 100%)"></div>' +
     children +
   '</div>';
-}
-
-function vfdScreen1(c) {
-  const V = PANEL_SPEC.vfd || {};
-  const F = "'Share Tech Mono', monospace";
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyWarn = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyWarn ? 'WARNING' : 'NOMINAL';
-  const statusColor = anyDanger ? 'red' : anyWarn ? 'amber' : 'green';
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-  const green = V.green || '#00DDAA';
-  const greenDim = V.greenDim || '#008866';
-  const blue = V.blue || '#00D4CC';
-  const blueDim = V.blueDim || '#007A77';
-
-  const content = '<div style="width:100%;height:100%;padding:1.17cqw;display:flex;flex-direction:column;gap:0.59cqw;position:relative;z-index:10">' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + vfdSectionLabel('CORE SYSTEMS', 'green', hostStr, 'amber') + '</div>' +
-      '<div style="flex:1">' + vfdSectionLabel('THERMALS', 'amber', thermalStatus, statusColor) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.46cqw;flex:1">' +
-      '<div style="flex:1;display:flex;justify-content:space-around;align-items:center">' +
-        vfdDonut(cpuUsage.available?cpuUsage.value:0, 'CPU', 'green', 160) +
-        vfdDonut(ramPct.available?ramPct.value:0, 'RAM', 'blue', 160) +
-        vfdDonut(diskRootPct.available?diskRootPct.value:0, 'SSD', 'amber', 160) +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:1.17cqw">' +
-        vfdThermalBar(cpuTemp.available?cpuTemp.value:20, 'CPU') +
-        vfdThermalBar(mbTemp.available?mbTemp.value:20, 'MB') +
-        vfdThermalBar(gpuTemp.available?gpuTemp.value:20, 'GPU') +
-        '<div style="margin-left:4.69cqw;position:relative;height:2.93cqw"><div style="position:absolute;top:0;left:0;right:0;height:1px;background:' + green + '22"></div>' +
-          [20,50,70,90,110,120].map(function(t) { return '<div style="position:absolute;left:' + (((t-20)/100)*100) + '%;top:0;transform:translateX(-50%)"><div style="width:1px;height:0.73cqw;background:' + green + '44"></div><div style="color:' + green + ';text-shadow:0 0 2px ' + greenDim + ';font-size:1.95cqw;font-family:' + F + ';text-align:center;margin-top:1px">' + t + '</div></div>'; }).join('') +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;align-items:center">' +
-      '<div style="flex:1">' +
-        (diskHome.available ?
-          '<div style="display:flex;align-items:center;gap:0.59cqw">' +
-            '<span style="color:' + blue + ';text-shadow:0 0 3px ' + blueDim + ';font-size:1.46cqw;font-family:' + F + ';flex-shrink:0">SEC</span>' +
-            '<div style="flex:1;height:3.22cqw;background:' + (V.blueGhost||'#0A1018') + ';border-radius:1px;overflow:hidden;position:relative">' +
-              '<div style="position:absolute;top:0;left:0;height:100%;width:' + secPct + '%;background:' + blue + ';border-radius:1px;transition:width 0.8s ease;box-shadow:0 0 4px ' + blue + '66"></div>' +
-            '</div>' +
-            '<span style="color:' + blue + ';text-shadow:0 0 3px ' + blueDim + ';font-size:1.46cqw;font-family:' + F + ';flex-shrink:0">' + fmtCapacity(diskHome) + '/' + fmtCapacityTotal(diskHome) + '</span>' +
-          '</div>' :
-          '<span style="color:' + (V.ghost||'#0A1A15') + ';font-size:1.76cqw;font-family:' + F + '">SECONDARY \u2014 NONE</span>') +
-      '</div>' +
-      '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
-        (function() {
-          var cpuF = m('cpu.fans_cpu'), caseF = m('cpu.fans_case'), gpuFan = m('gpu.fan'), h = '';
-          var cpuList = asList(cpuF), caseList = asList(caseF);
-          if (cpuList.length) {
-            h += '<span style="color:' + greenDim + ';text-shadow:0 0 2px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + '">CPU</span>';
-            for (var i = 0; i < cpuList.length; i++) h += fanIcon(green, '2.93cqw', cpuList[i]);
-          }
-          if (caseList.length) {
-            h += '<span style="color:' + greenDim + ';text-shadow:0 0 2px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + '">CASE</span>';
-            for (var i = 0; i < caseList.length; i++) h += fanIcon(green, '2.93cqw', caseList[i]);
-          }
-          if (gpuFan.available) {
-            h += '<span style="color:' + greenDim + ';text-shadow:0 0 2px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + '">GPU</span>';
-            h += fanIcon(green, '2.93cqw', gpuFan.value * 10);
-          }
-          if (!h) h = '<span style="color:' + greenDim + ';font-size:1.76cqw;font-family:' + F + ';opacity:0.4">NO FANS</span>';
-          return h;
-        })() +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + vfdSectionLabel('COMMS', 'blue', speedStr) + '</div>' +
-      '<div style="flex:1">' + vfdSectionLabel('NPU', 'amber', backendTitle()) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.46cqw;flex:1">' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">IP</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (ip.available?esc(String(ip.value)):'N/A') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">MAC</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (mac.available?esc(String(mac.value)):'N/A') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;gap:1.76cqw;align-items:center">' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + green + ';text-shadow:0 0 4px ' + greenDim + ';font-size:1.76cqw;font-family:' + F + '">\u25B2</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:4.10cqw;font-family:' + F + '">' + (ul.available?ul.value:'0') + '</span><span style="color:' + greenDim + ';font-size:1.76cqw;font-family:' + F + '">' + (ul.available?ul.unit:'B/s') + '</span></div>' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + blue + ';text-shadow:0 0 4px ' + blueDim + ';font-size:1.76cqw;font-family:' + F + '">\u25BC</span><span style="color:' + blue + ';text-shadow:0 0 4px ' + blue + '66;font-size:4.10cqw;font-family:' + F + '">' + (dl.available?dl.value:'0') + '</span><span style="color:' + blueDim + ';font-size:1.76cqw;font-family:' + F + '">' + (dl.available?dl.unit:'B/s') + '</span></div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + (V.amberDim||'#886611') + ';font-size:2.05cqw;font-family:' + F + '">MODEL</span><span style="color:' + (V.amber||'#FFAA22') + ';text-shadow:0 0 4px ' + (V.amber||'#FFAA22') + '66;font-size:3.81cqw;font-family:' + F + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right">' + cleanModel() + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + (V.amberDim||'#886611') + ';font-size:2.05cqw;font-family:' + F + '">QUANT</span><span style="color:' + (V.amber||'#FFAA22') + ';text-shadow:0 0 4px ' + (V.amber||'#FFAA22') + '66;font-size:3.81cqw;font-family:' + F + '">' + mv('llama.quant') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + (V.amberDim||'#886611') + ';font-size:2.05cqw;font-family:' + F + '">CTX</span><span style="color:' + (V.amber||'#FFAA22') + ';text-shadow:0 0 4px ' + (V.amber||'#FFAA22') + '66;font-size:3.81cqw;font-family:' + F + '">' + mv('llama.context') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
-          '<div><span style="color:' + greenDim + ';font-size:1.95cqw;font-family:' + F + '">T/S</span> <span style="color:' + green + ';text-shadow:0 0 5px ' + green + '66;font-size:4.39cqw;font-family:' + F + '">' + (tokSec.available?Math.round(tokSec.value):'--') + '</span></div>' +
-          '<div><span style="color:' + blueDim + ';font-size:1.95cqw;font-family:' + F + '">VRAM</span> <span style="color:' + blue + ';text-shadow:0 0 5px ' + blue + '66;font-size:4.39cqw;font-family:' + F + '">' + vramStr + '</span></div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
-
-  return '<div class="screen-frame">' + vfdPanel(content) + '</div>';
 }
 
 function vfdScreen2(c) {
@@ -1580,16 +1169,531 @@ function claudeScreen3(c) {
 /* px -> cqw against the 1024px kiosk width. */
 function gq(px) { return (px / 1024 * 100).toFixed(3) + 'cqw'; }
 
-const BS_F = "'Chakra Petch', sans-serif";
-const BS_LABEL = '#d8d8d8';   /* mid-greys disappear on a cheap 7" panel */
-const BS_DIM = '#9a9a9a';
+/* Gold and Coral glow; Teal deliberately does not. A skin that says no gets
+   the declaration omitted rather than set to `none`, so there is nothing for
+   a later rule to have to override. */
+function bsGlow(px, color, alpha) {
+  const S = bsS();
+  if (S.glowFn) return S.glowFn(px, color, alpha);
+  return S.glow ? `text-shadow:0 0 ${gq(px)} ${color}${alpha || '99'}` : '';
+}
+
+/* ── Skins ───────────────────────────────────────────────────────────────
+ * The Bridge Station layout is one set of code; the chrome that frames it is
+ * per family. Gold draws a glowing spine down the left of every region, Teal
+ * an angular chevron tab across the top, Coral a rounded pill. Fonts, palette,
+ * bar geometry and thermal colours come out of the skin too, so the screens
+ * below never name a colour that belongs to one family only.
+ *
+ * Three copies of this layout would have drifted apart by the second edit.
+ */
+const _T = PANEL_SPEC.teal || {};
+const _C = PANEL_SPEC.coral || {};
+
+/* Gold: a hard-edged 12px spine, segmented bars, wide uppercase tracking. */
+const BS_SKIN_GOLD = {
+  key: 'gold', chrome: 'spine', font: "'Chakra Petch', sans-serif", fw: '700', bg: '#000',
+  label: '#d8d8d8',        /* mid-greys disappear on a cheap 7" panel */
+  dim: '#9a9a9a', bright: '#ffffff', text: '#e6e6e6', soft: '#dcdcdc',
+  track: '#161616', edge: '#202020', ring: '#141414',
+  r: 0, ls: '0.22em', seg: true, glow: true,
+  a1: GOLD, a2: TEAL, a3: AMBER, a4: GREEN,
+  dCpu: GOLD, dRam: PANEL_SPEC.colors.blue, dVram: GREEN,
+  cPrimary: GOLD, cSecondary: TEAL,
+  cLink: GREEN, cPing: AMBER, cRecv: PANEL_SPEC.colors.thermBlue || '#2288DD',
+  cSend: GREEN, cIp: '#efefef', cMac: '#cfcfcf',
+  kHour: GOLD, kSec: AMBER, kDay: GREEN, kDate: '#dcdcdc',
+  crit: PANEL_SPEC.colors.red, warn: PANEL_SPEC.colors.thermOrange || '#FF7700',
+  cPower: AMBER, tick: '#b4b4b4',
+  therm: _thermColor,
+  vNvidia: GREEN, vAmd: PANEL_SPEC.colors.red, vIntel: PANEL_SPEC.colors.blue,
+};
+
+/* Teal: chevron tabs, navy tracks, 2px corners, Rajdhani semibold, no glow. */
+const BS_SKIN_TEAL = {
+  key: 'teal', chrome: 'tab', font: "'Rajdhani', sans-serif", fw: '600', bg: _T.void || '#111419',
+  label: _T.steel || '#9EA5BA', dim: _T.slate || '#6D748C',
+  bright: _T.pale || '#AAAACC', text: _T.pale || '#AAAACC', soft: _T.steel || '#9EA5BA',
+  track: _T.navy || '#2F3749', edge: _T.navy || '#2F3749', ring: _T.navy || '#2F3749',
+  r: 2, ls: '0.15em', seg: false, glow: false,
+  a1: _T.teal || '#2A9D8F', a2: _T.lavender || '#8888BB',
+  a3: _T.burnt || '#E7442A', a4: _T.cyan || '#66CCCC',
+  dCpu: _T.burnt || '#E7442A', dRam: _T.teal || '#2A9D8F', dVram: _T.lavender || '#8888BB',
+  cPrimary: _T.teal || '#2A9D8F', cSecondary: _T.lavender || '#8888BB',
+  cLink: _T.teal || '#2A9D8F', cPing: _T.warm || '#CCAA77',
+  cRecv: _T.lavender || '#8888BB', cSend: _T.teal || '#2A9D8F',
+  cIp: _T.pale || '#AAAACC', cMac: _T.steel || '#9EA5BA',
+  kHour: _T.pale || '#AAAACC', kSec: _T.burnt || '#E7442A',
+  kDay: _T.teal || '#2A9D8F', kDate: _T.lavender || '#8888BB',
+  crit: _T.alert || '#FF4444', warn: _T.thermOrange || '#DD7733',
+  cPower: _T.warm || '#CCAA77', tick: _T.steel || '#9EA5BA',
+  therm: function (t) {
+    if (t >= 90) return _T.thermOrange || '#DD7733';
+    if (t >= 70) return _T.thermYellow || '#CCAA44';
+    if (t >= 50) return _T.thermGreen || '#55AA77';
+    return _T.thermBlue || '#4488AA';
+  },
+  vNvidia: _T.thermGreen || '#55AA77', vAmd: _T.thermOrange || '#DD7733',
+  vIntel: _T.thermBlue || '#4488AA',
+};
+
+/* Coral: rounded pills, fully rounded bars, Antonio at its regular weight. */
+const BS_SKIN_CORAL = {
+  key: 'coral', chrome: 'tab', font: "'Antonio', sans-serif", fw: '400', bg: '#000',
+  label: _C.tanoi || '#FFCC99', dim: '#A67FA6',
+  bright: _C.paleCanary || '#FFFF99', text: _C.paleCanary || '#FFFF99',
+  soft: _C.tanoi || '#FFCC99',
+  track: '#1a1a2a', edge: '#26263a', ring: '#1a1a2a',
+  r: 999, ls: '0.15em', seg: false, glow: true,
+  a1: _C.goldenTanoi || '#FFCC66', a2: _C.anakiwa || '#99CCFF',
+  a3: _C.neonCarrot || '#FF9933', a4: _C.lilac || '#CC99CC',
+  dCpu: _C.neonCarrot || '#FF9933', dRam: _C.anakiwa || '#99CCFF',
+  dVram: _C.lilac || '#CC99CC',
+  cPrimary: _C.goldenTanoi || '#FFCC66', cSecondary: _C.lilac || '#CC99CC',
+  cLink: _C.anakiwa || '#99CCFF', cPing: _C.neonCarrot || '#FF9933',
+  cRecv: _C.mariner || '#3366CC', cSend: _C.anakiwa || '#99CCFF',
+  cIp: _C.paleCanary || '#FFFF99', cMac: _C.tanoi || '#FFCC99',
+  kHour: _C.goldenTanoi || '#FFCC66', kSec: _C.tanoi || '#FFCC99',
+  kDay: _C.anakiwa || '#99CCFF', kDate: _C.lilac || '#CC99CC',
+  crit: _C.mars || '#FF2200', warn: _C.thermOrange || '#FF9933',
+  cPower: _C.neonCarrot || '#FF9933', tick: _C.tanoi || '#FFCC99',
+  therm: function (t) {
+    if (t >= 90) return _C.thermOrange || '#FF9933';
+    if (t >= 70) return _C.thermYellow || '#FFCC66';
+    if (t >= 50) return _C.thermGreen || '#99CC66';
+    return _C.thermBlue || '#99CCFF';
+  },
+  vNvidia: _C.thermGreen || '#99CC66', vAmd: _C.neonCarrot || '#FF9933',
+  vIntel: _C.anakiwa || '#99CCFF',
+};
+
+/* Vintage: a glowing label, a hairline rule running out of it, and the status
+   riding the far end -- the heading all three families already used. */
+function _bsChromeRule(title, color, right, rightColor) {
+  const S = bsS();
+  return `<div style="position:absolute;left:0;top:0;width:100%;height:${gq(24)};` +
+      `display:flex;align-items:center">` +
+    `<span style="color:${color};${bsGlow(12, color)};font-family:${S.font};` +
+      `font-size:${gq(19)};letter-spacing:${S.ls};white-space:nowrap">${title}</span>` +
+    `<div style="flex:1;height:1px;background:${color}33;margin:0 ${gq(12)}"></div>` +
+    (right ? `<span style="color:${rightColor || color};${bsGlow(9, rightColor || color)};` +
+      `font-family:${S.font};font-size:${gq(18)};letter-spacing:${S.ls};` +
+      `white-space:nowrap">${right}</span>` : '') + `</div>`;
+}
+
+/* ── Vintage skins ───────────────────────────────────────────────────────
+ * Every instrument below is the one the family already had: scanDonut,
+ * magicEye, vfdDonut, scanThermBar, bargraphBar, vfdThermalBar, dekatron,
+ * nixieDigit. The skin only says which to reach for. Nothing is redrawn.
+ */
+const _SC = PANEL_SPEC.scanlines || {};
+const _NX = PANEL_SPEC.tubes || {};
+const _VF = PANEL_SPEC.vfd || {};
+const STM = "'Share Tech Mono', monospace";
+const PLEX = "'IBM Plex Mono', monospace";
+
+/* An inline-labelled capacity bar, in whichever family's idiom. Both disks
+   read the same way: name on the left, used-of-total on the right. */
+function _capInline(label, cap, pct, color, track, textColor, font, h, radius, glowPx, edge) {
+  return `<div style="position:relative;height:${gq(h)};background:${track};` +
+      (edge ? `border:1px solid ${edge};` : '') +
+      `border-radius:${radius};overflow:hidden">` +
+    `<div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;background:${color};` +
+      `border-radius:${radius};transition:width 0.8s ease;` +
+      (glowPx ? `box-shadow:${glowPx * 1.6}px 0 ${glowPx * 3}px ${color}66,` +
+        `-${glowPx * 1.6}px 0 ${glowPx * 3}px ${color}66,0 0 ${glowPx}px ${color}` : '') + `"></div>` +
+    `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;` +
+      `justify-content:space-between;align-items:center;padding:0 ${gq(12)};font-family:${font};` +
+      `font-size:${gq(14)};color:${textColor};z-index:2;pointer-events:none">` +
+      `<span>${label}</span><span>${cap}</span></div></div>`;
+}
+
+function _capNone(label, color, font, h, track, radius) {
+  return `<div style="height:${gq(h)};background:${track};border-radius:${radius};display:flex;` +
+    `align-items:center;justify-content:center;font-family:${font};font-size:${gq(14)};` +
+    `color:${color}">${label} &mdash; NONE</div>`;
+}
+
+/* The clock, at quadrant scale rather than full-screen. Same typography and
+   the same colour roles each family's own chronometer screen uses. */
+function _glowClock(hh, mm, ss, day, date, c) {
+  const S = bsS();
+  return `<div style="display:flex;flex-direction:column;justify-content:center;` +
+      `align-items:center;height:100%;gap:${gq(4)}">` +
+    `<div style="display:flex;align-items:baseline">` +
+      `<span style="color:${c.h};${bsGlow(42, c.h)};font-size:${gq(102)};` +
+        `letter-spacing:${gq(3)};line-height:1">${hh}</span>` +
+      `<span style="color:${c.sep};${bsGlow(32, c.sep)};font-size:${gq(74)};` +
+        `animation:blink 1s infinite;margin:0 ${gq(4)}">:</span>` +
+      `<span style="color:${c.h};${bsGlow(42, c.h)};font-size:${gq(102)};` +
+        `letter-spacing:${gq(3)};line-height:1">${mm}</span>` +
+      `<span style="color:${c.s};${bsGlow(22, c.s)};font-size:${gq(46)};` +
+        `margin-left:${gq(12)}">${ss}</span></div>` +
+    `<div style="color:${c.d};${bsGlow(16, c.d)};font-size:${gq(26)};` +
+      `letter-spacing:${gq(9)};margin-top:${gq(16)}">${day}</div>` +
+    `<div style="color:${c.dt};${bsGlow(13, c.dt)};font-size:${gq(22)};` +
+      `letter-spacing:${gq(4)};margin-top:${gq(4)}">${date}</div></div>`;
+}
+
+/* ── The tube ────────────────────────────────────────────────────────────
+ * Scanlines is a CRT, and a CRT is a beam, not a lamp. Everything below
+ * follows from that one fact, and the numbers come from the shaders rather
+ * than from taste:
+ *
+ *   crt-lottes    hardScan -8      the line weighting is a gaussian across
+ *                                  the pitch, not an on/off step
+ *                 maskDark 0.5     the mask DARKENS some subpixels and
+ *                 maskLight 1.5    BRIGHTENS others, so the triad structure
+ *                                  appears without the panel just dimming
+ *                 bloomAmount .15  bloom is subtle
+ *   crt-royale    beam_min_sigma   .02 -> .3, a 15x range driven by pixel
+ *                 beam_max_sigma   brightness and curved by
+ *                 beam_spot_power  .33 -- a bright run of phosphor blooms,
+ *                                  a dim label stays tight
+ *                 beam_horiz_sigma .35 against that vertical range: the
+ *                                  smear is wider along the scan direction,
+ *                                  which is the single biggest tell
+ *                 halation 0.0     OFF by default; only diffusion .075
+ *                 border_size .015 at border_darkness 2.0
+ *   cool-retro-term  ambientLight .2, glowingLine .2, staticNoise .12
+ *
+ * Geometry is deliberately absent. Both references warp the picture itself
+ * (lottes warpX .031 / warpY .041, royale geom_radius 2.0); CSS cannot, so
+ * curvature is only SIGNALLED here by the corner radius and the border
+ * falloff. Real warp needs an feDisplacementMap or WebGL pass and is its own
+ * piece of work.
+ */
+const CRT_DEFS =
+  '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>' +
+    '<filter id="crtNoise" x="0" y="0" width="100%" height="100%">' +
+      '<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>' +
+      '<feColorMatrix in="n" type="saturate" values="0" result="ng"/>' +
+      '<feComponentTransfer in="ng"><feFuncA type="linear" slope="0.07"/></feComponentTransfer>' +
+    '</filter>' +
+  '</defs></svg>';
+
+function _crtLayer(z, css) {
+  return '<div style="position:absolute;inset:0;pointer-events:none;z-index:' + z + ';' +
+    css + '"></div>';
+}
+
+/* hardScan -8: a ramp across the pitch, not a step. A step reads as a
+   venetian blind laid over the picture. */
+function _crtScanlines(pitch, peak) {
+  const at = (f) => (pitch * f).toFixed(2) + 'px';
+  const a = (f) => 'rgba(0,0,0,' + (peak * f).toFixed(3) + ')';
+  return 'background:repeating-linear-gradient(0deg,' + a(1) + ' 0px,' +
+    a(0.45) + ' ' + at(0.28) + ',' + a(0.06) + ' ' + at(0.5) + ',' +
+    a(0.45) + ' ' + at(0.72) + ',' + a(1) + ' ' + at(1) + ')';
+}
+
+const CRT_OVERLAY =
+  _crtLayer(20, _crtScanlines(4, 0.30)) +
+  /* maskDark/maskLight: overlay blending darkens below mid-grey and lifts
+     above it, so the triads show without costing overall brightness. */
+  _crtLayer(21, 'mix-blend-mode:overlay;background:repeating-linear-gradient(90deg,' +
+    'rgba(255,90,90,0.13) 0px,rgba(255,90,90,0.13) 1px,' +
+    'rgba(90,255,90,0.13) 1px,rgba(90,255,90,0.13) 2px,' +
+    'rgba(90,90,255,0.13) 2px,rgba(90,90,255,0.13) 3px)') +
+  _crtLayer(22, 'background:radial-gradient(ellipse 76% 80% at 50% 47%,transparent 40%,' +
+    'rgba(0,0,0,0.30) 76%,rgba(0,0,0,0.66) 100%)') +
+  _crtLayer(23, 'background:radial-gradient(ellipse at 50% 44%,rgba(0,255,190,0.075),' +
+    'transparent 72%)') +
+  /* glowingLine: the refresh haze sitting on the tube. The stops have to stay
+     far apart -- clustered at 45/50/55% they put a hard peak across the middle
+     of the screen, which reads as a line rather than as a band of light. */
+  '<div style="position:absolute;left:0;right:0;top:32%;height:300px;pointer-events:none;' +
+    'z-index:24;background:linear-gradient(0deg,transparent 0%,rgba(180,255,240,0.018) 28%,' +
+    'rgba(196,255,246,0.038) 50%,rgba(180,255,240,0.018) 72%,transparent 100%)"></div>' +
+  '<div style="position:absolute;inset:0;pointer-events:none;z-index:25;opacity:0.5">' +
+    '<svg width="100%" height="100%" aria-hidden="true">' +
+    '<rect width="100%" height="100%" filter="url(#crtNoise)"/></svg></div>';
+
+/* SCANLINES: phosphor CRT. Two-stage halo on everything, scanline overlay. */
+const BS_SKIN_SCAN = {
+  key: 'scan', chrome: 'rule', font: STM, fw: '400', bg: _SC.bg || '#060810',
+  label: _SC.cyanDim || '#009977', dim: '#6E8899',
+  bright: _SC.cyan || '#00FFCC', text: _SC.cyan || '#00FFCC',
+  soft: _SC.cyanDim || '#009977',
+  track: _SC.dim || '#334455', edge: _SC.dim || '#334455', ring: _SC.dim || '#334455',
+  r: 1, ls: '3px', seg: false, glow: true,
+  a1: _SC.cyan || '#00FFCC', a2: _SC.blue || '#4488FF',
+  a3: _SC.amber || '#FFAA00', a4: _SC.green || '#00FF88',
+  cPrimary: _SC.cyan || '#00FFCC', cSecondary: _SC.green || '#00FF88',
+  cLink: _SC.green || '#00FF88', cPing: _SC.amber || '#FFAA00',
+  cRecv: _SC.blue || '#4488FF', cSend: _SC.green || '#00FF88',
+  cIp: _SC.cyan || '#00FFCC', cMac: _SC.cyanDim || '#009977',
+  cPower: _SC.amber || '#FFAA00',
+  crit: _SC.red || '#FF3344', warn: _SC.amber || '#FFAA00',
+  tick: _SC.cyanDim || '#009977',
+  therm: function (t) {
+    if (t >= 90) return _SC.red || '#FF3344';
+    if (t >= 70) return _SC.amber || '#FFAA00';
+    if (t >= 50) return _SC.green || '#00FF88';
+    return _SC.blue || '#4488FF';
+  },
+  vNvidia: _SC.green || '#00FF88', vAmd: _SC.red || '#FF3344', vIntel: _SC.blue || '#4488FF',
+  /* The beam smears along the scan direction, so the halo is wider across
+     the line than along it -- crt-royale runs beam_horiz_sigma .35 against a
+     vertical range of .02-.3. Emulated with offset taps rather than an SVG
+     filter, which measured at a ~67ms hitch on every re-render.
+
+     Each tap's offset stays well inside its own blur radius. Spaced wider
+     than that, the copies stop overlapping and read as ghosting either side
+     of the glyph instead of as one continuous spread. */
+  glowFn: function (px, color) {
+    const n = Math.max(2, Math.min(12, Math.round(1.27 * Math.sqrt(px))));
+    const near = (n * 0.55).toFixed(1), nearBlur = (n * 1.8).toFixed(1);
+    const far = (n * 1.15).toFixed(1), farBlur = (n * 3.0).toFixed(1);
+    return `text-shadow:0 0 ${(n * 0.55).toFixed(1)}px ${color},` +
+      `${near}px 0 ${nearBlur}px ${color}66,-${near}px 0 ${nearBlur}px ${color}66,` +
+      `${far}px 0 ${farBlur}px ${color}2b,-${far}px 0 ${farBlur}px ${color}2b`;
+  },
+  unitLit: true,
+  defs: CRT_DEFS,
+  overlay: CRT_OVERLAY,
+  contentTransform: 'scale(1.008)',
+  frameCss: 'border-radius:22px;box-shadow:inset 0 0 110px 66px rgba(0,0,0,0.72)',
+  barFn: function (pct, color, w, h) {
+    return `<div style="width:${gq(w)};height:${gq(h)};background:${_SC.dim || '#334455'};` +
+      `border-radius:1px;overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;` +
+      `background:${color};border-radius:1px;transition:width 0.8s ease;` +
+      `box-shadow:5px 0 9px ${color}66,-5px 0 9px ${color}66,0 0 3px ${color}"></div></div>`;
+  },
+  dCpu: _SC.amber || '#FFAA00', dRam: _SC.cyan || '#00FFCC', dVram: _SC.green || '#00FF88',
+  gaugeSize: 124, gaugeSw: 10,
+  thermRowFn: function (label, temp) { return scanThermBar(label, temp); },
+  scaleFn: function () { return thermalScale(_SC.cyanDim || '#009977', STM); },
+  fanRowFn: function () {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(_SC.cyan || '#00FFCC', STM, '') + `</div>`;
+  },
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_SC.cyan || '#00FFCC') : (_SC.green || '#00FF88');
+    return _capInline(label, cap, pct, col, _SC.dim || '#334455', _SC.bg || '#060810',
+                      STM, 24, '1px', 3);
+  },
+  capNone: function (label) {
+    return _capNone(label, _SC.cyanDim || '#009977', STM, 24, _SC.dim || '#334455', '1px');
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    return _glowClock(hh, mm, ss, day, date, {h: _SC.cyan || '#00FFCC', sep: _SC.amber || '#FFAA00',
+      s: _SC.green || '#00FF88', d: _SC.amber || '#FFAA00', dt: _SC.cyan || '#00FFCC'});
+  },
+};
+
+/* TUBES: magic eyes, bargraph filaments, dekatrons, nixie digits. */
+const BS_SKIN_TUBE = {
+  key: 'tube', chrome: 'rule', font: PLEX, fw: '400', bg: _NX.bg || '#0A0806',
+  label: _NX.label || '#AA8855', dim: _NX.barDim || '#CC4400',
+  bright: '#FFDDAA', text: _NX.warm || '#FF9944', soft: _NX.label || '#AA8855',
+  track: _NX.interior || '#0C0A06', edge: _NX.glass || '#332818',
+  ring: _NX.cathode || '#1A1410',
+  r: 999, ls: '2px', seg: false, glow: true,
+  a1: _NX.core || '#FF8833', a2: '#4488DD', a3: _NX.bright || '#FF6E0B',
+  a4: _NX.eyeStd || '#22DD22',
+  cPrimary: _NX.barStd || '#FF6622', cSecondary: '#4488DD',
+  cLink: _NX.eyeStd || '#22DD22', cPing: _NX.core || '#FF8833',
+  cRecv: '#4488DD', cSend: _NX.eyeStd || '#22DD22',
+  cIp: _NX.warm || '#FF9944', cMac: _NX.label || '#AA8855',
+  cPower: _NX.core || '#FF8833',
+  crit: '#FF3322', warn: _NX.bright || '#FF6E0B', tick: _NX.dimEdge || '#CC5500',
+  therm: function (t) {
+    if (t >= 90) return '#FF3322';
+    if (t >= 70) return '#DDCC00';
+    if (t >= 50) return _NX.eyeStd || '#22DD22';
+    return '#4488DD';
+  },
+  vNvidia: _NX.eyeStd || '#22DD22', vAmd: _NX.core || '#FF8833', vIntel: '#4488DD',
+  glowFn: function (px, color) {
+    const r = Math.max(2, Math.round(px / 3));
+    return `text-shadow:0 0 ${r}px ${color},0 0 ${r * 3}px ${color}55`;
+  },
+  overlay: '',
+  /* The GPU screen's meters are bars like any other, so they burn like any
+     other. This is the one place the family had two vocabularies. */
+  barFn: function (pct, color, w, h) {
+    return `<div style="width:${gq(w)};flex-shrink:0;display:flex;align-items:center">` +
+      tubeFilament(pct, color, false, 'bar' + Math.round(w) + 'x' + Math.round(h),
+                   Math.max(16, Math.round(h) + 6)) + `</div>`;
+  },
+  gauge: function (pct, cap, which) {
+    return magicEye(pct, cap, 110, {rich: true, invert: true});
+  },
+  capGap: gq(6), capTop: gq(4),
+  gpuGauge: function (pct, cap, color, size, kind) {
+    return magicEye(pct, cap, size, {rich: true, invert: true,
+                                     phosphor: kind === 'vram' ? 'cyan' : 'green'});
+  },
+  thermRowFn: function (label, temp) {
+    const t = (temp === null || temp === undefined) ? 20 : temp;
+    const pct = Math.max(0, Math.min(100, ((Math.max(20, Math.min(120, t)) - 20) / 100) * 100));
+    return bargraphBar(pct, label, BS_SKIN_TUBE.therm(t), t >= 100);
+  },
+  scaleFn: function () { return thermalScale(_NX.dimEdge || '#CC5500', PLEX, '5.00cqw'); },
+  fanRowFn: function () {
+    const cpuList = asList(m('cpu.fans_cpu')), caseList = asList(m('cpu.fans_case'));
+    const gpuFan = m('gpu.fan');
+    const lab = _NX.label || '#AA8855';
+    const tag = (t) => `<span style="color:${lab};font-size:${gq(17)};font-family:${PLEX}">${t}</span>`;
+    let h = `<div style="display:flex;justify-content:center;align-items:center;gap:${gq(9)}">`;
+    let shown = 0;
+    if (cpuList.length) { h += tag('CPU'); for (const r of cpuList) { h += dekatron(r, 26); shown++; } }
+    if (caseList.length) { h += tag('CASE'); for (const r of caseList) { h += dekatron(r, 26); shown++; } }
+    if (gpuFan.available && gpuFan.value !== null) { h += tag('GPU'); h += dekatron(bsNum(gpuFan.value) * 10, 26); shown++; }
+    if (!shown) h += `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(15)};` +
+      `font-family:${PLEX}">NO FANS DETECTED</span>`;
+    return h + `</div>`;
+  },
+  /* The storage rows burn like the thermal rows: nothing here is a flat pill.
+     Primary takes the standard filament, secondary a cooler-running one, the
+     way a lower-current wire sits further down the colour temperature. */
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_NX.barStd || '#FF6622') : '#6699DD';
+    return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
+      `<span style="color:${_NX.label || '#AA8855'};text-shadow:0 0 2px ${_NX.label || '#AA8855'}33;` +
+        `font-size:${gq(17)};font-family:${PLEX};width:${gq(98)};flex-shrink:0;` +
+        `white-space:nowrap">${label}</span>` +
+      tubeFilament(pct, col, false, 'cap' + label, 21) +
+      `<span style="color:#FFDDBB;text-shadow:0 0 3px ${col}88;font-size:${gq(16)};` +
+        `font-family:${PLEX};width:${gq(116)};text-align:right;flex-shrink:0;` +
+        `white-space:nowrap">${cap}</span></div>`;
+  },
+  capNone: function (label) {
+    return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
+      `<span style="color:${_NX.label || '#AA8855'};font-size:${gq(17)};font-family:${PLEX};` +
+        `width:${gq(98)};flex-shrink:0;white-space:nowrap">${label}</span>` +
+      tubeFilament(0, _NX.barDim || '#CC4400', false, 'capNone' + label, 21) +
+      `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(16)};font-family:${PLEX};` +
+        `width:${gq(116)};text-align:right;flex-shrink:0;white-space:nowrap">NONE</span></div>`;
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    const lab = _NX.label || '#AA8855';
+    const dot = `<div style="width:${gq(5)};height:${gq(5)};border-radius:50%;` +
+      `background:${_NX.core || '#FF8833'};box-shadow:0 0 ${gq(6)} ${_NX.core || '#FF8833'};` +
+      `animation:blink 1s infinite"></div>`;
+    return `<div style="display:flex;flex-direction:column;justify-content:center;` +
+        `align-items:center;height:100%;gap:${gq(6)}">` +
+      `<div style="display:flex;align-items:center;gap:${gq(2)}">` +
+        nixieDigit(hh[0], 52, true) + nixieDigit(hh[1], 52, true) +
+        `<div style="display:flex;flex-direction:column;gap:${gq(8)};margin:0 ${gq(5)}">${dot}${dot}</div>` +
+        nixieDigit(mm[0], 52, true) + nixieDigit(mm[1], 52, true) +
+        `<div style="margin-left:${gq(6)};display:flex;gap:${gq(2)}">` +
+          nixieDigit(ss[0], 30, true) + nixieDigit(ss[1], 30, true) + `</div></div>` +
+      `<div style="color:${_NX.warm || '#FF9944'};${bsGlow(18, _NX.warm || '#FF9944')};` +
+        `font-family:${PLEX};font-size:${gq(19)};letter-spacing:${gq(5)}">${day}</div>` +
+      `<div style="color:${lab};${bsGlow(12, lab)};font-family:${PLEX};font-size:${gq(16)};` +
+        `letter-spacing:${gq(2)}">${date}</div></div>`;
+  },
+};
+
+/* VFD: segmented bars over a ghost track, filament lines across the glass. */
+const BS_SKIN_VFD = {
+  key: 'vfd', chrome: 'rule', font: STM, fw: '400', bg: _VF.substrate || '#0A0A08',
+  label: _VF.label || '#556655', dim: _VF.greenDim || '#008866',
+  bright: _VF.greenBright || '#44FFCC', text: _VF.green || '#00DDAA',
+  soft: _VF.greenDim || '#008866',
+  track: _VF.greenGhost || '#0A1A15', edge: _VF.grid || '#1A1A18',
+  ring: _VF.greenGhost || '#0A1A15',
+  r: 1, ls: '3px', seg: false, glow: true,
+  a1: _VF.green || '#00DDAA', a2: _VF.blue || '#00D4CC',
+  a3: _VF.amber || '#FFAA22', a4: _VF.yellow || '#DDCC00',
+  cPrimary: _VF.green || '#00DDAA', cSecondary: _VF.blue || '#00D4CC',
+  cLink: _VF.green || '#00DDAA', cPing: _VF.amber || '#FFAA22',
+  cRecv: _VF.blue || '#00D4CC', cSend: _VF.green || '#00DDAA',
+  cIp: _VF.greenBright || '#44FFCC', cMac: _VF.greenDim || '#008866',
+  cPower: _VF.amber || '#FFAA22',
+  crit: _VF.red || '#FF4433', warn: _VF.amber || '#FFAA22',
+  tick: _VF.greenDim || '#008866',
+  therm: function (t) {
+    if (t >= 90) return _VF.red || '#FF4433';
+    if (t >= 70) return _VF.yellow || '#DDCC00';
+    if (t >= 50) return _VF.green || '#00DDAA';
+    return _VF.blue || '#00D4CC';
+  },
+  vNvidia: _VF.green || '#00DDAA', vAmd: _VF.amber || '#FFAA22', vIntel: _VF.blue || '#00D4CC',
+  glowFn: function (px, color) {
+    const r = Math.max(2, Math.round(px / 3));
+    return `text-shadow:0 0 ${r}px ${color},0 0 ${r * 2.5}px ${color}44`;
+  },
+  frameCss: 'border:1px solid #1a1a16;border-radius:3px;box-shadow:inset 0 0 20px rgba(0,0,0,0.5),' +
+    'inset 0 1px 0 rgba(255,255,255,0.02),0 2px 8px rgba(0,0,0,0.6)',
+  overlay:
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:20;' +
+      'background-image:linear-gradient(0deg,transparent 0px,transparent 11px,' +
+      (_VF.filamentWarm || '#443322') + '18 11px,' + (_VF.filamentWarm || '#443322') + '18 12px,' +
+      'transparent 12px,transparent 23px,' + (_VF.filament || '#332211') + '12 23px,' +
+      (_VF.filament || '#332211') + '12 24px,transparent 24px);background-size:100% 24px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:21;' +
+      'opacity:0.06;background-image:linear-gradient(0deg,' + (_VF.grid || '#1A1A18') + ' 1px,transparent 1px),' +
+      'linear-gradient(90deg,' + (_VF.grid || '#1A1A18') + ' 1px,transparent 1px);background-size:4px 4px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:22;' +
+      'background:radial-gradient(ellipse at 50% 40%,transparent 50%,rgba(0,0,0,0.15) 100%)"></div>',
+  barFn: function (pct, color, w, h) {
+    const cells = Math.max(8, Math.round(w / 14));
+    const gap = 2;
+    const cw = (w - gap * (cells - 1)) / cells;
+    let n = Math.round(cells * pct / 100);
+    if (n === 0 && pct > 0) n = 1;
+    let html = `<div style="display:flex;gap:${gq(gap)};align-items:center;flex-shrink:0">`;
+    for (let i = 0; i < cells; i++) {
+      html += `<div style="width:${gq(cw)};height:${gq(h)};flex-shrink:0;border-radius:1px;` +
+        (i < n ? `background:${color};box-shadow:0 0 4px ${color}88`
+               : `background:${_VF.greenGhost || '#0A1A15'}`) + `"></div>`;
+    }
+    return html + `</div>`;
+  },
+  gauge: function (pct, cap, which) {
+    const name = which === 'cpu' ? 'green' : which === 'ram' ? 'blue' : 'amber';
+    return vfdDonut(pct, cap, name, 116);
+  },
+  thermRowFn: function (label, temp) {
+    return vfdThermalBar((temp === null || temp === undefined) ? 20 : temp, label);
+  },
+  scaleFn: function () { return thermalScale(_VF.greenDim || '#008866', STM); },
+  fanRowFn: function () {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(_VF.green || '#00DDAA', STM, '') + `</div>`;
+  },
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_VF.green || '#00DDAA') : (_VF.blue || '#00D4CC');
+    const dim = which === 'primary' ? (_VF.greenDim || '#008866') : (_VF.blueDim || '#007A77');
+    const ghost = which === 'primary' ? (_VF.greenGhost || '#0A1A15') : (_VF.blueGhost || '#001A1A');
+    return `<div style="display:flex;align-items:center;gap:${gq(9)}">` +
+      `<span style="color:${col};text-shadow:0 0 3px ${dim};font-size:${gq(14)};` +
+        `font-family:${STM};width:${gq(74)};flex-shrink:0">${label}</span>` +
+      `<div style="flex:1;height:${gq(28)};background:${ghost};border-radius:1px;overflow:hidden;` +
+        `position:relative"><div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;` +
+        `background:${col};border-radius:1px;transition:width 0.8s ease;` +
+        `box-shadow:0 0 4px ${col}66"></div></div>` +
+      `<span style="color:${col};text-shadow:0 0 3px ${dim};font-size:${gq(14)};` +
+        `font-family:${STM};flex-shrink:0">${cap}</span></div>`;
+  },
+  capNone: function (label) {
+    return `<span style="color:${_VF.greenDim || '#008866'};font-size:${gq(17)};` +
+      `font-family:${STM}">${label} &mdash; NONE</span>`;
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    return _glowClock(hh, mm, ss, day, date, {h: _VF.green || '#00DDAA', sep: _VF.green || '#00DDAA',
+      s: _VF.amber || '#FFAA22', d: _VF.amber || '#FFAA22', dt: _VF.blue || '#00D4CC'});
+  },
+};
+
+/* cqw back to px, for the one place a nested height needs real pixels. */
+function gqPx(px) { return px; }
+
+/* The active skin. Every screen entry point sets it before rendering; the
+   fallback keeps a stray call from rendering nothing rather than throwing. */
+let _bsSkin = BS_SKIN_GOLD;
+function bsSkin(s) { _bsSkin = s || BS_SKIN_GOLD; }
+function bsS() { return _bsSkin; }
 
 function gpuVendorColor(vendor) {
-  const C = PANEL_SPEC.colors;
-  if (vendor === 'NVIDIA') return C.green || '#B9C92F';
-  if (vendor === 'AMD') return C.red || '#BF0F0F';
-  if (vendor === 'Intel') return C.blue || '#165FC5';
-  return GOLD;
+  const S = bsS();
+  if (vendor === 'NVIDIA') return S.vNvidia;
+  if (vendor === 'AMD') return S.vAmd;
+  if (vendor === 'Intel') return S.vIntel;
+  return S.a1;
 }
 
 /* A value the driver never reported is shown as absent. Printing 0 where the
@@ -1603,27 +1707,70 @@ function bsNum(v) {
   return (typeof v === 'number' && isFinite(v)) ? v : 0;
 }
 
-/* Spine-and-title region: the Bridge Station vocabulary, one per section. */
-function bsRegion(x, y, w, h, title, color, right, body, justify) {
-  const SW = 12;
+/* One section of the board. The rectangle and the body layout are shared;
+   only the chrome that frames them changes between families. */
+function bsRegion(x, y, w, h, title, color, right, body, justify, rightColor) {
+  const S = bsS();
+  const inset = S.chrome === 'spine' ? 28 : 0;   /* clear of the spine */
+  const top = S.chrome === 'spine' ? 32 : 36;    /* clear of the tab or rule */
   return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
-    `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
-      `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
-    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${BS_F};` +
-      `font-size:${gq(16)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
-      `text-shadow:0 0 ${gq(10)} ${color}99;white-space:nowrap">${title}</div>` +
-    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${color};font-family:${BS_F};` +
-      `font-size:${gq(13)};font-weight:700;text-transform:uppercase;letter-spacing:0.22em;` +
-      `opacity:0.85;white-space:nowrap">${right}</div>` : '') +
-    `<div style="position:absolute;left:${gq(SW + 16)};top:${gq(32)};right:0;bottom:${gq(6)};` +
+    (S.chrome === 'rule' ? _bsChromeRule(title, color, right, rightColor)
+     : S.chrome === 'tab' ? _bsChromeTab(title, color, right, rightColor)
+                          : _bsChromeSpine(title, color, right, rightColor)) +
+    `<div style="position:absolute;left:${gq(inset)};top:${gq(top)};right:0;bottom:${gq(6)};` +
       `display:flex;flex-direction:column;justify-content:${justify || 'space-between'};` +
       `overflow:hidden">${body}</div></div>`;
 }
 
-/* Segmented bar. A non-zero reading always lights at least one cell: a real
-   but sub-1% value rendered as a wholly empty bar reads as broken, not small. */
+/* Gold: a glowing spine down the left edge, the title floating beside it. */
+function _bsChromeSpine(title, color, right, rightColor) {
+  const S = bsS(), SW = 12;
+  return `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
+      `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
+    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${S.font};` +
+      `font-size:${gq(16)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `${bsGlow(10, color)};white-space:nowrap">${title}</div>` +
+    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${rightColor || color};font-family:${S.font};` +
+      `font-size:${gq(13)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `opacity:0.85;white-space:nowrap">${right}</div>` : '');
+}
+
+/* Teal and Coral: a header tab across the top, a rule running out of it, and
+   the status text riding the rule's far end. Teal's tab is chamfered, Coral's
+   is a pill -- the one shape each family already used everywhere else. */
+function _bsChromeTab(title, color, right, rightColor) {
+  const S = bsS(), HH = 26;
+  const pill = S.key === 'coral';
+  const nose = pill ? ''
+    : `<svg width="${gq(18)}" height="${gq(HH)}" viewBox="0 0 14 20" style="flex-shrink:0">` +
+      `<polygon points="14,0 14,20 0,20" fill="${color}"/></svg>`;
+  return `<div style="position:absolute;left:0;top:0;width:100%;height:${gq(HH)};` +
+      `display:flex;align-items:center;gap:${pill ? gq(9) : '0'}">` + nose +
+    `<div style="background:${color};height:100%;padding:0 ${gq(15)};display:flex;align-items:center;` +
+      `border-radius:${pill ? '999px' : '0'};flex-shrink:0">` +
+      `<span style="color:#000;font-family:${S.font};font-size:${gq(16)};font-weight:${S.fw};` +
+        `text-transform:uppercase;letter-spacing:${S.ls};white-space:nowrap">${title}</span></div>` +
+    `<div style="flex:1;height:${gq(pill ? 5 : 3)};background:${color};` +
+      `border-radius:${pill ? '999px' : '0'};opacity:${pill ? '1' : '0.4'}"></div>` +
+    (right ? `<span style="color:${rightColor || color};font-family:${S.font};font-size:${gq(15)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `margin-left:${gq(9)};white-space:nowrap">${right}</span>` : '') + `</div>`;
+}
+
+/* A meter. Gold segments it, and a non-zero reading always lights at least
+   one cell: a real but sub-1% value drawn as a wholly empty bar reads as
+   broken rather than small. Teal and Coral keep the continuous track they
+   already used everywhere, squared off or fully rounded to taste. */
 function bsSegBar(pct, color, w, h, cells, gap) {
+  const S = bsS();
   const p = Math.max(0, Math.min(100, bsNum(pct)));
+  if (S.barFn) return S.barFn(p, color, w, h);
+  if (!S.seg) {
+    const r = S.r >= 999 ? '999px' : S.r + 'px';
+    return `<div style="width:${gq(w)};height:${gq(h)};background:${S.track};border-radius:${r};` +
+      `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${p}%;background:${color};` +
+      `border-radius:${r};transition:width 0.8s ease"></div></div>`;
+  }
   const cw = (w - gap * (cells - 1)) / cells;
   let n = Math.round(cells * p / 100);
   if (n === 0 && p > 0) n = 1;
@@ -1631,17 +1778,17 @@ function bsSegBar(pct, color, w, h, cells, gap) {
   for (let i = 0; i < cells; i++) {
     html += `<div style="width:${gq(cw)};height:${gq(h)};flex-shrink:0;` +
       (i < n ? `background:${color};box-shadow:0 0 ${gq(6)} ${color}aa` :
-               `background:#161616;border:1px solid #202020`) + `"></div>`;
+               `background:${S.track};border:1px solid ${S.edge}`) + `"></div>`;
   }
   return html + `</div>`;
 }
 
 function bsKv(label, value, color, valPx, labPx) {
   return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:${gq(12)}">` +
-    `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(labPx || 13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;white-space:nowrap">${label}</span>` +
-    `<span style="color:${color};font-family:${BS_F};font-size:${gq(valPx || 22)};font-weight:700;` +
-      `font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 ${gq(8)} ${color}99">${value}</span></div>`;
+    `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(labPx || 13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};white-space:nowrap">${label}</span>` +
+    `<span style="color:${color};font-family:${bsS().font};font-size:${gq(valPx || 22)};font-weight:${bsS().fw};` +
+      `font-variant-numeric:tabular-nums;white-space:nowrap;${bsGlow(8, color, '99')}">${value}</span></div>`;
 }
 
 /* A readout bound to the width of its own bar. Letting it span the flex row
@@ -1681,12 +1828,24 @@ function gpuPowerPctText(card) {
   return Math.round(p / lim * 100) + '%';
 }
 
+/* A sub-value riding a larger one -- "/ 450 W", "/ 2520 MHz". It must not
+   recolour itself while still inheriting the parent's text-shadow: a dim
+   glyph wearing a bright halo is what reads as blur. Skins that keep their
+   units lit (the Vintage families, following their reference designs) just
+   take a smaller size in the same phosphor colour. */
+function bsSub(text, px) {
+  const S = bsS();
+  return S.unitLit
+    ? `<span style="font-size:${gq(px)};opacity:0.72">${text}</span>`
+    : `<span style="font-size:${gq(px)};color:${S.dim};text-shadow:none">${text}</span>`;
+}
+
 function gpuName(card) {
   return esc(String(card.short_name || card.name || 'GPU ' + bsNum(card.index)));
 }
 
 function gpuTempColor(card) {
-  return (card.temp === null || card.temp === undefined) ? BS_DIM : _thermColor(card.temp);
+  return (card.temp === null || card.temp === undefined) ? bsS().dim : bsS().therm(card.temp);
 }
 
 /* Donut with its caption BELOW the ring. The shared donut() puts the label
@@ -1694,39 +1853,44 @@ function gpuTempColor(card) {
    clipped by its overflow:hidden. */
 function bsGauge(pct, caption, color, size, sw, opts) {
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(4)}">` +
-    donut(pct, '', color, size, sw, BS_F, opts) +
-    `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `line-height:1;text-transform:uppercase;letter-spacing:0.22em">${caption}</div></div>`;
+    donut(pct, '', color, size, sw, bsS().font, opts) +
+    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${caption}</div></div>`;
 }
 
 /* ── layout A: one card, everything ── */
 function gpuLayoutSingle(card) {
+  const S = bsS();
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: '#fff', linecap: 'butt', valSize: gq(44), labelSize: gq(13),
-                 labelColor: BS_LABEL};
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(44), labelSize: gq(13),
+                 labelColor: bsS().label};
 
   const head = `<div style="position:absolute;left:${gq(24)};top:${gq(16)};right:${gq(24)};` +
-    `display:flex;align-items:center;gap:${gq(14)};font-family:${BS_F}">` +
-    `<span style="font-size:${gq(11)};font-weight:700;color:#000;background:${col};` +
-      `padding:${gq(2)} ${gq(9)};border-radius:2px;text-transform:uppercase;letter-spacing:0.22em;` +
+    `display:flex;align-items:center;gap:${gq(14)};font-family:${bsS().font}">` +
+    `<span style="font-size:${gq(11)};font-weight:${bsS().fw};color:#000;background:${col};` +
+      `padding:${gq(2)} ${gq(9)};border-radius:2px;text-transform:uppercase;letter-spacing:${bsS().ls};` +
       `box-shadow:0 0 ${gq(12)} ${col}88">${esc(String(card.vendor || 'GPU'))}</span>` +
-    `<span style="color:#fff;font-size:${gq(27)};font-weight:700;text-shadow:0 0 ${gq(10)} ${col}99;` +
+    `<span style="color:${bsS().bright};font-size:${gq(27)};font-weight:${bsS().fw};${bsGlow(10, col, '99')};` +
       `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${gpuName(card)}</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${BS_LABEL};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;white-space:nowrap">${bsVal(card.driver)} &nbsp;|&nbsp; ${bsVal(card.bus_id)}</span></div>`;
+    `<span style="color:${bsS().label};font-size:${gq(12)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.driver)} &nbsp;|&nbsp; ${bsVal(card.bus_id)}</span></div>`;
 
   const utilBody = (card.util === null || card.util === undefined)
-    ? `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
-    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
+    ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${S.gpuGauge
+        ? S.gpuGauge(bsNum(card.util), 'UTILISATION', col, 150, 'util')
+        : bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
 
   const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
-    ? `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
-    : `<div style="display:flex;justify-content:center">${bsGauge(bsNum(card.vram_percent), 'VRAM', TEAL, 152, 11, dOpts)}</div>`;
+    ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${S.gpuGauge
+        ? S.gpuGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 150, 'vram')
+        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 152, 11, dOpts)}</div>`;
 
   const procs = asList({available: true, value: card.processes});
   let procBody, procRight;
@@ -1736,78 +1900,80 @@ function gpuLayoutSingle(card) {
       const pr = procs[i] || {};
       const tot = bsNum(card.vram_total);
       const pct = tot > 0 ? Math.round(bsNum(pr.vram_mib) / tot * 100) : 0;
-      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${BS_F}">` +
-        `<span style="color:#fff;font-size:${gq(17)};font-weight:700;width:${gq(118)};overflow:hidden;` +
+      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${bsS().font}">` +
+        `<span style="color:${bsS().bright};font-size:${gq(17)};font-weight:${bsS().fw};width:${gq(118)};overflow:hidden;` +
           `text-overflow:ellipsis;white-space:nowrap">${esc(String(pr.name || '?'))}</span>` +
-        `<span style="color:${BS_DIM};font-size:${gq(13)};width:${gq(54)}">${bsVal(pr.pid)}</span>` +
-        bsSegBar(pct, TEAL, 560, 13, 30, 3) +
-        `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700;width:${gq(74)};text-align:right;` +
+        `<span style="color:${bsS().dim};font-size:${gq(13)};width:${gq(54)}">${bsVal(pr.pid)}</span>` +
+        bsSegBar(pct, S.a2, 560, 13, 30, 3) +
+        `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw};width:${gq(74)};text-align:right;` +
           `font-variant-numeric:tabular-nums">${bsVal(pr.vram_mib)}M</span></div>`;
     }
     procRight = procs.length + ' ACTIVE';
   } else if (card.source === 'nvml') {
     // An empty list from NVML means the card is idle, NOT that the data is
     // unavailable. Saying "not exposed by nvidia" here was simply false.
-    procBody = `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em">NO COMPUTE PROCESSES ON THIS CARD</div>`;
+    procBody = `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls}">NO COMPUTE PROCESSES ON THIS CARD</div>`;
     procRight = 'IDLE';
   } else {
     // sysfs genuinely has no per-process accounting. Say that, rather than
     // leaving a box that looks like it failed to load.
-    procBody = `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em">PER-PROCESS VRAM NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`;
+    procBody = `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls}">PER-PROCESS VRAM NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`;
     procRight = 'UNAVAILABLE';
   }
 
   return head +
     bsRegion(24, 62, 300, 240, 'PROCESSOR', col, '', utilBody, 'center') +
-    bsRegion(348, 62, 300, 240, 'MEMORY', TEAL, '', vramBody, 'center') +
-    bsRegion(672, 62, 328, 240, 'TELEMETRY', GOLD, '',
+    bsRegion(348, 62, 300, 240, 'MEMORY', S.a2, '', vramBody, 'center') +
+    bsRegion(672, 62, 328, 240, 'TELEMETRY', S.a1, '',
       bsKv('TEMP', bsVal(card.temp, '°C'), tc, 30) +
-      bsKv('POWER', bsVal(card.power) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`, AMBER, 30) +
-      bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">/ ${bsVal(card.clock_gpu_max)} MHz</span>`, '#e6e6e6', 26) +
-      bsKv('MEMORY', bsVal(card.clock_mem) + ` <span style="font-size:${gq(16)};color:${BS_DIM}">MHz</span>`, '#e6e6e6', 26),
+      bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 16), S.cPower, 30) +
+      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 16), bsS().text, 26) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 16), bsS().text, 26),
       'space-around') +
     bsRegion(24, 312, 624, 116, 'LOAD', col, '',
-      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), AMBER, 596, 34, 14, 12) +
-      bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), TEAL, 596, 34, 14, 12),
+      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 596, 34, 14, 12) +
+      bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a2, 596, 34, 14, 12),
       'space-around') +
     bsRegion(672, 312, 328, 116, 'COOLING', tc, '',
       `<div style="display:flex;align-items:center;gap:${gq(18)}">` +
         fanIcon(tc, gq(54), gpuFanRpm(card)) +
-        `<div><div style="color:#fff;font-family:${BS_F};font-size:${gq(30)};font-weight:700;` +
-          `font-variant-numeric:tabular-nums;text-shadow:0 0 ${gq(8)} ${tc}99">${gpuFanText(card)}</div>` +
-        `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-          `text-transform:uppercase;letter-spacing:0.22em">FAN</div></div></div>`, 'center') +
-    bsRegion(24, 446, 976, 132, 'PROCESSES', TEAL, procRight, procBody, 'space-around');
+        `<div><div style="color:${bsS().bright};font-family:${bsS().font};font-size:${gq(30)};font-weight:${bsS().fw};` +
+          `font-variant-numeric:tabular-nums;${bsGlow(8, tc, '99')}">${gpuFanText(card)}</div>` +
+        `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+          `text-transform:uppercase;letter-spacing:${bsS().ls}">FAN</div></div></div>`, 'center') +
+    bsRegion(24, 446, 976, 132, 'PROCESSES', S.a2, procRight, procBody, 'space-around');
 }
 
 /* ── layout B: two cards ── */
 function gpuCardPanel(card, x, y, w, h) {
+  const S = bsS();
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: '#fff', linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
 
   const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
-    bsMetered('VRAM', bsVal(card.vram_used) + ` <span style="font-size:${gq(15)};color:${BS_DIM}">/ ${bsVal(card.vram_total)} MiB</span>`,
-               bsNum(card.vram_percent), TEAL, 330, 26, 23, 13) +
-    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(15)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`,
-               gpuPowerPct(card), AMBER, 330, 26, 23, 13) +
-    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), GOLD, 330, 26, 23, 13) +
+    bsMetered('VRAM', bsVal(card.vram_used) + ' ' + bsSub(`/ ${bsVal(card.vram_total)} MiB`, 15),
+               bsNum(card.vram_percent), S.a2, 330, 26, 23, 13) +
+    bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 15),
+               gpuPowerPct(card), S.cPower, 330, 26, 23, 13) +
+    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 330, 26, 23, 13) +
     `</div>`;
 
   // Fixed width, not flex:1. Stretching this column ran its labels back
   // underneath the bars in the middle column.
   const right = `<div style="width:${gq(236)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
     bsKv('TEMP', bsVal(card.temp, '°C'), tc, 26) +
-    bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(14)};color:${BS_DIM}">MHz</span>`, '#e6e6e6', 22) +
+    bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub('MHz', 14), bsS().text, 22) +
     `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(30), gpuFanRpm(card)) +
-      `<span style="color:#e6e6e6;font-family:${BS_F};font-size:${gq(17)};font-weight:700;` +
-      `text-shadow:0 0 ${gq(6)} ${tc}99">${gpuFanText(card)}</span></div></div>`;
+      `<span style="color:${bsS().text};font-family:${bsS().font};font-size:${gq(17)};font-weight:${bsS().fw};` +
+      `${bsGlow(6, tc, '99')}">${gpuFanText(card)}</span></div></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
-    donut(bsNum(card.util), '', col, 138, 10, BS_F, dOpts) +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 132, 'util')
+                : donut(bsNum(card.util), '', col, 138, 10, bsS().font, dOpts)) +
     stats + `<div style="flex:1"></div>` + right + `</div>`;
 
   return bsRegion(x, y, w, h, gpuName(card), col,
@@ -1816,10 +1982,11 @@ function gpuCardPanel(card, x, y, w, h) {
 
 /* ── layout C: three or more ── */
 function gpuTile(card, x, y, w, h) {
+  const S = bsS();
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: '#fff', linecap: 'butt', valSize: gq(29), labelSize: gq(11)};
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(29), labelSize: gq(11)};
   // Used keeps a decimal at every magnitude -- rounding 18.3 to 18 on a 24G
   // card throws away the only digit that moves. The total is a fixed board
   // spec, so an integer is right there.
@@ -1827,20 +1994,22 @@ function gpuTile(card, x, y, w, h) {
   const gibTotal = function (mib) { return Math.round(bsNum(mib) / 1024); };
 
   const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
-    bsMetered('VRAM', gibUsed(card.vram_used) + ` <span style="font-size:${gq(12)};color:${BS_DIM}">/ ${gibTotal(card.vram_total)} G</span>`,
-               bsNum(card.vram_percent), TEAL, 214, 20, 19, 11) +
-    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(12)};color:${BS_DIM}">/ ${bsVal(card.power_limit)} W</span>`,
-               gpuPowerPct(card), AMBER, 214, 20, 19, 11) + `</div>`;
+    bsMetered('VRAM', gibUsed(card.vram_used) + ' ' + bsSub(`/ ${gibTotal(card.vram_total)} G`, 12),
+               bsNum(card.vram_percent), S.a2, 214, 20, 19, 11) +
+    bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 12),
+               gpuPowerPct(card), S.cPower, 214, 20, 19, 11) + `</div>`;
 
-  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${BS_F}">` +
+  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${bsS().font}">` +
     fanIcon(tc, gq(24), gpuFanRpm(card)) +
-    `<span style="color:#e6e6e6;font-size:${gq(16)};font-weight:700">${bsVal(card.temp, '°C')}</span>` +
+    `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw}">${bsVal(card.temp, '°C')}</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${BS_LABEL};font-size:${gq(11)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
+    `<span style="color:${bsS().label};font-size:${gq(11)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
-    donut(bsNum(card.util), '', col, 104, 8, BS_F, dOpts) + stack + `</div>` + footer;
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 100, 'util')
+                : donut(bsNum(card.util), '', col, 104, 8, bsS().font, dOpts)) +
+    stack + `</div>` + footer;
 
   return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
 }
@@ -1852,28 +2021,27 @@ function gpuHeader(cards) {
   }
   const total = anyPower ? ` &nbsp;|&nbsp; ${Math.round(watts)} W TOTAL` : '';
   return `<div style="position:absolute;left:${gq(24)};top:${gq(14)};right:${gq(24)};` +
-    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${BS_F}">` +
-    `<span style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</span>` +
+    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${bsS().font}">` +
+    `<span style="color:${bsS().a1};font-size:${gq(19)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};${bsGlow(10, bsS().a1, '99')}">GRAPHICS</span>` +
     `<span style="flex:1"></span>` +
-    `<span style="color:${BS_LABEL};font-size:${gq(13)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em">${cards.length} CARD${cards.length === 1 ? '' : 'S'}${total}</span></div>`;
+    `<span style="color:${bsS().label};font-size:${gq(13)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls}">${cards.length} CARD${cards.length === 1 ? '' : 'S'}${total}</span></div>`;
 }
 
-function panelGoldGpuScreen(c) {
+function bsGpuScreen(c) {
   const cards = asList(m('gpu.cards'));
-  const frame = (body) => `<div class="screen-frame"><div style="position:relative;width:100%;` +
-    `height:100%;background:#000;font-family:${BS_F};overflow:hidden">${body}</div></div>`;
+  const frame = bsFrame;
 
   if (!cards.length) {
     // A machine with no card the collector can read. Say so plainly; the
     // screen can be switched off in Settings > Screen Rotation.
     return frame(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;` +
       `align-items:center;justify-content:center;gap:${gq(10)}">` +
-      `<div style="color:${GOLD};font-size:${gq(19)};font-weight:700;text-transform:uppercase;` +
-        `letter-spacing:0.22em;text-shadow:0 0 ${gq(10)} ${GOLD}99">GRAPHICS</div>` +
-      `<div style="color:${BS_DIM};font-size:${gq(15)};font-weight:700;text-transform:uppercase;` +
-        `letter-spacing:0.22em">NO GPU DETECTED</div></div>`);
+      `<div style="color:${bsS().a1};font-size:${gq(19)};font-weight:${bsS().fw};text-transform:uppercase;` +
+        `letter-spacing:${bsS().ls};${bsGlow(10, bsS().a1, '99')}">GRAPHICS</div>` +
+      `<div style="color:${bsS().dim};font-size:${gq(15)};font-weight:${bsS().fw};text-transform:uppercase;` +
+        `letter-spacing:${bsS().ls}">NO GPU DETECTED</div></div>`);
   }
 
   if (cards.length === 1) return frame(gpuLayoutSingle(cards[0]));
@@ -1892,12 +2060,19 @@ function panelGoldGpuScreen(c) {
   // Beyond four the grid has no room; say what is not shown rather than
   // silently truncating the list.
   if (cards.length > 4) {
-    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${BS_DIM};` +
-      `font-family:${BS_F};font-size:${gq(12)};font-weight:700;text-transform:uppercase;` +
-      `letter-spacing:0.22em">+${cards.length - 4} MORE NOT SHOWN</div>`;
+    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${bsS().dim};` +
+      `font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls}">+${cards.length - 4} MORE NOT SHOWN</div>`;
   }
   return frame(body);
 }
+
+function panelGoldGpuScreen(c) { bsSkin(BS_SKIN_GOLD); return bsGpuScreen(c); }
+function panelTealGpuScreen(c) { bsSkin(BS_SKIN_TEAL); return bsGpuScreen(c); }
+function panelCoralGpuScreen(c) { bsSkin(BS_SKIN_CORAL); return bsGpuScreen(c); }
+function scanGpuScreen(c) { bsSkin(BS_SKIN_SCAN); return bsGpuScreen(c); }
+function tubeGpuScreen(c) { bsSkin(BS_SKIN_TUBE); return bsGpuScreen(c); }
+function vfdGpuScreen(c) { bsSkin(BS_SKIN_VFD); return bsGpuScreen(c); }
 
 /* ── Bridge Station: screen 1 ────────────────────────────────────────────
  * CORE / THERMALS / COMMS / CHRONOMETER, in the same spine vocabulary as the
@@ -1912,16 +2087,16 @@ function panelGoldGpuScreen(c) {
    than continuous so a glance reads roughly how hot without parsing digits. */
 function bsThermRow(label, temp, w) {
   const known = (temp !== null && temp !== undefined && isFinite(temp));
-  const c = known ? _thermColor(temp) : BS_DIM;
+  const c = known ? _thermColor(temp) : bsS().dim;
   // The scale runs 20-120C, matching the tick labels printed beneath it.
   const pct = known ? Math.max(0, Math.min(100, ((temp - 20) / 100) * 100)) : 0;
   return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
-    `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(13)};font-weight:700;` +
-      `text-transform:uppercase;letter-spacing:0.22em;width:${gq(34)};flex-shrink:0">${label}</span>` +
+    `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};width:${gq(34)};flex-shrink:0">${label}</span>` +
     bsSegBar(pct, c, w, 16, 14, 4) +
-    `<span style="color:${c};font-family:${BS_F};font-size:${gq(18)};font-weight:700;` +
+    `<span style="color:${c};font-family:${bsS().font};font-size:${gq(18)};font-weight:${bsS().fw};` +
       `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
-      `text-shadow:0 0 ${gq(8)} ${c}99">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
+      `${bsGlow(8, c, '99')}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
 }
 
 /* One icon per fan detected, each turning at its own rate.
@@ -1933,13 +2108,14 @@ function bsFanGroup(label, color, rpms) {
   for (const r of rpms) icons += fanIcon(color, gq(26), r);
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(6)}">` +
     `<div style="display:flex;gap:${gq(9)}">${icons}</div>` +
-    `<div style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-      `line-height:1;text-transform:uppercase;letter-spacing:0.22em">${label}</div></div>`;
+    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</div></div>`;
 }
 
 function bsWiredIcon(color, lit) {
+  const halo = bsS().glow ? `;filter:drop-shadow(0 0 ${gq(6)} ${color})` : '';
   return `<svg width="${gq(26)}" height="${gq(26)}" viewBox="0 0 24 24" ` +
-    `style="opacity:${lit ? 1 : 0.3};filter:drop-shadow(0 0 ${gq(6)} ${color})">` +
+    `style="opacity:${lit ? 1 : 0.3}${halo}">` +
     `<rect x="4" y="9" width="16" height="9" rx="1.5" fill="${color}"/>` +
     `<rect x="9" y="4" width="6" height="5" fill="${color}"/>` +
     `<rect x="7" y="18" width="2" height="3" fill="${color}"/>` +
@@ -1959,16 +2135,59 @@ function bsCapacityBar(label, cap, pct, color, w) {
   return `<div style="width:${gq(w)}">` +
     `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
       `margin-bottom:${gq(5)}">` +
-      `<span style="color:${BS_LABEL};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-        `text-transform:uppercase;letter-spacing:0.22em">${label}</span>` +
-      `<span style="color:#dcdcdc;font-family:${BS_F};font-size:${gq(14)};font-weight:700;` +
+      `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+        `text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</span>` +
+      `<span style="color:${bsS().soft};font-family:${bsS().font};font-size:${gq(14)};font-weight:${bsS().fw};` +
         `font-variant-numeric:tabular-nums">${cap}</span></div>` +
-    bsSegBar(pct, color, w, 11, 26, 3) + `</div>`;
+    bsSegBar(pct, color, w, bsS().seg ? 11 : 15, 26, 3) + `</div>`;
 }
 
-function panelGoldScreen1(c) {
-  const BLUE = PANEL_SPEC.colors.blue;
-  const RED = PANEL_SPEC.colors.red;
+/* Gold segments its thermal track; Teal and Coral keep the continuous bar
+   they already had. Same reading either way -- label, track, degrees. */
+function bsThermRowSolid(label, temp, w) {
+  const S = bsS();
+  const known = (temp !== null && temp !== undefined && isFinite(temp));
+  const c = known ? S.therm(temp) : S.dim;
+  const pct = known ? Math.max(0, Math.min(100, ((temp - 20) / 100) * 100)) : 0;
+  const flash = known && temp >= 100 ? ';animation:blink 0.5s infinite' : '';
+  const r = S.r >= 999 ? '999px' : S.r + 'px';
+  return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
+    `<span style="color:${S.label};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
+      `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(38)};flex-shrink:0">${label}</span>` +
+    `<div style="width:${gq(w)};height:${gq(18)};background:${S.track};border-radius:${r};` +
+      `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;background:${c};` +
+      `border-radius:${r};transition:width 0.8s ease${flash}"></div></div>` +
+    `<span style="color:${c};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
+      `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+      `${bsGlow(8, c)}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
+}
+
+/* ── Bridge Station: screen 1, in whichever skin is active ────────────────
+ * CORE / THERMALS / COMMS / CHRONOMETER. One information layout across the
+ * whole Panel family: the same readings land in the same quadrant whichever
+ * theme is on, so switching themes never means re-learning the board.
+ */
+/* The glass. Scanlines rakes its raster over the whole board and VFD lays
+   filament lines and a grid across it, so the overlay belongs to the frame
+   rather than to any one region. */
+function bsFrame(body) {
+  const S = bsS();
+  // A skin may put the board behind glass: its own filter on the content, its
+  // own overlay stack in front. Scanlines uses both; the rest use neither.
+  const inner = (S.contentFilter || S.contentTransform)
+    ? `<div style="position:absolute;inset:0;` +
+      (S.contentFilter ? `filter:${S.contentFilter};` : '') +
+      (S.contentTransform ? `transform:${S.contentTransform};` : '') +
+      `">${body}</div>`
+    : body;
+  return `<div class="screen-frame">${S.defs || ''}` +
+    `<div style="position:relative;width:100%;height:100%;background:${S.bg};` +
+      `font-family:${S.font};overflow:hidden;${S.frameCss || ''}">` +
+      inner + (S.overlay || '') + `</div></div>`;
+}
+
+function bsScreen1(c) {
+  const S = bsS();
 
   const cpu = m('cpu.usage'), ram = m('mem.ram_percent'), vram = m('gpu.vram_percent');
   const root = m('disk.root_used'), rootPct = m('disk.root_percent');
@@ -1978,24 +2197,40 @@ function panelGoldScreen1(c) {
   const speed = m('net.speed'), dl = m('net.dl'), ul = m('net.ul'), ping = m('net.ping');
   const host = m('sys.hostname');
 
-  const dOpts = {anticlockwise: true, ticks: true, bgRing: '#141414', valColor: '#fff',
-                 critColor: RED, linecap: 'butt', valSize: gq(30), labelSize: gq(12)};
+  const dOpts = {anticlockwise: true, ticks: S.key === 'gold', bgRing: S.ring,
+                 valColor: S.bright, critColor: S.crit, linecap: 'butt',
+                 fontWeight: S.fw, valSize: gq(30), labelSize: gq(12)};
+
+  // Each family draws its own instrument: the Panel donut, the Scanlines
+  // phosphor ring, the Tubes magic eye, the VFD segmented dial.
+  const gauge = S.gauge || function (pct, cap, which) {
+    const col = which === 'cpu' ? S.dCpu : which === 'ram' ? S.dRam : S.dVram;
+    return bsGauge(pct, cap, col, S.gaugeSize || 104, S.gaugeSw || 9, dOpts);
+  };
+  const capBar = S.capBar || function (label, cap, pct, which) {
+    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, 428);
+  };
+  const capNone = S.capNone || function (label) {
+    return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls}">` +
+      `${label} &mdash; NONE</div>`;
+  };
 
   // ── CORE
   const core =
     `<div style="display:flex;justify-content:space-around;align-items:center">` +
-      bsGauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', GOLD, 104, 9, dOpts) +
-      bsGauge(bsNum(ram.available ? ram.value : 0), 'RAM', BLUE, 104, 9, dOpts) +
-      bsGauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', GREEN, 104, 9, dOpts) +
+      gauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', 'cpu') +
+      gauge(bsNum(ram.available ? ram.value : 0), 'RAM', 'ram') +
+      gauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', 'vram') +
     `</div>` +
-    `<div style="display:flex;flex-direction:column;gap:${gq(11)};margin-top:${gq(14)}">` +
-      bsCapacityBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
-                    bsNum(rootPct.available ? rootPct.value : 0), GOLD, 428) +
+    `<div style="display:flex;flex-direction:column;gap:${S.capGap || 11};` +
+      `margin-top:${S.capTop || gq(14)}">` +
+      capBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
+             bsNum(rootPct.available ? rootPct.value : 0), 'primary') +
       (home.available
-        ? bsCapacityBar('SECONDARY', `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`,
-                        bsNum(homePct.available ? homePct.value : 0), TEAL, 428)
-        : `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-          `text-transform:uppercase;letter-spacing:0.22em">SECONDARY &mdash; NONE</div>`) +
+        ? capBar('SECONDARY', `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`,
+                 bsNum(homePct.available ? homePct.value : 0), 'secondary')
+        : capNone('SECONDARY')) +
     `</div>`;
 
   // ── THERMALS
@@ -2003,70 +2238,67 @@ function panelGoldScreen1(c) {
   const hottest = temps.length ? Math.max.apply(null, temps) : null;
   const status = hottest === null ? 'NO SENSORS'
                : hottest >= 110 ? 'CRITICAL' : hottest >= 90 ? 'WARNING' : 'NOMINAL';
-  const statusColor = hottest === null ? BS_DIM
-                    : hottest >= 110 ? RED : hottest >= 90 ? (PANEL_SPEC.colors.thermOrange || '#FF7700') : GREEN;
+  const statusColor = hottest === null ? S.dim
+                    : hottest >= 110 ? S.crit : hottest >= 90 ? S.warn : S.therm(60);
 
-  let scale = `<div style="display:flex;justify-content:space-between;` +
-    `margin-left:${gq(45)};margin-right:${gq(60)}">`;
+  // The scale has to start and stop exactly where the bars do, or the tick
+  // labels point at temperatures the bars never reach.
+  const labW = S.seg ? 34 : 38, gap = 11, scaleW = S.seg ? 300 : 340;
+  const bodyW = 486 - (S.chrome === 'spine' ? 28 : 0);
+  let panelScale = `<div style="display:flex;justify-content:space-between;` +
+    `margin-left:${gq(labW + gap)};margin-right:${gq(bodyW - labW - gap - scaleW)}">`;
   for (const t of [20, 50, 70, 90, 110, 120]) {
-    scale += `<span style="color:#b4b4b4;font-family:${BS_F};font-size:${gq(11)}">${t}</span>`;
+    panelScale += `<span style="color:${S.tick};font-family:${S.font};font-size:${gq(12)}">${t}</span>`;
   }
-  scale += `</div>`;
+  panelScale += `</div>`;
+  const scale = S.scaleFn ? S.scaleFn() : panelScale;
 
-  const cpuFans = asList(m('cpu.fans_cpu'));
-  const caseFans = asList(m('cpu.fans_case'));
-  const gpuFanPct = m('gpu.fan');
-  // gpu.fan is a duty percentage, not a tachometer reading; map it onto a
-  // comparable range so the icon turns at a rate the eye can compare.
-  const gpuFans = gpuFanPct.available && gpuFanPct.value !== null
-    ? [Math.round(bsNum(gpuFanPct.value) / 100 * 2400)] : [];
-  const fanRow = cpuFans.length || caseFans.length || gpuFans.length
-    ? `<div style="display:flex;justify-content:space-around;align-items:flex-end">` +
-      bsFanGroup('CPU', GOLD, cpuFans) + bsFanGroup('CASE', TEAL, caseFans) +
-      bsFanGroup('GPU', GREEN, gpuFans) + `</div>`
-    : `<div style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(12)};font-weight:700;` +
-      `text-align:center;text-transform:uppercase;letter-spacing:0.22em">NO FANS DETECTED</div>`;
-
+  const row = S.thermRowFn || function (label, temp) {
+    return (S.seg ? bsThermRow : bsThermRowSolid)(label, temp, scaleW);
+  };
   const therm =
     `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
-      bsThermRow('CPU', cpuT.available ? cpuT.value : null, 300) +
-      bsThermRow('MB', mbT.available ? mbT.value : null, 300) +
-      bsThermRow('GPU', gpuT.available ? gpuT.value : null, 300) +
+      row('CPU', cpuT.available ? cpuT.value : null) +
+      row('MB', mbT.available ? mbT.value : null) +
+      row('GPU', gpuT.available ? gpuT.value : null) +
       scale +
-    `</div>` + fanRow;
+    `</div>` + (S.fanRowFn ? S.fanRowFn() : bsFanRow());
 
   // ── COMMS
   const linkUp = ip.available;
-  const identity =
-    `<div style="display:flex;justify-content:flex-end;align-items:center;gap:${gq(12)}">` +
-      bsWiredIcon(linkUp ? GREEN : BS_DIM, linkUp) +
-      `<div style="text-align:right">` +
-        `<div style="color:#f2f2f2;font-family:${BS_F};font-size:${gq(21)};font-weight:700;` +
-          `line-height:1.05;text-shadow:0 0 ${gq(8)} #f2f2f299">` +
-          `${iface.available ? esc(String(iface.value)) : '--'}</div>` +
-        `<div style="color:${linkUp ? GREEN : BS_DIM};font-family:${BS_F};font-size:${gq(11)};` +
-          `font-weight:700;margin-top:${gq(2)};text-transform:uppercase;letter-spacing:0.22em">` +
-          `${linkUp ? 'LINK ACTIVE' : 'NO LINK'}</div></div>` +
-      `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(1)};` +
-        `margin-left:${gq(4)}">` + bsWifiIcon(BS_DIM, false) +
-        `<span style="color:${BS_DIM};font-family:${BS_F};font-size:${gq(9)};font-weight:700;` +
-        `text-transform:uppercase;letter-spacing:0.22em">OFF</span></div></div>`;
-
   const speedStr = speed.available
     ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GbE' : speed.value + ' Mb')
     : '--';
+  const identity =
+    `<div style="display:flex;justify-content:flex-end;align-items:center;gap:${gq(12)}">` +
+      bsWiredIcon(linkUp ? S.cLink : S.dim, linkUp) +
+      `<div style="text-align:right">` +
+        `<div style="color:${S.bright};font-family:${S.font};font-size:${gq(21)};font-weight:${S.fw};` +
+          `line-height:1.05;${bsGlow(8, S.bright)}">` +
+          `${iface.available ? esc(String(iface.value)) : '--'}</div>` +
+        `<div style="color:${linkUp ? S.cLink : S.dim};font-family:${S.font};font-size:${gq(11)};` +
+          `font-weight:${S.fw};margin-top:${gq(2)};text-transform:uppercase;letter-spacing:${S.ls}">` +
+          `${linkUp ? 'LINK ACTIVE' : 'NO LINK'}</div></div>` +
+      `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(1)};` +
+        `margin-left:${gq(4)}">` + bsWifiIcon(S.dim, false) +
+        `<span style="color:${S.dim};font-family:${S.font};font-size:${gq(9)};font-weight:${S.fw};` +
+        `text-transform:uppercase;letter-spacing:${S.ls}">OFF</span></div></div>`;
+
+  // The unit rides its own number: same colour, smaller. Recolouring it while
+  // it still inherits the number's text-shadow gives a dim glyph a bright
+  // halo, which reads as blur rather than as a quieter label.
+  const unit = (d) => S.unitLit
+    ? `<span style="font-size:${gq(13)}">${esc(String(d.unit))}</span>`
+    : `<span style="font-size:${gq(13)};color:${S.dim};text-shadow:none">${esc(String(d.unit))}</span>`;
   const comms = identity +
     `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(22)};` +
       `row-gap:${gq(18)}">` +
-      bsKv('LINK', speedStr, GREEN, 22) +
-      bsKv('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', AMBER, 22) +
-      bsKv('RECV', dl.available ? `${esc(String(dl.value))} <span style="font-size:${gq(13)};` +
-           `color:${BS_DIM}">${esc(String(dl.unit))}</span>` : '--',
-           PANEL_SPEC.colors.thermBlue || '#2288DD', 22) +
-      bsKv('SEND', ul.available ? `${esc(String(ul.value))} <span style="font-size:${gq(13)};` +
-           `color:${BS_DIM}">${esc(String(ul.unit))}</span>` : '--', GREEN, 22) +
-      bsKv('IP', ip.available ? esc(String(ip.value)) : '--', '#efefef', 18) +
-      bsKv('MAC', mac.available ? esc(String(mac.value)) : '--', '#cfcfcf', 15) +
+      bsKv('LINK', speedStr, S.cLink, 22) +
+      bsKv('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', S.cPing, 22) +
+      bsKv('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 22) +
+      bsKv('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 22) +
+      bsKv('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 18) +
+      bsKv('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 15) +
     `</div>`;
 
   // ── CHRONOMETER
@@ -2077,32 +2309,62 @@ function panelGoldScreen1(c) {
   const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
   const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST',
                   'SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
-  const chrono =
+  const dayName = days[now.getDay()];
+  const dateStr = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  const chrono = S.clockFn ? S.clockFn(hh, mmn, ss, dayName, dateStr) :
     `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;` +
       `height:100%;gap:${gq(2)}">` +
       `<div style="display:flex;align-items:baseline;gap:${gq(8)}">` +
-        `<span style="color:${GOLD};font-family:${BS_F};font-size:${gq(72)};font-weight:700;` +
+        `<span style="color:${S.kHour};font-family:${S.font};font-size:${gq(72)};font-weight:${S.fw};` +
           `line-height:1;font-variant-numeric:tabular-nums;` +
-          `text-shadow:0 0 ${gq(26)} ${GOLD}66">${hh}:${mmn}</span>` +
-        `<span style="color:${AMBER};font-family:${BS_F};font-size:${gq(32)};font-weight:700;` +
-          `font-variant-numeric:tabular-nums;text-shadow:0 0 ${gq(14)} ${AMBER}99">${ss}</span></div>` +
-      `<div style="color:${GREEN};font-family:${BS_F};font-size:${gq(19)};font-weight:700;` +
+          `${bsGlow(26, S.kHour, '66')}">${hh}:${mmn}</span>` +
+        `<span style="color:${S.kSec};font-family:${S.font};font-size:${gq(32)};font-weight:${S.fw};` +
+          `font-variant-numeric:tabular-nums;${bsGlow(14, S.kSec)}">${ss}</span></div>` +
+      `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
         `letter-spacing:0.3em;margin-top:${gq(12)};text-transform:uppercase;` +
-        `text-shadow:0 0 ${gq(10)} ${GREEN}99">${days[now.getDay()]}</div>` +
-      `<div style="color:#dcdcdc;font-family:${BS_F};font-size:${gq(15)};font-weight:700;` +
-        `letter-spacing:0.22em;text-transform:uppercase">` +
-        `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}</div></div>`;
+        `${bsGlow(10, S.kDay)}">${dayName}</div>` +
+      `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
+        `letter-spacing:${S.ls};text-transform:uppercase">${dateStr}</div></div>`;
 
-  return `<div class="screen-frame"><div style="position:relative;width:100%;height:100%;` +
-    `background:#000;font-family:${BS_F};overflow:hidden">` +
-    bsRegion(16, 18, 486, 272, 'CORE', GOLD,
+  return bsFrame(
+    bsRegion(16, 18, 486, 272, 'CORE', S.a1,
              host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
-    bsRegion(522, 18, 486, 272, 'THERMALS', AMBER,
-             `<span style="color:${statusColor}">${status}</span>`, therm, 'space-evenly') +
-    bsRegion(16, 312, 486, 272, 'COMMS', TEAL, '', comms, 'space-evenly') +
-    bsRegion(522, 312, 486, 272, 'CHRONOMETER', GOLD, '', chrono, 'center') +
-    `</div></div>`;
+    bsRegion(522, 18, 486, 272, 'CHRONOMETER', S.a1, '', chrono, 'center') +
+    bsRegion(16, 312, 486, 272, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
+    bsRegion(522, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly'));
 }
+
+/* Gold labels each fan group and colours it; Teal and Coral keep the compact
+   monochrome strip they already used, so their thermals panel is untouched. */
+function bsFanRow() {
+  const S = bsS();
+  if (S.key !== 'gold') {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(S.label, S.font, '') + `</div>`;
+  }
+  const cpuFans = asList(m('cpu.fans_cpu'));
+  const caseFans = asList(m('cpu.fans_case'));
+  const gpuFanPct = m('gpu.fan');
+  // gpu.fan is a duty percentage, not a tachometer reading; map it onto a
+  // comparable range so the icon turns at a rate the eye can compare.
+  const gpuFans = gpuFanPct.available && gpuFanPct.value !== null
+    ? [Math.round(bsNum(gpuFanPct.value) / 100 * 2400)] : [];
+  if (!cpuFans.length && !caseFans.length && !gpuFans.length) {
+    return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(12)};` +
+      `font-weight:${S.fw};text-align:center;text-transform:uppercase;` +
+      `letter-spacing:${S.ls}">NO FANS DETECTED</div>`;
+  }
+  return `<div style="display:flex;justify-content:space-around;align-items:flex-end">` +
+    bsFanGroup('CPU', S.a1, cpuFans) + bsFanGroup('CASE', S.a2, caseFans) +
+    bsFanGroup('GPU', S.dVram, gpuFans) + `</div>`;
+}
+
+function panelGoldScreen1(c) { bsSkin(BS_SKIN_GOLD); return bsScreen1(c); }
+function panelTealScreen1(c) { bsSkin(BS_SKIN_TEAL); return bsScreen1(c); }
+function panelCoralScreen1(c) { bsSkin(BS_SKIN_CORAL); return bsScreen1(c); }
+function scanScreen1(c) { bsSkin(BS_SKIN_SCAN); return bsScreen1(c); }
+function tubeScreen1(c) { bsSkin(BS_SKIN_TUBE); return bsScreen1(c); }
+function vfdScreen1(c) { bsSkin(BS_SKIN_VFD); return bsScreen1(c); }
 
 
 /* ── site render shim (replaces display_app.js poll loop) ── */
@@ -2113,7 +2375,7 @@ function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
   return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
 function getScreen1Fn(){
-  var isPanel=activeFamily==='Panel', isVintage=activeFamily==='Vintage';
+  var isPanel=activeFamily==='Sci-Fi', isVintage=activeFamily==='Vintage';
   if(isPanel && activeVariant==='Teal') return panelTealScreen1;
   if(isPanel && activeVariant==='Coral') return panelCoralScreen1;
   if(isPanel) return panelGoldScreen1;

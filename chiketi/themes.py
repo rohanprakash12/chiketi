@@ -58,21 +58,21 @@ THEMES: dict[str, Theme] = {
         primary="#4488ff", accent="#ffb000", critical="#ff3333",
         dim="#3a3a6a", header="#4488ff",
     ),
-    # ── Panel family ──
-    "Panel/Gold": Theme(
-        name="Gold", family="Panel",
+    # ── Sci-Fi family ──
+    "Sci-Fi/TOS": Theme(
+        name="TOS", family="Sci-Fi",
         background="#000000", panel="#0a0a0a", border="#444444",
         primary="#FDCD06", accent="#FF8800", critical="#BF0F0F",
         dim="#cccccc", header="#FDCD06",
     ),
-    "Panel/Teal": Theme(
-        name="Teal", family="Panel",
+    "Sci-Fi/DS9": Theme(
+        name="DS9", family="Sci-Fi",
         background="#111419", panel="#2F3749", border="#2F3749",
         primary="#2A9D8F", accent="#E7442A", critical="#FF4444",
         dim="#6D748C", header="#2A9D8F",
     ),
-    "Panel/Coral": Theme(
-        name="Coral", family="Panel",
+    "Sci-Fi/TNG": Theme(
+        name="TNG", family="Sci-Fi",
         background="#000000", panel="#0a0a0a", border="#1a1a2a",
         primary="#FFCC66", accent="#FF9933", critical="#FF2200",
         dim="#CC99CC", header="#FFCC66",
@@ -104,7 +104,7 @@ for _key, _theme in THEMES.items():
     if _theme.family == "Terminal":
         _SHORT_NAME_MAP[_theme.name] = _key
 
-_active_theme: Theme = THEMES["Panel/Gold"]
+_active_theme: Theme = THEMES["Sci-Fi/TOS"]
 _listeners: list[Callable[[Theme], None]] = []
 
 

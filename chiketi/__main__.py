@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--theme",
         type=str,
         default=None,
-        help="Theme to use (e.g. 'Panel/Gold', 'Terminal/hacker'). Default: Panel/Gold.",
+        help="Theme to use (e.g. 'Sci-Fi/TOS', 'Terminal/hacker'). Default: Sci-Fi/TOS.",
     )
     parser.add_argument(
         "--bind",

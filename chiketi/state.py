@@ -19,6 +19,15 @@ import tempfile
 
 from chiketi.themes import THEMES
 
+# Themes that have been renamed. Without this an install that had saved
+# "Panel/Gold" would fail the membership test below, lose its choice
+# silently, and come back on the default.
+_THEME_RENAMES = {
+    "Panel/Gold": "Sci-Fi/TOS",
+    "Panel/Teal": "Sci-Fi/DS9",
+    "Panel/Coral": "Sci-Fi/TNG",
+}
+
 STATE_VERSION = 1
 
 # The state file is a few hundred bytes. Cap the read so a huge (or endless)
@@ -37,7 +46,7 @@ _MAX_KEY_LEN = 64
 
 DEFAULT_STATE: dict = {
     "version": STATE_VERSION,
-    "theme": "Panel/Gold",
+    "theme": "Sci-Fi/TOS",
     "screen_rotation": {},
     "brightness": 1.0,
     "output": "",
@@ -116,6 +125,8 @@ def _sanitize(raw: dict) -> dict:
     out = _defaults()
 
     theme = raw.get("theme")
+    if isinstance(theme, str):
+        theme = _THEME_RENAMES.get(theme, theme)
     if isinstance(theme, str) and theme in THEMES:
         out["theme"] = theme
 

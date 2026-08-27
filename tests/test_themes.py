@@ -25,7 +25,7 @@ class TestListThemes:
 
     def test_known_keys_present(self):
         keys = list_themes()
-        assert "Panel/Gold" in keys
+        assert "Sci-Fi/TOS" in keys
         assert "Terminal/hacker" in keys
         assert "Vintage/VFD" in keys
 
@@ -33,7 +33,7 @@ class TestListThemes:
 class TestGetFamilies:
     def test_groups_by_family(self):
         families = get_families()
-        assert set(families.keys()) == {"Terminal", "Panel", "Vintage"}
+        assert set(families.keys()) == {"Terminal", "Sci-Fi", "Vintage"}
 
     def test_all_themes_accounted_for(self):
         families = get_families()
@@ -46,17 +46,17 @@ class TestGetFamilies:
             for t in theme_list:
                 assert isinstance(t, Theme)
 
-    def test_panel_family_variants(self):
+    def test_scifi_family_variants(self):
         families = get_families()
-        names = {t.name for t in families["Panel"]}
-        assert names == {"Gold", "Teal", "Coral"}
+        names = {t.name for t in families["Sci-Fi"]}
+        assert names == {"TOS", "DS9", "TNG"}
 
 
 class TestSetActiveTheme:
     def test_valid_family_variant(self):
-        assert set_active_theme("Panel/Teal") is True
-        assert get_active_theme().name == "Teal"
-        assert get_active_family() == "Panel"
+        assert set_active_theme("Sci-Fi/DS9") is True
+        assert get_active_theme().name == "DS9"
+        assert get_active_family() == "Sci-Fi"
 
     def test_invalid_returns_false(self):
         before = get_active_theme()
@@ -70,13 +70,13 @@ class TestSetActiveTheme:
         assert get_active_family() == "Terminal"
 
     def test_short_name_only_for_terminal(self):
-        # Panel/Vintage variants do NOT get a short-name alias.
+        # Sci-Fi/Vintage variants do NOT get a short-name alias.
         assert set_active_theme("Gold") is False
 
     def test_family_prefix_panel_gold(self):
-        assert set_active_theme("Panel/Gold") is True
+        assert set_active_theme("Sci-Fi/TOS") is True
         t = get_active_theme()
-        assert t.family == "Panel"
+        assert t.family == "Sci-Fi"
         assert t.primary == "#FDCD06"
 
     def test_all_full_keys_settable(self):
@@ -103,7 +103,7 @@ class TestThemeChangeCallbacks:
         a, b = [], []
         on_theme_change(lambda t: a.append(t))
         on_theme_change(lambda t: b.append(t))
-        set_active_theme("Panel/Coral")
+        set_active_theme("Sci-Fi/TNG")
         assert len(a) == 1 and len(b) == 1
 
 

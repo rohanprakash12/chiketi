@@ -93,15 +93,15 @@ class TestLoadDefaults:
         assert load_state() == DEFAULT_STATE
 
     def test_unknown_version_returns_defaults(self):
-        _write(json.dumps({"version": 999, "theme": "Panel/Teal"}))
+        _write(json.dumps({"version": 999, "theme": "Sci-Fi/DS9"}))
         assert load_state() == DEFAULT_STATE
 
     def test_missing_version_returns_defaults(self):
-        _write(json.dumps({"theme": "Panel/Teal"}))
+        _write(json.dumps({"theme": "Sci-Fi/DS9"}))
         assert load_state() == DEFAULT_STATE
 
     def test_version_wrong_type_returns_defaults(self):
-        _write(json.dumps({"version": "1", "theme": "Panel/Teal"}))
+        _write(json.dumps({"version": "1", "theme": "Sci-Fi/DS9"}))
         assert load_state() == DEFAULT_STATE
 
     @pytest.mark.parametrize("blob", ["[]", '"hello"', "42", "null", "true"])
@@ -119,7 +119,7 @@ class TestLoadDefaults:
         s["screen_rotation"]["injected"] = {"enabled": False, "duration": 5}
         s["theme"] = "Vintage/VFD"
         assert DEFAULT_STATE["screen_rotation"] == {}
-        assert DEFAULT_STATE["theme"] == "Panel/Gold"
+        assert DEFAULT_STATE["theme"] == "Sci-Fi/TOS"
         assert load_state() == DEFAULT_STATE
 
 
@@ -208,7 +208,7 @@ class TestLoadHostileContent:
         returns defaults for anything that is not a regular file, so with no
         file present open() is never reached and the mock never fires.
         """
-        _write(json.dumps({"version": 1, "theme": "Panel/Teal"}))
+        _write(json.dumps({"version": 1, "theme": "Sci-Fi/DS9"}))
         # load_state now uses os.open + os.fdopen so it can fstat the
         # descriptor rather than stat the path, so patch that call.
         with mock.patch("os.open", side_effect=KeyboardInterrupt):
@@ -238,7 +238,7 @@ class TestLoadHostileContent:
 
 class TestSanitize:
     def test_unknown_keys_dropped(self):
-        _write(json.dumps({"version": 1, "theme": "Panel/Teal", "evil": 1}))
+        _write(json.dumps({"version": 1, "theme": "Sci-Fi/DS9", "evil": 1}))
         loaded = load_state()
         assert "evil" not in loaded
         assert set(loaded) == set(DEFAULT_STATE)
@@ -364,10 +364,10 @@ class TestSave:
 
     def test_save_is_atomic(self):
         """A failed write must not leave a truncated file behind."""
-        save_state(dict(DEFAULT_STATE, theme="Panel/Teal"))
+        save_state(dict(DEFAULT_STATE, theme="Sci-Fi/DS9"))
         with mock.patch("json.dump", side_effect=OSError("disk full")):
             assert save_state(dict(DEFAULT_STATE, theme="Vintage/VFD")) is False
-        assert load_state()["theme"] == "Panel/Teal"
+        assert load_state()["theme"] == "Sci-Fi/DS9"
 
     def test_failed_save_leaves_no_temp_files(self):
         save_state(dict(DEFAULT_STATE))
@@ -402,3 +402,25 @@ class TestSave:
         with mock.patch("os.replace", side_effect=KeyboardInterrupt):
             with pytest.raises(KeyboardInterrupt):
                 save_state(dict(DEFAULT_STATE))
+
+
+class TestThemeRenameMigration:
+    """A saved theme whose name has since changed must survive the upgrade.
+
+    _sanitize drops any theme not in THEMES, so without the rename map an
+    install that had chosen Panel/Gold would come back on the default with no
+    sign that anything had happened.
+    """
+
+    def test_old_panel_names_migrate(self):
+        for old, new in (
+            ("Panel/Gold", "Sci-Fi/TOS"),
+            ("Panel/Teal", "Sci-Fi/DS9"),
+            ("Panel/Coral", "Sci-Fi/TNG"),
+        ):
+            _write(json.dumps({"version": STATE_VERSION, "theme": old}))
+            assert load_state()["theme"] == new
+
+    def test_a_name_that_never_existed_still_falls_back(self):
+        _write(json.dumps({"version": STATE_VERSION, "theme": "Panel/Nonexistent"}))
+        assert load_state()["theme"] == DEFAULT_STATE["theme"]

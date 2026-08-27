@@ -9,8 +9,8 @@ Built for the GeeekPi 7" (1024x600) but works on any HDMI display.
 
 ## Features
 
-- **12 themed dashboards** across 3 theme families — Panel, Terminal (hacker/retro), and Vintage (tubes/VFD/scanlines)
-- **3 rotating screens** — System stats, a theme-specific second screen (GPU/AI monitor on Terminal themes, a clock on Panel/Vintage), and Claude Code usage
+- **12 themed dashboards** across 3 theme families — Sci-Fi (TOS/DS9/TNG), Terminal (hacker/retro), and Vintage (tubes/VFD/scanlines)
+- **3 rotating screens** — System stats, a theme-specific second screen (GPU/AI monitor on Terminal themes, a clock on Sci-Fi/Vintage), and Claude Code usage
 - **Remote control panel** — Switch themes, toggle screens, adjust rotation from your phone at `http://<host>:7777`
 - **Display on/off toggle** — Turn the dashboard on/off from the control panel, restoring the console when off
 - **Live metrics** — CPU, memory, disk, network, GPU (NVIDIA), fan speeds, local LLM server (llama.cpp / Ollama / vLLM), Claude Code token usage
@@ -89,7 +89,7 @@ pip install .[nvidia]  # with NVIDIA GPU support
 chiketi
 
 # Specify a theme
-chiketi --theme Panel/Gold
+chiketi --theme Sci-Fi/TOS
 
 # Custom rotation interval
 chiketi --rotate-interval 15
@@ -111,13 +111,13 @@ The dashboard launches Chromium in kiosk mode on the detected display and starts
 
 ## Themes
 
-### Panel
+### Sci-Fi
 
 | Theme | Font | Style |
 |-------|------|-------|
-| Gold | Chakra Petch | Gold panels, anticlockwise donuts |
-| Coral | Antonio | Pill headers, clockwise donuts |
-| Teal | Rajdhani | Angular headers, butt linecap donuts |
+| TOS | Chakra Petch | Gold spine regions, anticlockwise donuts |
+| TNG | Antonio | Pill headers, clockwise donuts |
+| DS9 | Rajdhani | Chevron headers, butt linecap donuts |
 
 ### Terminal
 
@@ -134,7 +134,7 @@ Six color variants: **hacker** (green), **cyan**, **amber**, **phosphor**, **red
 ## Screens
 
 1. **System Stats** — CPU usage/temp, memory, disk, network throughput, fan speeds
-2. **Theme-specific** — Terminal themes show a **GPU/AI Monitor** (GPU utilization, VRAM, power, clocks, CUDA processes); Panel and Vintage themes show a **Clock**
+2. **Theme-specific** — Terminal themes show a **GPU/AI Monitor** (GPU utilization, VRAM, power, clocks, CUDA processes); Sci-Fi and Vintage themes show a **Clock**
 3. **Claude Code** — Token usage by type, messages, monthly averages, session stats, live token rate sparkline
 
 ## Architecture
@@ -184,7 +184,7 @@ sudo modprobe nct6775  # or your chipset's module
 
 | CLI flag | Default | Description |
 |----------|---------|-------------|
-| `--theme` | `Panel/Gold` | Initial theme (`Panel/Gold`, `Terminal/hacker`, `Vintage/VFD`, etc.) |
+| `--theme` | `Sci-Fi/TOS` | Initial theme (`Sci-Fi/TOS`, `Terminal/hacker`, `Vintage/VFD`, etc.) |
 | `--rotate-interval` | `10` | Default seconds between screen auto-rotation (per-screen durations override) |
 | `--bind` | `0.0.0.0` | Host to bind the control server to (use `127.0.0.1` for localhost only) |
 | `--token` | _none_ | Shared secret required on control actions; clients pass it via `?token=…` (or the `CHIKETI_TOKEN` env var) |

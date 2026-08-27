@@ -128,10 +128,10 @@ __SCREEN_FUNCTIONS__
 
 
 function getScreenRegistry(c) {
-  const isPanel = selectedFamily === 'Panel';
+  const isPanel = selectedFamily === 'Sci-Fi';
   const isVintage = selectedFamily === 'Vintage';
-  const isCoral = isPanel && selectedVariant === 'Coral';
-  const isTeal = isPanel && selectedVariant === 'Teal';
+  const isCoral = isPanel && selectedVariant === 'TNG';
+  const isTeal = isPanel && selectedVariant === 'DS9';
   let screens;
   if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:panelTealScreen1},{id:'screen2',name:'Clock',fn:panelTealScreen2}];
   else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:panelCoralScreen1},{id:'screen2',name:'Clock',fn:panelCoralScreen2}];

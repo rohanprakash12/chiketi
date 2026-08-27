@@ -463,7 +463,7 @@ class TestRunRestoresSavedState:
         save_state(dict(DEFAULT_STATE, theme="Vintage/VFD", brightness=1.7,
                         width=800, height=480, output="HDMI-1",
                         screen_rotation={"cpu": {"enabled": False, "duration": 20}}))
-        themes.set_active_theme("Panel/Gold")
+        themes.set_active_theme("Sci-Fi/TOS")
 
         assert self._run(monkeypatch) == 0
 
@@ -495,9 +495,9 @@ class TestRunRestoresSavedState:
     def test_missing_state_file_keeps_defaults(self, monkeypatch, restore_active_theme):
         import chiketi.server as server_mod
 
-        themes.set_active_theme("Panel/Gold")
+        themes.set_active_theme("Sci-Fi/TOS")
         assert self._run(monkeypatch) == 0
-        assert themes.get_active_theme().name == "Gold"
+        assert themes.get_active_theme().name == "TOS"
         assert server_mod._display_brightness == 1.0
 
     def test_corrupt_state_file_does_not_stop_startup(
@@ -511,9 +511,9 @@ class TestRunRestoresSavedState:
         _os.makedirs(_os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("[" * 60000 + "]" * 60000)   # RecursionError from json
-        themes.set_active_theme("Panel/Gold")
+        themes.set_active_theme("Sci-Fi/TOS")
         assert self._run(monkeypatch) == 0
-        assert themes.get_active_theme().name == "Gold"
+        assert themes.get_active_theme().name == "TOS"
 
     def test_signature_stays_backward_compatible(self, monkeypatch,
                                                  restore_active_theme):

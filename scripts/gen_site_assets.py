@@ -76,7 +76,7 @@ function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
   return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
 function getScreen1Fn(){
-  var isPanel=activeFamily==='Panel', isVintage=activeFamily==='Vintage';
+  var isPanel=activeFamily==='Sci-Fi', isVintage=activeFamily==='Vintage';
   if(isPanel && activeVariant==='Teal') return panelTealScreen1;
   if(isPanel && activeVariant==='Coral') return panelCoralScreen1;
   if(isPanel) return panelGoldScreen1;
@@ -119,7 +119,7 @@ display_css = display_css.replace(
 display_css = display_css.replace(
     "  body { cursor: none; }\n", "")
 # SITE-ONLY: the Terminal-family (.t-*) layout uses FIXED PIXELS sized for the
-# 1024px kiosk, so it overflows the ~430px hero device (Panel/Vintage use cqw and
+# 1024px kiosk, so it overflows the ~430px hero device (Sci-Fi/Vintage use cqw and
 # scale). For the generated site copy ONLY, convert the .t-* px dimensions to cqw
 # (cqw = px / 1024 * 100). DO NOT touch the product display.css — the real kiosk
 # relies on px + transform-scale. These are targeted, reproducible replacements.

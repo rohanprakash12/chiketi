@@ -69,11 +69,11 @@ eval(
 
 // Mirrors getScreenRegistry() in display_app.js.
 const REGISTRY = [
-  { family: 'Panel', variant: 'Gold', fns: [panelGoldScreen1, panelGoldScreen2],
+  { family: 'Sci-Fi', variant: 'TOS', fns: [panelGoldScreen1, panelGoldScreen2],
     gpu: panelGoldGpuScreen },
-  { family: 'Panel', variant: 'Coral', fns: [panelCoralScreen1, panelCoralScreen2],
+  { family: 'Sci-Fi', variant: 'TNG', fns: [panelCoralScreen1, panelCoralScreen2],
     gpu: panelCoralGpuScreen },
-  { family: 'Panel', variant: 'Teal', fns: [panelTealScreen1, panelTealScreen2],
+  { family: 'Sci-Fi', variant: 'DS9', fns: [panelTealScreen1, panelTealScreen2],
     gpu: panelTealGpuScreen },
   { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanScreen2],
     gpu: scanGpuScreen },
@@ -92,7 +92,7 @@ const TIB_CAPACITY_SCREENS = [
 ];
 
 // Screens that print the live LLM backend as a panel title. Note the panel is
-// on screen1 for Panel/Vintage and on screen2 for Terminal.
+// on screen1 for Sci-Fi/Vintage and on screen2 for Terminal.
 //
 // Only Terminal is left: the Bridge Station rebuild moved the NPU readout off
 // screen 1 across both the Panel and Vintage families to make room for the
@@ -258,7 +258,7 @@ for (const fixtureName of Object.keys(FIX)) {
         fail(fixtureName, label, 'hardcoded llama.cpp shown for an ollama backend');
       }
       // ...and the positive half, so a renderer that simply dropped the title
-      // cannot pass. The panel lives on screen1 for Panel/Vintage and on
+      // cannot pass. The panel lives on screen1 for Sci-Fi/Vintage and on
       // screen2 for Terminal -- pin it per renderer rather than per index.
       if (fixtureName === 'OLLAMA' && BACKEND_TITLE_SCREENS.indexOf(fn.name) !== -1 &&
           !/ollama/i.test(html)) {

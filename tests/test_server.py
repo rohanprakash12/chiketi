@@ -446,7 +446,7 @@ class TestCsrfAndCors:
         with _LiveServer() as srv:
             with socket.create_connection(("127.0.0.1", srv.port), timeout=5) as s:
                 s.sendall(
-                    b"POST /api/theme/Panel/Teal HTTP/1.1\r\n"
+                    b"POST /api/theme/Sci-Fi/DS9 HTTP/1.1\r\n"
                     b"Host: " + f"127.0.0.1:{srv.port}".encode() + b"\r\n"
                     b"Origin: http://[::1\r\n"
                     b"Content-Length: 0\r\n\r\n"
@@ -459,7 +459,7 @@ class TestCsrfAndCors:
     def test_cross_origin_post_rejected(self, restore_active_theme):
         with _LiveServer() as srv:
             req = urllib.request.Request(
-                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                srv.url("/api/theme/Sci-Fi/DS9"), data=b"", method="POST",
                 headers={"Origin": "https://evil.example"},
             )
             with pytest.raises(urllib.error.HTTPError) as ei:
@@ -470,7 +470,7 @@ class TestCsrfAndCors:
         before = themes.get_active_theme().name
         with _LiveServer() as srv:
             req = urllib.request.Request(
-                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                srv.url("/api/theme/Sci-Fi/DS9"), data=b"", method="POST",
                 headers={"Origin": "https://evil.example"},
             )
             with pytest.raises(urllib.error.HTTPError):
@@ -480,7 +480,7 @@ class TestCsrfAndCors:
     def test_same_origin_post_allowed(self, restore_active_theme):
         with _LiveServer() as srv:
             req = urllib.request.Request(
-                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                srv.url("/api/theme/Sci-Fi/DS9"), data=b"", method="POST",
                 headers={"Origin": f"http://127.0.0.1:{srv.port}"},
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -490,7 +490,7 @@ class TestCsrfAndCors:
         """curl and scripts send no Origin; they must keep working."""
         with _LiveServer() as srv:
             req = urllib.request.Request(
-                srv.url("/api/theme/Panel/Gold"), data=b"", method="POST")
+                srv.url("/api/theme/Sci-Fi/TOS"), data=b"", method="POST")
             with urllib.request.urlopen(req, timeout=5) as resp:
                 assert resp.status == 200
 
@@ -498,7 +498,7 @@ class TestCsrfAndCors:
         """A sandboxed iframe sends Origin: null. Allowing it reopened CSRF."""
         with _LiveServer() as srv:
             req = urllib.request.Request(
-                srv.url("/api/theme/Panel/Teal"), data=b"", method="POST",
+                srv.url("/api/theme/Sci-Fi/DS9"), data=b"", method="POST",
                 headers={"Origin": "null"})
             with pytest.raises(urllib.error.HTTPError) as exc:
                 urllib.request.urlopen(req, timeout=5)
@@ -904,7 +904,7 @@ class TestPersistence:
     def test_settings_survive_a_restart(self, restore_active_theme):
         """POST settings, wipe every global as a process restart would, reload."""
         with _LiveServer() as srv:
-            self._post(srv, "/api/theme/Panel/Teal", {}).close()
+            self._post(srv, "/api/theme/Sci-Fi/DS9", {}).close()
             self._post(srv, "/api/display", {
                 "brightness": 1.9, "width": 1280, "height": 720,
                 "screen_rotation": {"net": {"enabled": True, "duration": 30}},
@@ -912,14 +912,14 @@ class TestPersistence:
 
         # --- simulate the restart ---
         self.teardown_method()
-        themes.set_active_theme("Panel/Gold")
+        themes.set_active_theme("Sci-Fi/TOS")
 
         from chiketi.state import load_state
         saved = load_state()
         themes.set_active_theme(saved["theme"])
         server.apply_saved_state(saved)
 
-        assert themes.get_active_theme().name == "Teal"
+        assert themes.get_active_theme().name == "DS9"
         assert server._display_brightness == 1.9
         assert server._display_width == 1280
         assert server._display_height == 720
@@ -948,13 +948,13 @@ class TestPersistence:
 
     def test_cli_theme_is_not_written_back(self, restore_active_theme):
         """A one-off --theme must not become permanent via an unrelated POST."""
-        # State as app.run() leaves it: file says Panel/Teal, --theme forced VFD.
-        server.apply_saved_state({"theme": "Panel/Teal"})
+        # State as app.run() leaves it: file says Sci-Fi/DS9, --theme forced VFD.
+        server.apply_saved_state({"theme": "Sci-Fi/DS9"})
         themes.set_active_theme("Vintage/VFD")
         with _LiveServer() as srv:
             self._post(srv, "/api/display", {"brightness": 1.1}).close()
         saved = self._on_disk()
-        assert saved["theme"] == "Panel/Teal"
+        assert saved["theme"] == "Sci-Fi/DS9"
         assert saved["brightness"] == 1.1
         # ...but an explicit theme change from the panel does stick.
         with _LiveServer() as srv:
@@ -1029,7 +1029,7 @@ class TestTokenComparisonAndContentTypes:
             for token, want in [(None, 403), ("wrong", 403), ("s3cret", 200)]:
                 headers = {"X-Chiketi-Token": token} if token else {}
                 req = urllib.request.Request(
-                    srv.url("/api/theme/Panel/Gold"), data=b"", method="POST",
+                    srv.url("/api/theme/Sci-Fi/TOS"), data=b"", method="POST",
                     headers=headers,
                 )
                 try:
@@ -1044,7 +1044,7 @@ class TestTokenComparisonAndContentTypes:
         server._AUTH_TOKEN = "s3cret"
         with _LiveServer() as srv:
             req = urllib.request.Request(
-                srv.url("/api/theme/Panel/Gold"), data=b"", method="POST"
+                srv.url("/api/theme/Sci-Fi/TOS"), data=b"", method="POST"
             )
             with pytest.raises(urllib.error.HTTPError) as exc:
                 urllib.request.urlopen(req, timeout=5)
@@ -1140,7 +1140,7 @@ class TestTokenHeaderCannotCrash:
         with _LiveServer() as srv:
             with socket.create_connection(("127.0.0.1", srv.port), timeout=5) as s:
                 s.sendall(
-                    b"POST /api/theme/Panel/Teal HTTP/1.1\r\n"
+                    b"POST /api/theme/Sci-Fi/DS9 HTTP/1.1\r\n"
                     b"Host: " + f"127.0.0.1:{srv.port}".encode() + b"\r\n"
                     b"X-Chiketi-Token: " + tok.encode("utf-8", "surrogatepass") + b"\r\n"
                     b"Content-Length: 0\r\n\r\n")

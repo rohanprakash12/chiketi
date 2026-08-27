@@ -54,10 +54,10 @@ __SCREEN_FUNCTIONS__
 
 /* ── Screen registry for current theme ── */
 function getScreenRegistry(c) {
-  const isPanel = activeFamily === 'Panel';
+  const isPanel = activeFamily === 'Sci-Fi';
   const isVintage = activeFamily === 'Vintage';
-  const isCoral = isPanel && activeVariant === 'Coral';
-  const isTeal = isPanel && activeVariant === 'Teal';
+  const isCoral = isPanel && activeVariant === 'TNG';
+  const isTeal = isPanel && activeVariant === 'DS9';
   let screens;
   if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:panelTealScreen1},{id:'screen2',name:'Clock',fn:panelTealScreen2}];
   else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:panelCoralScreen1},{id:'screen2',name:'Clock',fn:panelCoralScreen2}];
@@ -186,10 +186,10 @@ function onRotate() {
    ~130KB of innerHTML and that is not worth doing every second on a Pi. */
 const CLOCK_SCREEN_IDS = ['screen1', 'screen2'];
 /* Families whose screen2 is a clock. Terminal's screen2 is the AI Monitor
-   (see getScreenRegistry(): every non-Panel/Vintage family falls through to
+   (see getScreenRegistry(): every non-Sci-Fi/Vintage family falls through to
    the terminal branch), so this is an allowlist, not a Terminal denylist --
    a family added later is correctly treated as non-clock by default. */
-const CLOCK_FAMILIES = ['Panel', 'Vintage'];
+const CLOCK_FAMILIES = ['Sci-Fi', 'Vintage'];
 
 function isClockScreen() {
   const s = enabledScreens[currentScreenIdx];

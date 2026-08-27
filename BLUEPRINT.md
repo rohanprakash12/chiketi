@@ -173,19 +173,19 @@ Three rotating screens, rendered per theme family in `screen_functions.js`:
 
 1. **System Stats** — CPU/RAM/disk donuts or bars, thermals, network, host info.
 2. **Theme-specific** — Terminal themes render a **GPU / AI Monitor** (GPU
-   utilization, VRAM, power, clocks; local-LLM status); Panel and Vintage
+   utilization, VRAM, power, clocks; local-LLM status); Sci-Fi and Vintage
    themes render a **Clock**.
 3. **Claude Code Usage** — token usage by type, messages, session stats, live
    token-rate sparkline.
 
-The Panel family lays these out as titled color panels with donuts; Terminal as
+The Sci-Fi family lays these out as titled color panels with donuts; Terminal as
 monospace ASCII-bar panels; Vintage with CRT/VFD/nixie styling.
 
 ## Themes
 
 12 themes across 3 families (`chiketi/themes.py`):
 
-- **Panel** — Gold, Teal, Coral (filled header bars, donut gauges)
+- **Sci-Fi** — TOS, DS9, TNG (spine, chevron and pill region chrome)
 - **Terminal** — hacker, cyan, amber, phosphor, red_alert, blue (monospace, ASCII bars)
 - **Vintage** — Scanlines, Tubes, VFD (CRT glow / nixie / vacuum-fluorescent)
 
