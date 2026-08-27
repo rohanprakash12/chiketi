@@ -1316,7 +1316,7 @@ const BS_SKIN_SCAN = {
                       STM, 24, '1px', 3);
   },
   capNone: function (label) {
-    return _capNone(label, _SC.dim || '#334455', STM, 24, _SC.dim || '#334455', '1px');
+    return _capNone(label, _SC.cyanDim || '#009977', STM, 24, _SC.dim || '#334455', '1px');
   },
   clockFn: function (hh, mm, ss, day, date) {
     return _glowClock(hh, mm, ss, day, date, {h: _SC.cyan || '#00FFCC', sep: _SC.amber || '#FFAA00',
@@ -1492,7 +1492,7 @@ const BS_SKIN_VFD = {
         `font-family:${STM};flex-shrink:0">${cap}</span></div>`;
   },
   capNone: function (label) {
-    return `<span style="color:${_VF.ghost || '#0A1A15'};font-size:${gq(17)};` +
+    return `<span style="color:${_VF.greenDim || '#008866'};font-size:${gq(17)};` +
       `font-family:${STM}">${label} &mdash; NONE</span>`;
   },
   clockFn: function (hh, mm, ss, day, date) {
