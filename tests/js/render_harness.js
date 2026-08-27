@@ -75,9 +75,12 @@ const REGISTRY = [
     gpu: panelCoralGpuScreen },
   { family: 'Panel', variant: 'Teal', fns: [panelTealScreen1, panelTealScreen2],
     gpu: panelTealGpuScreen },
-  { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanScreen2] },
-  { family: 'Vintage', variant: 'Tubes', fns: [tubeScreen1, tubeScreen2] },
-  { family: 'Vintage', variant: 'VFD', fns: [vfdScreen1, vfdScreen2] },
+  { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanScreen2],
+    gpu: scanGpuScreen },
+  { family: 'Vintage', variant: 'Tubes', fns: [tubeScreen1, tubeScreen2],
+    gpu: tubeGpuScreen },
+  { family: 'Vintage', variant: 'VFD', fns: [vfdScreen1, vfdScreen2],
+    gpu: vfdGpuScreen },
   { family: 'Terminal', variant: 'hacker', fns: [terminalScreen1, terminalScreen2] },
 ];
 
@@ -91,12 +94,11 @@ const TIB_CAPACITY_SCREENS = [
 // Screens that print the live LLM backend as a panel title. Note the panel is
 // on screen1 for Panel/Vintage and on screen2 for Terminal.
 //
-// The whole Panel family is deliberately absent: the Bridge Station rebuild
-// moved the NPU readout off screen 1 to make room for the chronometer, and it
-// returns when the family's screen 2 is rebuilt. Re-add all three then.
-const BACKEND_TITLE_SCREENS = [
-  'scanScreen1', 'tubeScreen1', 'vfdScreen1', 'terminalScreen2',
-];
+// Only Terminal is left: the Bridge Station rebuild moved the NPU readout off
+// screen 1 across both the Panel and Vintage families to make room for the
+// chronometer. It returns when each family's screen 2 is rebuilt; re-add the
+// six screen1s then.
+const BACKEND_TITLE_SCREENS = ['terminalScreen2'];
 
 /* Leak detection by tokenizing, not by pattern-matching a payload.
    

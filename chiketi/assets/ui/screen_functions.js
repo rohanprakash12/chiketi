@@ -86,6 +86,13 @@ function thermalScale(tickColor, font, marginLeft) {
   return html + `</div>`;
 }
 
+/* SVG ids are built from captions, and url(#...) will not match an id
+   containing a space. "GPU VRAM" silently unlit a whole magic eye before
+   this existed; slugify once, here, rather than at four call sites. */
+function svgId(prefix, label) {
+  return prefix + String(label == null ? '' : label).replace(/[^A-Za-z0-9_-]+/g, '');
+}
+
 /* ── Spinning fan icon — speed scales with actual RPM ── */
 function fanIcon(color, size, rpm) {
   if (!rpm || rpm <= 0) {
@@ -356,9 +363,13 @@ function panelTealScreen2(c) {
    VINTAGE / SCANLINES
    ═══════════════════════════════════════ */
 
-function scanGlow(color, spread) {
+function scanShadow(color, spread) {
   spread = spread || 4;
-  return 'color:' + color + ';text-shadow:0 0 ' + spread + 'px ' + color + ', 0 0 ' + (spread*2) + 'px ' + color + '66';
+  return 'text-shadow:0 0 ' + spread + 'px ' + color + ', 0 0 ' + (spread * 2) + 'px ' + color + '66';
+}
+
+function scanGlow(color, spread) {
+  return 'color:' + color + ';' + scanShadow(color, spread);
 }
 
 function scanSectionLabel(text, color, rightText, rightColor) {
@@ -388,7 +399,7 @@ function scanDonut(pct, label, color, size) {
         'stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="butt" ' +
         'transform="rotate(-90 ' + cx + ' ' + cy + ')" style="transition:stroke-dashoffset 0.8s ease;filter:drop-shadow(0 0 3px ' + color + ')"/>' +
       '<text x="' + cx + '" y="' + (cy+2) + '" text-anchor="middle" dominant-baseline="central" ' +
-        'fill="' + valColor + '" font-size="3.81cqw" font-family="' + F + '" style="filter:drop-shadow(0 0 4px ' + valColor + ')">' + Math.round(pct) + '%</text>' +
+        'fill="' + valColor + '" font-size="' + (size * 0.24) + '" font-family="' + F + '" style="filter:drop-shadow(0 0 ' + (size * 0.022).toFixed(1) + 'px ' + valColor + ')">' + Math.round(pct) + '%</text>' +
     '</svg></div>';
 }
 
@@ -410,105 +421,6 @@ function scanThermBar(label, temp) {
     '</div></div>';
 }
 
-function scanScreen1(c) {
-  const S = PANEL_SPEC.scanlines || {};
-  const F = "'Share Tech Mono', monospace";
-  const cyan = S.cyan || '#00FFCC';
-  const amber = S.amber || '#FFAA00';
-  const green = S.green || '#00FF88';
-  const blue = S.blue || '#4488FF';
-  const red = S.red || '#FF3344';
-  const cyanDim = S.cyanDim || '#009977';
-  const dim = S.dim || '#334455';
-  const bg = S.bg || '#060810';
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const thermalStatusColor = anyDanger ? red : anyOrange ? amber : green;
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-
-  return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;position:relative;padding:0.88cqw;display:flex;flex-direction:column;gap:0.59cqw">' +
-    /* Scanline overlay */
-    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px);z-index:10"></div>' +
-    /* Row 1: Headers */
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + scanSectionLabel('CORE SYSTEMS', cyan, hostStr) + '</div>' +
-      '<div style="flex:1">' + scanSectionLabel('THERMALS', amber, thermalStatus, thermalStatusColor) + '</div>' +
-    '</div>' +
-    /* Row 2: Donuts | Bars */
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;justify-content:space-around;align-items:center">' +
-        scanDonut(cpuUsage.available?cpuUsage.value:0, 'CPU', amber, 170) +
-        scanDonut(ramPct.available?ramPct.value:0, 'RAM', cyan, 170) +
-        scanDonut(diskRootPct.available?diskRootPct.value:0, 'SSD', green, 170) +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">' +
-        scanThermBar('CPU', cpuTemp.available?cpuTemp.value:20) +
-        scanThermBar('MB', mbTemp.available?mbTemp.value:20) +
-        scanThermBar('GPU', gpuTemp.available?gpuTemp.value:20) +
-        thermalScale(cyanDim, F) +
-      '</div>' +
-    '</div>' +
-    /* Row 3: Secondary | Fans */
-    '<div style="display:flex;gap:1.17cqw;align-items:center">' +
-      '<div style="flex:1">' +
-        (diskHome.available ?
-          '<div style="position:relative;height:2.64cqw;background:' + dim + ';border-radius:1px;overflow:hidden">' +
-            '<div style="position:absolute;top:0;left:0;height:100%;width:' + secPct + '%;background:' + green + ';border-radius:1px;transition:width 0.8s ease;box-shadow:0 0 3px ' + green + ',0 0 6px ' + green + '44"></div>' +
-            '<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.17cqw;font-family:' + F + ';font-size:1.46cqw;color:' + bg + '">' +
-              '<span>SECONDARY</span><span>' + fmtCapacity(diskHome) + ' / ' + fmtCapacityTotal(diskHome) + '</span></div>' +
-          '</div>' :
-          '<div style="height:2.64cqw;background:' + dim + ';border-radius:1px;display:flex;align-items:center;justify-content:center;font-family:' + F + ';font-size:1.46cqw;color:' + dim + '">SECONDARY \u2014 NONE</div>') +
-      '</div>' +
-      '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
-        fanStrip(cyan, F, '') +
-      '</div>' +
-    '</div>' +
-    /* Row 4: Headers */
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + scanSectionLabel('COMMS', blue, speedStr) + '</div>' +
-      '<div style="flex:1">' + scanSectionLabel('NPU', amber, backendTitle()) + '</div>' +
-    '</div>' +
-    /* Row 5+6: Data */
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">IP</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (ip.available?esc(String(ip.value)):'N/A') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">MAC</span><span style="' + scanGlow(cyan, 4) + ';font-size:4.69cqw;font-family:' + F + '">' + (mac.available?esc(String(mac.value)):'N/A') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="' + scanGlow(green, 4) + ';font-size:1.76cqw;font-family:' + F + '">\u25B2</span><span style="' + scanGlow(green, 4) + ';font-size:4.98cqw;font-family:' + F + '">' + (ul.available?ul.value+' '+ul.unit:'0') + '</span></div>' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="' + scanGlow(blue, 4) + ';font-size:1.76cqw;font-family:' + F + '">\u25BC</span><span style="' + scanGlow(blue, 4) + ';font-size:4.98cqw;font-family:' + F + '">' + (dl.available?dl.value+' '+dl.unit:'0') + '</span></div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">MODEL</span><span style="' + scanGlow(amber, 4) + ';font-size:3.81cqw;font-family:' + F + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right">' + cleanModel() + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">QUANT</span><span style="' + scanGlow(amber, 4) + ';font-size:3.81cqw;font-family:' + F + '">' + mv('llama.quant') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">CTX</span><span style="' + scanGlow(amber, 4) + ';font-size:3.81cqw;font-family:' + F + '">' + mv('llama.context') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
-          '<div><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">T/S </span><span style="' + scanGlow(cyan, 5) + ';font-size:4.98cqw;font-family:' + F + '">' + (tokSec.available?Math.round(tokSec.value):'--') + '</span></div>' +
-          '<div><span style="' + scanGlow(cyanDim, 2) + ';font-size:2.64cqw;font-family:' + F + '">VRAM </span><span style="' + scanGlow(cyan, 5) + ';font-size:4.98cqw;font-family:' + F + '">' + vramStr + '</span></div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div></div>';
-}
-
 function scanScreen2(c) {
   const S = PANEL_SPEC.scanlines || {};
   const F = "'Share Tech Mono', monospace";
@@ -526,9 +438,11 @@ function scanScreen2(c) {
   const dayName = days[now.getDay()];
   const dateStr = months[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
 
-  return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:' + F + '">' +
-    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px);z-index:10"></div>' +
-    '<div style="' + scanGlow(cyanDim, 3) + ';font-size:1.76cqw;letter-spacing:8px;margin-bottom:1.76cqw">VACUUM FLUORESCENT CHRONOMETER</div>' +
+  bsSkin(BS_SKIN_SCAN);
+  return bsFrame(
+    '<div style="width:100%;height:100%;display:flex;flex-direction:column;' +
+      'align-items:center;justify-content:center;font-family:' + F + '">' +
+    '<div style="' + scanGlow(cyanDim, 3) + ';font-size:1.76cqw;letter-spacing:8px;margin-bottom:1.76cqw">CATHODE RAY CHRONOMETER</div>' +
     '<div style="display:flex;align-items:baseline">' +
       '<span style="' + scanGlow(cyan, 10) + ';font-size:21.48cqw;letter-spacing:6px">' + hh + '</span>' +
       '<span style="' + scanGlow(amber, 8) + ';font-size:14.65cqw;animation:blink 1s infinite;margin:0 0.29cqw">:</span>' +
@@ -544,7 +458,7 @@ function scanScreen2(c) {
       '<div style="width:0.88cqw;height:0.88cqw;border-radius:50%;background:' + cyan + ';box-shadow:0 0 4px ' + cyan + ',0 0 8px ' + cyan + '44"></div>' +
       '<div style="flex:1;height:1px;background:' + cyan + ';opacity:0.15;box-shadow:0 0 2px ' + cyan + '"></div>' +
     '</div>' +
-  '</div></div>';
+  '</div>');
 }
 
 /* ═══════════════════════════════════════
@@ -608,7 +522,7 @@ function bargraphBar(pct, label, color, flash) {
   const svgW = 300;
   const h = 30;
   const barW = (Math.max(0, pct) / 100) * (svgW - 4);
-  const fid = 'glow-' + label;
+  const fid = svgId('glow-', label);
 
   const flashStyle = flash ? 'animation:blink 0.5s infinite;' : '';
   return '<div style="display:flex;align-items:center;gap:0.88cqw;' + flashStyle + '">' +
@@ -629,6 +543,7 @@ function bargraphBar(pct, label, color, flash) {
 }
 
 function magicEye(pct, label, size) {
+  const eid = svgId('', label);
   const cx = 210, cy = 210, rOuter = 146, rInner = 66;
   const minAngle = 4, maxAngle = 320;
   const wedgeAngle = minAngle + (pct / 100) * (maxAngle - minAngle);
@@ -656,20 +571,20 @@ function magicEye(pct, label, size) {
     '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto;filter:drop-shadow(0 0 ' + (4*s) + 'px rgba(50,255,90,0.08)) drop-shadow(0 0 ' + (10*s) + 'px rgba(50,255,90,0.06))">' +
       '<svg viewBox="0 0 420 420" width="' + size + '" height="' + size + '" style="display:block">' +
         '<defs>' +
-          '<filter id="og-' + label + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
-          '<filter id="sb-' + label + '" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>' +
-          '<radialGradient id="ph-' + label + '" cx="50%" cy="47%" r="50%"><stop offset="0%" stop-color="#baff9f"/><stop offset="26%" stop-color="#7fff63" stop-opacity="0.98"/><stop offset="52%" stop-color="#46ef3f" stop-opacity="0.95"/><stop offset="78%" stop-color="#1fc62c" stop-opacity="0.92"/><stop offset="100%" stop-color="#0c7e1c" stop-opacity="0.90"/></radialGradient>' +
-          '<radialGradient id="rf-' + label + '" cx="50%" cy="50%" r="58%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.40)"/></radialGradient>' +
-          '<clipPath id="fc-' + label + '"><circle cx="210" cy="210" r="146"/></clipPath>' +
-          '<mask id="fm-' + label + '"><rect width="420" height="420" fill="black"/><circle cx="210" cy="210" r="146" fill="white"/><circle cx="210" cy="210" r="66" fill="black"/></mask>' +
+          '<filter id="og-' + eid + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
+          '<filter id="sb-' + eid + '" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>' +
+          '<radialGradient id="ph-' + eid + '" cx="50%" cy="47%" r="50%"><stop offset="0%" stop-color="#baff9f"/><stop offset="26%" stop-color="#7fff63" stop-opacity="0.98"/><stop offset="52%" stop-color="#46ef3f" stop-opacity="0.95"/><stop offset="78%" stop-color="#1fc62c" stop-opacity="0.92"/><stop offset="100%" stop-color="#0c7e1c" stop-opacity="0.90"/></radialGradient>' +
+          '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.40)"/></radialGradient>' +
+          '<clipPath id="fc-' + eid + '"><circle cx="210" cy="210" r="146"/></clipPath>' +
+          '<mask id="fm-' + eid + '"><rect width="420" height="420" fill="black"/><circle cx="210" cy="210" r="146" fill="white"/><circle cx="210" cy="210" r="66" fill="black"/></mask>' +
         '</defs>' +
-        '<circle cx="210" cy="210" r="132" fill="#31e13a" opacity="0.12" filter="url(#og-' + label + ')"/>' +
-        '<g mask="url(#fm-' + label + ')">' +
-          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + label + ')" filter="url(#og-' + label + ')" opacity="0.78"/>' +
-          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + label + ')" opacity="0.92"/>' +
-          '<path d="' + softPath + '" fill="rgba(0,0,0,0.34)" filter="url(#sb-' + label + ')" style="transition:d 0.5s ease"/>' +
+        '<circle cx="210" cy="210" r="132" fill="#31e13a" opacity="0.12" filter="url(#og-' + eid + ')"/>' +
+        '<g mask="url(#fm-' + eid + ')">' +
+          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" filter="url(#og-' + eid + ')" opacity="0.78"/>' +
+          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" opacity="0.92"/>' +
+          '<path d="' + softPath + '" fill="rgba(0,0,0,0.34)" filter="url(#sb-' + eid + ')" style="transition:d 0.5s ease"/>' +
           '<path d="' + shadowPath + '" fill="rgba(0,0,0,0.96)" style="transition:d 0.5s ease"/>' +
-          '<circle cx="210" cy="210" r="146" fill="url(#rf-' + label + ')" opacity="0.95"/>' +
+          '<circle cx="210" cy="210" r="146" fill="url(#rf-' + eid + ')" opacity="0.95"/>' +
         '</g>' +
       '</svg>' +
       '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + holeSize + 'px;height:' + holeSize + 'px;border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + (5*s) + 'px ' + (10*s) + 'px rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:grid;place-items:center">' +
@@ -712,114 +627,6 @@ function tubeSectionLabel(text, color, rightText, rightColor) {
     '<div style="flex:1;height:1px;background:' + color + '18;margin:0 1.17cqw"></div>' +
     (rightText ? '<span style="color:' + rc + ';text-shadow:0 0 2px #FFFFFF44,0 0 6px ' + rc + '66,0 0 12px ' + rc + '33;font-size:1.95cqw;font-family:' + MONO + ';letter-spacing:2px">' + rightText + '</span>' : '') +
   '</div>';
-}
-
-function tubeScreen1(c) {
-  const N = PANEL_SPEC.tubes || {};
-  const MONO = "'IBM Plex Mono', monospace";
-  const bg = N.bg || '#0A0806';
-  const core = N.core || '#FF8833';
-  const warm = N.warm || '#FF9944';
-  const eyeStd = N.eyeStd || '#22DD22';
-  const label = N.label || '#AA8855';
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyOrange = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyOrange ? 'WARNING' : 'NOMINAL';
-  const thermalStatusColor = anyDanger ? '#FF3322' : anyOrange ? core : eyeStd;
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-  function tempColor(t) { if (t >= 90) return '#FF3322'; if (t >= 70) return '#DDCC00'; if (t >= 50) return eyeStd; return '#4488DD'; }
-  function tempFlash(t) { return t >= 100 ? ';animation:blink 0.5s infinite' : ''; }
-  function tempPct(t) { return Math.max(0, Math.min(100, ((Math.max(20, Math.min(120, t)) - 20) / 100) * 100)); }
-  return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;padding:0.88cqw;display:flex;flex-direction:column;gap:0.59cqw">' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + tubeSectionLabel('CORE SYSTEMS', core, hostStr, warm) + '</div>' +
-      '<div style="flex:1">' + tubeSectionLabel('THERMALS', warm, thermalStatus, thermalStatusColor) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;justify-content:space-around;align-items:center">' +
-        magicEye(cpuUsage.available?cpuUsage.value:0, 'CPU', 180) +
-        magicEye(ramPct.available?ramPct.value:0, 'RAM', 180) +
-        magicEye(diskRootPct.available?diskRootPct.value:0, 'SSD', 180) +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0.88cqw">' +
-        bargraphBar(tempPct(cpuTemp.available?cpuTemp.value:20), 'CPU', tempColor(cpuTemp.available?cpuTemp.value:20), (cpuTemp.available?cpuTemp.value:0)>=100) +
-        bargraphBar(tempPct(mbTemp.available?mbTemp.value:20), 'MB', tempColor(mbTemp.available?mbTemp.value:20), (mbTemp.available?mbTemp.value:0)>=100) +
-        bargraphBar(tempPct(gpuTemp.available?gpuTemp.value:20), 'GPU', tempColor(gpuTemp.available?gpuTemp.value:20), (gpuTemp.available?gpuTemp.value:0)>=100) +
-        '<div style="margin-left:4.10cqw;position:relative;height:2.34cqw"><div style="position:absolute;top:0;left:0;right:0;height:1px;background:' + core + '33"></div>' +
-          [20,50,70,90,110,120].map(function(t) { return '<div style="position:absolute;left:' + (((t-20)/100)*100) + '%;top:0;transform:translateX(-50%)"><div style="width:1px;height:0.88cqw;background:' + core + '66"></div><div style="color:' + core + ';text-shadow:0 0 3px ' + core + '55;font-size:1.46cqw;font-family:' + MONO + ';text-align:center;margin-top:1px">' + t + '</div></div>'; }).join('') +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;align-items:center">' +
-      '<div style="flex:1">' +
-        (diskHome.available ?
-          '<div style="position:relative;height:2.93cqw;background:#0C0A06;border:1px solid #33281844;border-radius:10px;overflow:hidden">' +
-            '<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;justify-content:space-between;align-items:center;padding:0 1.46cqw;font-family:' + MONO + ';font-size:1.46cqw;color:#CCDDFF;text-shadow:0 0 2px #4488DD88;z-index:2;pointer-events:none"><span>SECONDARY</span><span>' + fmtCapacity(diskHome) + ' / ' + fmtCapacityTotal(diskHome) + '</span></div>' +
-          '</div>' :
-          '<div style="height:2.93cqw;background:#0C0A06;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:' + MONO + ';font-size:1.46cqw;color:' + (N.barDim||'#CC4400') + '">SECONDARY \u2014 NONE</div>') +
-      '</div>' +
-      '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
-        (function() {
-          var cpuF = m('cpu.fans_cpu'), caseF = m('cpu.fans_case'), gpuFan = m('gpu.fan'), h = '';
-          var cpuList = asList(cpuF), caseList = asList(caseF);
-          if (cpuList.length) {
-            h += '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">CPU</span>';
-            for (var i = 0; i < cpuList.length; i++) h += dekatron(cpuList[i], 24);
-          }
-          if (caseList.length) {
-            h += '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">CASE</span>';
-            for (var i = 0; i < caseList.length; i++) h += dekatron(caseList[i], 24);
-          }
-          if (gpuFan.available) {
-            h += '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">GPU</span>';
-            h += dekatron(gpuFan.value * 10, 24);
-          }
-          if (!h) h = '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + ';opacity:0.4">NO FANS</span>';
-          return h;
-        })() +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + tubeSectionLabel('COMMS', '#4488DD', speedStr) + '</div>' +
-      '<div style="flex:1">' + tubeSectionLabel('NPU', warm, backendTitle()) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;flex:1">' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">IP</span>' + nixieDigit(ip.available?esc(String(ip.value)):'N/A', 32) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">MAC</span>' + nixieDigit(mac.available?esc(String(mac.value)):'N/A', 32) + '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:1.76cqw;align-items:center">' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + eyeStd + ';text-shadow:0 0 4px ' + eyeStd + '88;font-size:1.76cqw;font-family:' + MONO + '">\u25B2</span>' + nixieDigit((ul.available?ul.value:'0'), 32) + '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">' + (ul.available?ul.unit:'B/s') + '</span></div>' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:#4488DD;text-shadow:0 0 4px #4488DD88;font-size:1.76cqw;font-family:' + MONO + '">\u25BC</span>' + nixieDigit((dl.available?dl.value:'0'), 32) + '<span style="color:' + label + ';font-size:1.76cqw;font-family:' + MONO + '">' + (dl.available?dl.unit:'B/s') + '</span></div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">MODEL</span>' + nixieDigit(cleanModel(), 26) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">QUANT</span>' + nixieDigit(mv('llama.quant'), 26) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">CTX</span>' + nixieDigit(mv('llama.context'), 26) + '</div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
-          '<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">T/S</span>' + nixieDigit(tokSec.available?Math.round(tokSec.value):'--', 38) + '</div>' +
-          '<div style="display:flex;align-items:baseline;gap:0.59cqw"><span style="color:' + label + ';font-size:2.64cqw;font-family:' + MONO + '">VRAM</span>' + nixieDigit(vramStr, 38) + '</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div></div>';
 }
 
 function tubeScreen2(c) {
@@ -898,7 +705,7 @@ function vfdDonut(pct, label, color, size) {
   const isHigh = pct > 80;
   const ac = isHigh ? (V.red || '#FF4433') : p.main;
   const ab = isHigh ? (V.redBright || '#FF7766') : p.bright;
-  const fid = 'dn-' + label;
+  const fid = svgId('dn-', label);
 
   let ticks = '';
   for (let i = 0; i < 20; i++) {
@@ -933,7 +740,7 @@ function vfdThermalBar(temp, label) {
   const p = vfdPal(color);
   const totalSegs = 16;
   const litSegs = Math.round((pct / 100) * totalSegs);
-  const fid = 'tb-' + label;
+  const fid = svgId('tb-', label);
   const ghost = V.ghost || '#0A1A15';
 
   let segs = '<defs><filter id="' + fid + '" x="-10%" y="-50%" width="120%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.2 0.8"/></filter></defs>';
@@ -967,117 +774,6 @@ function vfdPanel(children) {
     '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:22;background:radial-gradient(ellipse at 50% 40%,transparent 50%,rgba(0,0,0,0.15) 100%)"></div>' +
     children +
   '</div>';
-}
-
-function vfdScreen1(c) {
-  const V = PANEL_SPEC.vfd || {};
-  const F = "'Share Tech Mono', monospace";
-  const cpuUsage = m('cpu.usage'), ramPct = m('mem.ram_percent');
-  const diskRootPct = m('disk.root_percent');
-  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
-  const cpuTemp = m('cpu.temp'), mbTemp = m('cpu.mb_temp'), gpuTemp = m('gpu.temp');
-  const ip = m('net.ip'), mac = m('net.mac'), netSpeed = m('net.speed');
-  const dl = m('net.dl'), ul = m('net.ul');
-  const llamaModel = m('llama.model'), tokSec = m('llama.tok_per_sec');
-  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total');
-  const vramStr = vramUsed.available && vramTotal.available ? (vramUsed.value > 100 ? (vramUsed.value/1024).toFixed(1) : vramUsed.value) + '/' + (vramTotal.value > 100 ? Math.round(vramTotal.value/1024) : vramTotal.value) : '--';
-  const speedStr = netSpeed.available ? (netSpeed.value >= 1000 ? Math.floor(netSpeed.value/1000) + ' GBPS' : netSpeed.value + ' MBPS') : '--';
-  const hostname = m('sys.hostname');
-  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
-  const temps = [cpuTemp.available?cpuTemp.value:0, mbTemp.available?mbTemp.value:0, gpuTemp.available?gpuTemp.value:0];
-  const anyDanger = temps.some(t => t >= 110);
-  const anyWarn = temps.some(t => t >= 90);
-  const thermalStatus = anyDanger ? 'CRITICAL' : anyWarn ? 'WARNING' : 'NOMINAL';
-  const statusColor = anyDanger ? 'red' : anyWarn ? 'amber' : 'green';
-  const secPct = diskHome.available && diskHomePct.available ? diskHomePct.value : 0;
-  const green = V.green || '#00DDAA';
-  const greenDim = V.greenDim || '#008866';
-  const blue = V.blue || '#00D4CC';
-  const blueDim = V.blueDim || '#007A77';
-
-  const content = '<div style="width:100%;height:100%;padding:1.17cqw;display:flex;flex-direction:column;gap:0.59cqw;position:relative;z-index:10">' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + vfdSectionLabel('CORE SYSTEMS', 'green', hostStr, 'amber') + '</div>' +
-      '<div style="flex:1">' + vfdSectionLabel('THERMALS', 'amber', thermalStatus, statusColor) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.46cqw;flex:1">' +
-      '<div style="flex:1;display:flex;justify-content:space-around;align-items:center">' +
-        vfdDonut(cpuUsage.available?cpuUsage.value:0, 'CPU', 'green', 160) +
-        vfdDonut(ramPct.available?ramPct.value:0, 'RAM', 'blue', 160) +
-        vfdDonut(diskRootPct.available?diskRootPct.value:0, 'SSD', 'amber', 160) +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:1.17cqw">' +
-        vfdThermalBar(cpuTemp.available?cpuTemp.value:20, 'CPU') +
-        vfdThermalBar(mbTemp.available?mbTemp.value:20, 'MB') +
-        vfdThermalBar(gpuTemp.available?gpuTemp.value:20, 'GPU') +
-        '<div style="margin-left:4.69cqw;position:relative;height:2.93cqw"><div style="position:absolute;top:0;left:0;right:0;height:1px;background:' + green + '22"></div>' +
-          [20,50,70,90,110,120].map(function(t) { return '<div style="position:absolute;left:' + (((t-20)/100)*100) + '%;top:0;transform:translateX(-50%)"><div style="width:1px;height:0.73cqw;background:' + green + '44"></div><div style="color:' + green + ';text-shadow:0 0 2px ' + greenDim + ';font-size:1.95cqw;font-family:' + F + ';text-align:center;margin-top:1px">' + t + '</div></div>'; }).join('') +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw;align-items:center">' +
-      '<div style="flex:1">' +
-        (diskHome.available ?
-          '<div style="display:flex;align-items:center;gap:0.59cqw">' +
-            '<span style="color:' + blue + ';text-shadow:0 0 3px ' + blueDim + ';font-size:1.46cqw;font-family:' + F + ';flex-shrink:0">SEC</span>' +
-            '<div style="flex:1;height:3.22cqw;background:' + (V.blueGhost||'#0A1018') + ';border-radius:1px;overflow:hidden;position:relative">' +
-              '<div style="position:absolute;top:0;left:0;height:100%;width:' + secPct + '%;background:' + blue + ';border-radius:1px;transition:width 0.8s ease;box-shadow:0 0 4px ' + blue + '66"></div>' +
-            '</div>' +
-            '<span style="color:' + blue + ';text-shadow:0 0 3px ' + blueDim + ';font-size:1.46cqw;font-family:' + F + ';flex-shrink:0">' + fmtCapacity(diskHome) + '/' + fmtCapacityTotal(diskHome) + '</span>' +
-          '</div>' :
-          '<span style="color:' + (V.ghost||'#0A1A15') + ';font-size:1.76cqw;font-family:' + F + '">SECONDARY \u2014 NONE</span>') +
-      '</div>' +
-      '<div style="flex:1;display:flex;justify-content:center;align-items:center;gap:0.88cqw">' +
-        (function() {
-          var cpuF = m('cpu.fans_cpu'), caseF = m('cpu.fans_case'), gpuFan = m('gpu.fan'), h = '';
-          var cpuList = asList(cpuF), caseList = asList(caseF);
-          if (cpuList.length) {
-            h += '<span style="color:' + greenDim + ';text-shadow:0 0 2px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + '">CPU</span>';
-            for (var i = 0; i < cpuList.length; i++) h += fanIcon(green, '2.93cqw', cpuList[i]);
-          }
-          if (caseList.length) {
-            h += '<span style="color:' + greenDim + ';text-shadow:0 0 2px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + '">CASE</span>';
-            for (var i = 0; i < caseList.length; i++) h += fanIcon(green, '2.93cqw', caseList[i]);
-          }
-          if (gpuFan.available) {
-            h += '<span style="color:' + greenDim + ';text-shadow:0 0 2px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + '">GPU</span>';
-            h += fanIcon(green, '2.93cqw', gpuFan.value * 10);
-          }
-          if (!h) h = '<span style="color:' + greenDim + ';font-size:1.76cqw;font-family:' + F + ';opacity:0.4">NO FANS</span>';
-          return h;
-        })() +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.17cqw">' +
-      '<div style="flex:1">' + vfdSectionLabel('COMMS', 'blue', speedStr) + '</div>' +
-      '<div style="flex:1">' + vfdSectionLabel('NPU', 'amber', backendTitle()) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:1.46cqw;flex:1">' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">IP</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (ip.available?esc(String(ip.value)):'N/A') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + greenDim + ';font-size:2.05cqw;font-family:' + F + '">MAC</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:3.52cqw;font-family:' + F + '">' + (mac.available?esc(String(mac.value)):'N/A') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;gap:1.76cqw;align-items:center">' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + green + ';text-shadow:0 0 4px ' + greenDim + ';font-size:1.76cqw;font-family:' + F + '">\u25B2</span><span style="color:' + green + ';text-shadow:0 0 4px ' + green + '66;font-size:4.10cqw;font-family:' + F + '">' + (ul.available?ul.value:'0') + '</span><span style="color:' + greenDim + ';font-size:1.76cqw;font-family:' + F + '">' + (ul.available?ul.unit:'B/s') + '</span></div>' +
-          '<div style="display:flex;align-items:center;gap:0.59cqw"><span style="color:' + blue + ';text-shadow:0 0 4px ' + blueDim + ';font-size:1.76cqw;font-family:' + F + '">\u25BC</span><span style="color:' + blue + ';text-shadow:0 0 4px ' + blue + '66;font-size:4.10cqw;font-family:' + F + '">' + (dl.available?dl.value:'0') + '</span><span style="color:' + blueDim + ';font-size:1.76cqw;font-family:' + F + '">' + (dl.available?dl.unit:'B/s') + '</span></div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">' +
-        '<div style="display:flex;flex-direction:column;gap:0.29cqw">' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + (V.amberDim||'#886611') + ';font-size:2.05cqw;font-family:' + F + '">MODEL</span><span style="color:' + (V.amber||'#FFAA22') + ';text-shadow:0 0 4px ' + (V.amber||'#FFAA22') + '66;font-size:3.81cqw;font-family:' + F + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right">' + cleanModel() + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + (V.amberDim||'#886611') + ';font-size:2.05cqw;font-family:' + F + '">QUANT</span><span style="color:' + (V.amber||'#FFAA22') + ';text-shadow:0 0 4px ' + (V.amber||'#FFAA22') + '66;font-size:3.81cqw;font-family:' + F + '">' + mv('llama.quant') + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between"><span style="color:' + (V.amberDim||'#886611') + ';font-size:2.05cqw;font-family:' + F + '">CTX</span><span style="color:' + (V.amber||'#FFAA22') + ';text-shadow:0 0 4px ' + (V.amber||'#FFAA22') + '66;font-size:3.81cqw;font-family:' + F + '">' + mv('llama.context') + '</span></div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
-          '<div><span style="color:' + greenDim + ';font-size:1.95cqw;font-family:' + F + '">T/S</span> <span style="color:' + green + ';text-shadow:0 0 5px ' + green + '66;font-size:4.39cqw;font-family:' + F + '">' + (tokSec.available?Math.round(tokSec.value):'--') + '</span></div>' +
-          '<div><span style="color:' + blueDim + ';font-size:1.95cqw;font-family:' + F + '">VRAM</span> <span style="color:' + blue + ';text-shadow:0 0 5px ' + blue + '66;font-size:4.39cqw;font-family:' + F + '">' + vramStr + '</span></div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
-
-  return '<div class="screen-frame">' + vfdPanel(content) + '</div>';
 }
 
 function vfdScreen2(c) {
@@ -1319,7 +1015,9 @@ function gq(px) { return (px / 1024 * 100).toFixed(3) + 'cqw'; }
    the declaration omitted rather than set to `none`, so there is nothing for
    a later rule to have to override. */
 function bsGlow(px, color, alpha) {
-  return bsS().glow ? `text-shadow:0 0 ${gq(px)} ${color}${alpha || '99'}` : '';
+  const S = bsS();
+  if (S.glowFn) return S.glowFn(px, color, alpha);
+  return S.glow ? `text-shadow:0 0 ${gq(px)} ${color}${alpha || '99'}` : '';
 }
 
 /* ── Skins ───────────────────────────────────────────────────────────────
@@ -1336,7 +1034,7 @@ const _C = PANEL_SPEC.coral || {};
 
 /* Gold: a hard-edged 12px spine, segmented bars, wide uppercase tracking. */
 const BS_SKIN_GOLD = {
-  key: 'gold', font: "'Chakra Petch', sans-serif", fw: '700', bg: '#000',
+  key: 'gold', chrome: 'spine', font: "'Chakra Petch', sans-serif", fw: '700', bg: '#000',
   label: '#d8d8d8',        /* mid-greys disappear on a cheap 7" panel */
   dim: '#9a9a9a', bright: '#ffffff', text: '#e6e6e6', soft: '#dcdcdc',
   track: '#161616', edge: '#202020', ring: '#141414',
@@ -1355,7 +1053,7 @@ const BS_SKIN_GOLD = {
 
 /* Teal: chevron tabs, navy tracks, 2px corners, Rajdhani semibold, no glow. */
 const BS_SKIN_TEAL = {
-  key: 'teal', font: "'Rajdhani', sans-serif", fw: '600', bg: _T.void || '#111419',
+  key: 'teal', chrome: 'tab', font: "'Rajdhani', sans-serif", fw: '600', bg: _T.void || '#111419',
   label: _T.steel || '#9EA5BA', dim: _T.slate || '#6D748C',
   bright: _T.pale || '#AAAACC', text: _T.pale || '#AAAACC', soft: _T.steel || '#9EA5BA',
   track: _T.navy || '#2F3749', edge: _T.navy || '#2F3749', ring: _T.navy || '#2F3749',
@@ -1383,7 +1081,7 @@ const BS_SKIN_TEAL = {
 
 /* Coral: rounded pills, fully rounded bars, Antonio at its regular weight. */
 const BS_SKIN_CORAL = {
-  key: 'coral', font: "'Antonio', sans-serif", fw: '400', bg: '#000',
+  key: 'coral', chrome: 'tab', font: "'Antonio', sans-serif", fw: '400', bg: '#000',
   label: _C.tanoi || '#FFCC99', dim: '#A67FA6',
   bright: _C.paleCanary || '#FFFF99', text: _C.paleCanary || '#FFFF99',
   soft: _C.tanoi || '#FFCC99',
@@ -1410,6 +1108,401 @@ const BS_SKIN_CORAL = {
   vNvidia: _C.thermGreen || '#99CC66', vAmd: _C.neonCarrot || '#FF9933',
   vIntel: _C.anakiwa || '#99CCFF',
 };
+
+/* Vintage: a glowing label, a hairline rule running out of it, and the status
+   riding the far end -- the heading all three families already used. */
+function _bsChromeRule(title, color, right, rightColor) {
+  const S = bsS();
+  return `<div style="position:absolute;left:0;top:0;width:100%;height:${gq(24)};` +
+      `display:flex;align-items:center">` +
+    `<span style="color:${color};${bsGlow(12, color)};font-family:${S.font};` +
+      `font-size:${gq(19)};letter-spacing:${S.ls};white-space:nowrap">${title}</span>` +
+    `<div style="flex:1;height:1px;background:${color}33;margin:0 ${gq(12)}"></div>` +
+    (right ? `<span style="color:${rightColor || color};${bsGlow(9, rightColor || color)};` +
+      `font-family:${S.font};font-size:${gq(18)};letter-spacing:${S.ls};` +
+      `white-space:nowrap">${right}</span>` : '') + `</div>`;
+}
+
+/* ── Vintage skins ───────────────────────────────────────────────────────
+ * Every instrument below is the one the family already had: scanDonut,
+ * magicEye, vfdDonut, scanThermBar, bargraphBar, vfdThermalBar, dekatron,
+ * nixieDigit. The skin only says which to reach for. Nothing is redrawn.
+ */
+const _SC = PANEL_SPEC.scanlines || {};
+const _NX = PANEL_SPEC.tubes || {};
+const _VF = PANEL_SPEC.vfd || {};
+const STM = "'Share Tech Mono', monospace";
+const PLEX = "'IBM Plex Mono', monospace";
+
+/* An inline-labelled capacity bar, in whichever family's idiom. Both disks
+   read the same way: name on the left, used-of-total on the right. */
+function _capInline(label, cap, pct, color, track, textColor, font, h, radius, glowPx, edge) {
+  return `<div style="position:relative;height:${gq(h)};background:${track};` +
+      (edge ? `border:1px solid ${edge};` : '') +
+      `border-radius:${radius};overflow:hidden">` +
+    `<div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;background:${color};` +
+      `border-radius:${radius};transition:width 0.8s ease;` +
+      (glowPx ? `box-shadow:${glowPx * 1.6}px 0 ${glowPx * 3}px ${color}66,` +
+        `-${glowPx * 1.6}px 0 ${glowPx * 3}px ${color}66,0 0 ${glowPx}px ${color}` : '') + `"></div>` +
+    `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;` +
+      `justify-content:space-between;align-items:center;padding:0 ${gq(12)};font-family:${font};` +
+      `font-size:${gq(14)};color:${textColor};z-index:2;pointer-events:none">` +
+      `<span>${label}</span><span>${cap}</span></div></div>`;
+}
+
+function _capNone(label, color, font, h, track, radius) {
+  return `<div style="height:${gq(h)};background:${track};border-radius:${radius};display:flex;` +
+    `align-items:center;justify-content:center;font-family:${font};font-size:${gq(14)};` +
+    `color:${color}">${label} &mdash; NONE</div>`;
+}
+
+/* The clock, at quadrant scale rather than full-screen. Same typography and
+   the same colour roles each family's own chronometer screen uses. */
+function _glowClock(hh, mm, ss, day, date, c) {
+  const S = bsS();
+  return `<div style="display:flex;flex-direction:column;justify-content:center;` +
+      `align-items:center;height:100%;gap:${gq(4)}">` +
+    `<div style="display:flex;align-items:baseline">` +
+      `<span style="color:${c.h};${bsGlow(42, c.h)};font-size:${gq(102)};` +
+        `letter-spacing:${gq(3)};line-height:1">${hh}</span>` +
+      `<span style="color:${c.sep};${bsGlow(32, c.sep)};font-size:${gq(74)};` +
+        `animation:blink 1s infinite;margin:0 ${gq(4)}">:</span>` +
+      `<span style="color:${c.h};${bsGlow(42, c.h)};font-size:${gq(102)};` +
+        `letter-spacing:${gq(3)};line-height:1">${mm}</span>` +
+      `<span style="color:${c.s};${bsGlow(22, c.s)};font-size:${gq(46)};` +
+        `margin-left:${gq(12)}">${ss}</span></div>` +
+    `<div style="color:${c.d};${bsGlow(16, c.d)};font-size:${gq(26)};` +
+      `letter-spacing:${gq(9)};margin-top:${gq(16)}">${day}</div>` +
+    `<div style="color:${c.dt};${bsGlow(13, c.dt)};font-size:${gq(22)};` +
+      `letter-spacing:${gq(4)};margin-top:${gq(4)}">${date}</div></div>`;
+}
+
+/* ── The tube ────────────────────────────────────────────────────────────
+ * Scanlines is a CRT, and a CRT is a beam, not a lamp. Everything below
+ * follows from that one fact, and the numbers come from the shaders rather
+ * than from taste:
+ *
+ *   crt-lottes    hardScan -8      the line weighting is a gaussian across
+ *                                  the pitch, not an on/off step
+ *                 maskDark 0.5     the mask DARKENS some subpixels and
+ *                 maskLight 1.5    BRIGHTENS others, so the triad structure
+ *                                  appears without the panel just dimming
+ *                 bloomAmount .15  bloom is subtle
+ *   crt-royale    beam_min_sigma   .02 -> .3, a 15x range driven by pixel
+ *                 beam_max_sigma   brightness and curved by
+ *                 beam_spot_power  .33 -- a bright run of phosphor blooms,
+ *                                  a dim label stays tight
+ *                 beam_horiz_sigma .35 against that vertical range: the
+ *                                  smear is wider along the scan direction,
+ *                                  which is the single biggest tell
+ *                 halation 0.0     OFF by default; only diffusion .075
+ *                 border_size .015 at border_darkness 2.0
+ *   cool-retro-term  ambientLight .2, glowingLine .2, staticNoise .12
+ *
+ * Geometry is deliberately absent. Both references warp the picture itself
+ * (lottes warpX .031 / warpY .041, royale geom_radius 2.0); CSS cannot, so
+ * curvature is only SIGNALLED here by the corner radius and the border
+ * falloff. Real warp needs an feDisplacementMap or WebGL pass and is its own
+ * piece of work.
+ */
+const CRT_DEFS =
+  '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>' +
+    '<filter id="crtNoise" x="0" y="0" width="100%" height="100%">' +
+      '<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>' +
+      '<feColorMatrix in="n" type="saturate" values="0" result="ng"/>' +
+      '<feComponentTransfer in="ng"><feFuncA type="linear" slope="0.07"/></feComponentTransfer>' +
+    '</filter>' +
+  '</defs></svg>';
+
+function _crtLayer(z, css) {
+  return '<div style="position:absolute;inset:0;pointer-events:none;z-index:' + z + ';' +
+    css + '"></div>';
+}
+
+/* hardScan -8: a ramp across the pitch, not a step. A step reads as a
+   venetian blind laid over the picture. */
+function _crtScanlines(pitch, peak) {
+  const at = (f) => (pitch * f).toFixed(2) + 'px';
+  const a = (f) => 'rgba(0,0,0,' + (peak * f).toFixed(3) + ')';
+  return 'background:repeating-linear-gradient(0deg,' + a(1) + ' 0px,' +
+    a(0.45) + ' ' + at(0.28) + ',' + a(0.06) + ' ' + at(0.5) + ',' +
+    a(0.45) + ' ' + at(0.72) + ',' + a(1) + ' ' + at(1) + ')';
+}
+
+const CRT_OVERLAY =
+  _crtLayer(20, _crtScanlines(4, 0.30)) +
+  /* maskDark/maskLight: overlay blending darkens below mid-grey and lifts
+     above it, so the triads show without costing overall brightness. */
+  _crtLayer(21, 'mix-blend-mode:overlay;background:repeating-linear-gradient(90deg,' +
+    'rgba(255,90,90,0.13) 0px,rgba(255,90,90,0.13) 1px,' +
+    'rgba(90,255,90,0.13) 1px,rgba(90,255,90,0.13) 2px,' +
+    'rgba(90,90,255,0.13) 2px,rgba(90,90,255,0.13) 3px)') +
+  _crtLayer(22, 'background:radial-gradient(ellipse 76% 80% at 50% 47%,transparent 40%,' +
+    'rgba(0,0,0,0.30) 76%,rgba(0,0,0,0.66) 100%)') +
+  _crtLayer(23, 'background:radial-gradient(ellipse at 50% 44%,rgba(0,255,190,0.075),' +
+    'transparent 72%)') +
+  /* glowingLine: the refresh haze sitting on the tube. The stops have to stay
+     far apart -- clustered at 45/50/55% they put a hard peak across the middle
+     of the screen, which reads as a line rather than as a band of light. */
+  '<div style="position:absolute;left:0;right:0;top:32%;height:300px;pointer-events:none;' +
+    'z-index:24;background:linear-gradient(0deg,transparent 0%,rgba(180,255,240,0.018) 28%,' +
+    'rgba(196,255,246,0.038) 50%,rgba(180,255,240,0.018) 72%,transparent 100%)"></div>' +
+  '<div style="position:absolute;inset:0;pointer-events:none;z-index:25;opacity:0.5">' +
+    '<svg width="100%" height="100%" aria-hidden="true">' +
+    '<rect width="100%" height="100%" filter="url(#crtNoise)"/></svg></div>';
+
+/* SCANLINES: phosphor CRT. Two-stage halo on everything, scanline overlay. */
+const BS_SKIN_SCAN = {
+  key: 'scan', chrome: 'rule', font: STM, fw: '400', bg: _SC.bg || '#060810',
+  label: _SC.cyanDim || '#009977', dim: '#6E8899',
+  bright: _SC.cyan || '#00FFCC', text: _SC.cyan || '#00FFCC',
+  soft: _SC.cyanDim || '#009977',
+  track: _SC.dim || '#334455', edge: _SC.dim || '#334455', ring: _SC.dim || '#334455',
+  r: 1, ls: '3px', seg: false, glow: true,
+  a1: _SC.cyan || '#00FFCC', a2: _SC.blue || '#4488FF',
+  a3: _SC.amber || '#FFAA00', a4: _SC.green || '#00FF88',
+  cPrimary: _SC.cyan || '#00FFCC', cSecondary: _SC.green || '#00FF88',
+  cLink: _SC.green || '#00FF88', cPing: _SC.amber || '#FFAA00',
+  cRecv: _SC.blue || '#4488FF', cSend: _SC.green || '#00FF88',
+  cIp: _SC.cyan || '#00FFCC', cMac: _SC.cyanDim || '#009977',
+  cPower: _SC.amber || '#FFAA00',
+  crit: _SC.red || '#FF3344', warn: _SC.amber || '#FFAA00',
+  tick: _SC.cyanDim || '#009977',
+  therm: function (t) {
+    if (t >= 90) return _SC.red || '#FF3344';
+    if (t >= 70) return _SC.amber || '#FFAA00';
+    if (t >= 50) return _SC.green || '#00FF88';
+    return _SC.blue || '#4488FF';
+  },
+  vNvidia: _SC.green || '#00FF88', vAmd: _SC.red || '#FF3344', vIntel: _SC.blue || '#4488FF',
+  /* The beam smears along the scan direction, so the halo is wider across
+     the line than along it -- crt-royale runs beam_horiz_sigma .35 against a
+     vertical range of .02-.3. Emulated with offset taps rather than an SVG
+     filter, which measured at a ~67ms hitch on every re-render.
+
+     Each tap's offset stays well inside its own blur radius. Spaced wider
+     than that, the copies stop overlapping and read as ghosting either side
+     of the glyph instead of as one continuous spread. */
+  glowFn: function (px, color) {
+    const n = Math.max(2, Math.min(12, Math.round(1.27 * Math.sqrt(px))));
+    const near = (n * 0.55).toFixed(1), nearBlur = (n * 1.8).toFixed(1);
+    const far = (n * 1.15).toFixed(1), farBlur = (n * 3.0).toFixed(1);
+    return `text-shadow:0 0 ${(n * 0.55).toFixed(1)}px ${color},` +
+      `${near}px 0 ${nearBlur}px ${color}66,-${near}px 0 ${nearBlur}px ${color}66,` +
+      `${far}px 0 ${farBlur}px ${color}2b,-${far}px 0 ${farBlur}px ${color}2b`;
+  },
+  unitLit: true,
+  defs: CRT_DEFS,
+  overlay: CRT_OVERLAY,
+  contentTransform: 'scale(1.008)',
+  frameCss: 'border-radius:22px;box-shadow:inset 0 0 110px 66px rgba(0,0,0,0.72)',
+  barFn: function (pct, color, w, h) {
+    return `<div style="width:${gq(w)};height:${gq(h)};background:${_SC.dim || '#334455'};` +
+      `border-radius:1px;overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;` +
+      `background:${color};border-radius:1px;transition:width 0.8s ease;` +
+      `box-shadow:5px 0 9px ${color}66,-5px 0 9px ${color}66,0 0 3px ${color}"></div></div>`;
+  },
+  dCpu: _SC.amber || '#FFAA00', dRam: _SC.cyan || '#00FFCC', dVram: _SC.green || '#00FF88',
+  gaugeSize: 124, gaugeSw: 10,
+  thermRowFn: function (label, temp) { return scanThermBar(label, temp); },
+  scaleFn: function () { return thermalScale(_SC.cyanDim || '#009977', STM); },
+  fanRowFn: function () {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(_SC.cyan || '#00FFCC', STM, '') + `</div>`;
+  },
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_SC.cyan || '#00FFCC') : (_SC.green || '#00FF88');
+    return _capInline(label, cap, pct, col, _SC.dim || '#334455', _SC.bg || '#060810',
+                      STM, 24, '1px', 3);
+  },
+  capNone: function (label) {
+    return _capNone(label, _SC.dim || '#334455', STM, 24, _SC.dim || '#334455', '1px');
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    return _glowClock(hh, mm, ss, day, date, {h: _SC.cyan || '#00FFCC', sep: _SC.amber || '#FFAA00',
+      s: _SC.green || '#00FF88', d: _SC.amber || '#FFAA00', dt: _SC.cyan || '#00FFCC'});
+  },
+};
+
+/* TUBES: magic eyes, bargraph filaments, dekatrons, nixie digits. */
+const BS_SKIN_TUBE = {
+  key: 'tube', chrome: 'rule', font: PLEX, fw: '400', bg: _NX.bg || '#0A0806',
+  label: _NX.label || '#AA8855', dim: _NX.barDim || '#CC4400',
+  bright: '#FFDDAA', text: _NX.warm || '#FF9944', soft: _NX.label || '#AA8855',
+  track: _NX.interior || '#0C0A06', edge: _NX.glass || '#332818',
+  ring: _NX.cathode || '#1A1410',
+  r: 999, ls: '2px', seg: false, glow: true,
+  a1: _NX.core || '#FF8833', a2: '#4488DD', a3: _NX.bright || '#FF6E0B',
+  a4: _NX.eyeStd || '#22DD22',
+  cPrimary: _NX.barStd || '#FF6622', cSecondary: '#4488DD',
+  cLink: _NX.eyeStd || '#22DD22', cPing: _NX.core || '#FF8833',
+  cRecv: '#4488DD', cSend: _NX.eyeStd || '#22DD22',
+  cIp: _NX.warm || '#FF9944', cMac: _NX.label || '#AA8855',
+  cPower: _NX.core || '#FF8833',
+  crit: '#FF3322', warn: _NX.bright || '#FF6E0B', tick: _NX.dimEdge || '#CC5500',
+  therm: function (t) {
+    if (t >= 90) return '#FF3322';
+    if (t >= 70) return '#DDCC00';
+    if (t >= 50) return _NX.eyeStd || '#22DD22';
+    return '#4488DD';
+  },
+  vNvidia: _NX.eyeStd || '#22DD22', vAmd: _NX.core || '#FF8833', vIntel: '#4488DD',
+  glowFn: function (px, color) {
+    const r = Math.max(2, Math.round(px / 3));
+    return `text-shadow:0 0 ${r}px ${color},0 0 ${r * 3}px ${color}55`;
+  },
+  overlay: '',
+  barFn: function (pct, color, w, h) {
+    return `<div style="width:${gq(w)};height:${gq(h)};background:${_NX.interior || '#0C0A06'};` +
+      `border:1px solid ${_NX.glass || '#332818'}44;border-radius:999px;overflow:hidden;` +
+      `flex-shrink:0;display:flex;align-items:center;padding:0 2px">` +
+      `<div style="height:${Math.max(2, gqPx(h) - 8)}px;width:${pct}%;background:${color};` +
+      `border-radius:999px;transition:width 0.8s ease;` +
+      `box-shadow:0 0 6px ${color},0 0 14px ${color}66"></div></div>`;
+  },
+  gauge: function (pct, cap, which) { return magicEye(pct, cap, 118); },
+  thermRowFn: function (label, temp) {
+    const t = (temp === null || temp === undefined) ? 20 : temp;
+    const pct = Math.max(0, Math.min(100, ((Math.max(20, Math.min(120, t)) - 20) / 100) * 100));
+    return bargraphBar(pct, label, BS_SKIN_TUBE.therm(t), t >= 100);
+  },
+  scaleFn: function () { return thermalScale(_NX.dimEdge || '#CC5500', PLEX, '5.00cqw'); },
+  fanRowFn: function () {
+    const cpuList = asList(m('cpu.fans_cpu')), caseList = asList(m('cpu.fans_case'));
+    const gpuFan = m('gpu.fan');
+    const lab = _NX.label || '#AA8855';
+    const tag = (t) => `<span style="color:${lab};font-size:${gq(17)};font-family:${PLEX}">${t}</span>`;
+    let h = `<div style="display:flex;justify-content:center;align-items:center;gap:${gq(9)}">`;
+    let shown = 0;
+    if (cpuList.length) { h += tag('CPU'); for (const r of cpuList) { h += dekatron(r, 26); shown++; } }
+    if (caseList.length) { h += tag('CASE'); for (const r of caseList) { h += dekatron(r, 26); shown++; } }
+    if (gpuFan.available && gpuFan.value !== null) { h += tag('GPU'); h += dekatron(bsNum(gpuFan.value) * 10, 26); shown++; }
+    if (!shown) h += `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(15)};` +
+      `font-family:${PLEX}">NO FANS DETECTED</span>`;
+    return h + `</div>`;
+  },
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_NX.barStd || '#FF6622') : '#4488DD';
+    return _capInline(label, cap, pct, col, _NX.interior || '#0C0A06', '#FFEEDD',
+                      PLEX, 26, '999px', 5, (_NX.glass || '#332818') + '66');
+  },
+  capNone: function (label) {
+    return _capNone(label, _NX.barDim || '#CC4400', PLEX, 26, _NX.interior || '#0C0A06', '999px');
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    const lab = _NX.label || '#AA8855';
+    const dot = `<div style="width:${gq(5)};height:${gq(5)};border-radius:50%;` +
+      `background:${_NX.core || '#FF8833'};box-shadow:0 0 ${gq(6)} ${_NX.core || '#FF8833'};` +
+      `animation:blink 1s infinite"></div>`;
+    return `<div style="display:flex;flex-direction:column;justify-content:center;` +
+        `align-items:center;height:100%;gap:${gq(6)}">` +
+      `<div style="display:flex;align-items:center;gap:${gq(2)}">` +
+        nixieDigit(hh[0], 52, true) + nixieDigit(hh[1], 52, true) +
+        `<div style="display:flex;flex-direction:column;gap:${gq(8)};margin:0 ${gq(5)}">${dot}${dot}</div>` +
+        nixieDigit(mm[0], 52, true) + nixieDigit(mm[1], 52, true) +
+        `<div style="margin-left:${gq(6)};display:flex;gap:${gq(2)}">` +
+          nixieDigit(ss[0], 30, true) + nixieDigit(ss[1], 30, true) + `</div></div>` +
+      `<div style="color:${_NX.warm || '#FF9944'};${bsGlow(18, _NX.warm || '#FF9944')};` +
+        `font-family:${PLEX};font-size:${gq(19)};letter-spacing:${gq(5)}">${day}</div>` +
+      `<div style="color:${lab};${bsGlow(12, lab)};font-family:${PLEX};font-size:${gq(16)};` +
+        `letter-spacing:${gq(2)}">${date}</div></div>`;
+  },
+};
+
+/* VFD: segmented bars over a ghost track, filament lines across the glass. */
+const BS_SKIN_VFD = {
+  key: 'vfd', chrome: 'rule', font: STM, fw: '400', bg: _VF.substrate || '#0A0A08',
+  label: _VF.label || '#556655', dim: _VF.greenDim || '#008866',
+  bright: _VF.greenBright || '#44FFCC', text: _VF.green || '#00DDAA',
+  soft: _VF.greenDim || '#008866',
+  track: _VF.greenGhost || '#0A1A15', edge: _VF.grid || '#1A1A18',
+  ring: _VF.greenGhost || '#0A1A15',
+  r: 1, ls: '3px', seg: false, glow: true,
+  a1: _VF.green || '#00DDAA', a2: _VF.blue || '#00D4CC',
+  a3: _VF.amber || '#FFAA22', a4: _VF.yellow || '#DDCC00',
+  cPrimary: _VF.green || '#00DDAA', cSecondary: _VF.blue || '#00D4CC',
+  cLink: _VF.green || '#00DDAA', cPing: _VF.amber || '#FFAA22',
+  cRecv: _VF.blue || '#00D4CC', cSend: _VF.green || '#00DDAA',
+  cIp: _VF.greenBright || '#44FFCC', cMac: _VF.greenDim || '#008866',
+  cPower: _VF.amber || '#FFAA22',
+  crit: _VF.red || '#FF4433', warn: _VF.amber || '#FFAA22',
+  tick: _VF.greenDim || '#008866',
+  therm: function (t) {
+    if (t >= 90) return _VF.red || '#FF4433';
+    if (t >= 70) return _VF.yellow || '#DDCC00';
+    if (t >= 50) return _VF.green || '#00DDAA';
+    return _VF.blue || '#00D4CC';
+  },
+  vNvidia: _VF.green || '#00DDAA', vAmd: _VF.amber || '#FFAA22', vIntel: _VF.blue || '#00D4CC',
+  glowFn: function (px, color) {
+    const r = Math.max(2, Math.round(px / 3));
+    return `text-shadow:0 0 ${r}px ${color},0 0 ${r * 2.5}px ${color}44`;
+  },
+  frameCss: 'border:1px solid #1a1a16;border-radius:3px;box-shadow:inset 0 0 20px rgba(0,0,0,0.5),' +
+    'inset 0 1px 0 rgba(255,255,255,0.02),0 2px 8px rgba(0,0,0,0.6)',
+  overlay:
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:20;' +
+      'background-image:linear-gradient(0deg,transparent 0px,transparent 11px,' +
+      (_VF.filamentWarm || '#443322') + '18 11px,' + (_VF.filamentWarm || '#443322') + '18 12px,' +
+      'transparent 12px,transparent 23px,' + (_VF.filament || '#332211') + '12 23px,' +
+      (_VF.filament || '#332211') + '12 24px,transparent 24px);background-size:100% 24px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:21;' +
+      'opacity:0.06;background-image:linear-gradient(0deg,' + (_VF.grid || '#1A1A18') + ' 1px,transparent 1px),' +
+      'linear-gradient(90deg,' + (_VF.grid || '#1A1A18') + ' 1px,transparent 1px);background-size:4px 4px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:22;' +
+      'background:radial-gradient(ellipse at 50% 40%,transparent 50%,rgba(0,0,0,0.15) 100%)"></div>',
+  barFn: function (pct, color, w, h) {
+    const cells = Math.max(8, Math.round(w / 14));
+    const gap = 2;
+    const cw = (w - gap * (cells - 1)) / cells;
+    let n = Math.round(cells * pct / 100);
+    if (n === 0 && pct > 0) n = 1;
+    let html = `<div style="display:flex;gap:${gq(gap)};align-items:center;flex-shrink:0">`;
+    for (let i = 0; i < cells; i++) {
+      html += `<div style="width:${gq(cw)};height:${gq(h)};flex-shrink:0;border-radius:1px;` +
+        (i < n ? `background:${color};box-shadow:0 0 4px ${color}88`
+               : `background:${_VF.greenGhost || '#0A1A15'}`) + `"></div>`;
+    }
+    return html + `</div>`;
+  },
+  gauge: function (pct, cap, which) {
+    const name = which === 'cpu' ? 'green' : which === 'ram' ? 'blue' : 'amber';
+    return vfdDonut(pct, cap, name, 116);
+  },
+  thermRowFn: function (label, temp) {
+    return vfdThermalBar((temp === null || temp === undefined) ? 20 : temp, label);
+  },
+  scaleFn: function () { return thermalScale(_VF.greenDim || '#008866', STM); },
+  fanRowFn: function () {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(_VF.green || '#00DDAA', STM, '') + `</div>`;
+  },
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_VF.green || '#00DDAA') : (_VF.blue || '#00D4CC');
+    const dim = which === 'primary' ? (_VF.greenDim || '#008866') : (_VF.blueDim || '#007A77');
+    const ghost = which === 'primary' ? (_VF.greenGhost || '#0A1A15') : (_VF.blueGhost || '#001A1A');
+    return `<div style="display:flex;align-items:center;gap:${gq(9)}">` +
+      `<span style="color:${col};text-shadow:0 0 3px ${dim};font-size:${gq(14)};` +
+        `font-family:${STM};width:${gq(74)};flex-shrink:0">${label}</span>` +
+      `<div style="flex:1;height:${gq(28)};background:${ghost};border-radius:1px;overflow:hidden;` +
+        `position:relative"><div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;` +
+        `background:${col};border-radius:1px;transition:width 0.8s ease;` +
+        `box-shadow:0 0 4px ${col}66"></div></div>` +
+      `<span style="color:${col};text-shadow:0 0 3px ${dim};font-size:${gq(14)};` +
+        `font-family:${STM};flex-shrink:0">${cap}</span></div>`;
+  },
+  capNone: function (label) {
+    return `<span style="color:${_VF.ghost || '#0A1A15'};font-size:${gq(17)};` +
+      `font-family:${STM}">${label} &mdash; NONE</span>`;
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    return _glowClock(hh, mm, ss, day, date, {h: _VF.green || '#00DDAA', sep: _VF.green || '#00DDAA',
+      s: _VF.amber || '#FFAA22', d: _VF.amber || '#FFAA22', dt: _VF.blue || '#00D4CC'});
+  },
+};
+
+/* cqw back to px, for the one place a nested height needs real pixels. */
+function gqPx(px) { return px; }
 
 /* The active skin. Every screen entry point sets it before rendering; the
    fallback keeps a stray call from rendering nothing rather than throwing. */
@@ -1438,27 +1531,28 @@ function bsNum(v) {
 
 /* One section of the board. The rectangle and the body layout are shared;
    only the chrome that frames them changes between families. */
-function bsRegion(x, y, w, h, title, color, right, body, justify) {
+function bsRegion(x, y, w, h, title, color, right, body, justify, rightColor) {
   const S = bsS();
-  const inset = S.key === 'gold' ? 28 : 0;      /* clear of the spine */
-  const top = S.key === 'gold' ? 32 : 36;       /* clear of the tab */
+  const inset = S.chrome === 'spine' ? 28 : 0;   /* clear of the spine */
+  const top = S.chrome === 'spine' ? 32 : 36;    /* clear of the tab or rule */
   return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
-    (S.key === 'gold' ? _bsChromeSpine(title, color, right)
-                      : _bsChromeTab(title, color, right)) +
+    (S.chrome === 'rule' ? _bsChromeRule(title, color, right, rightColor)
+     : S.chrome === 'tab' ? _bsChromeTab(title, color, right, rightColor)
+                          : _bsChromeSpine(title, color, right, rightColor)) +
     `<div style="position:absolute;left:${gq(inset)};top:${gq(top)};right:0;bottom:${gq(6)};` +
       `display:flex;flex-direction:column;justify-content:${justify || 'space-between'};` +
       `overflow:hidden">${body}</div></div>`;
 }
 
 /* Gold: a glowing spine down the left edge, the title floating beside it. */
-function _bsChromeSpine(title, color, right) {
+function _bsChromeSpine(title, color, right, rightColor) {
   const S = bsS(), SW = 12;
   return `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
       `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
     `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${S.font};` +
       `font-size:${gq(16)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
       `${bsGlow(10, color)};white-space:nowrap">${title}</div>` +
-    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${color};font-family:${S.font};` +
+    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${rightColor || color};font-family:${S.font};` +
       `font-size:${gq(13)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
       `opacity:0.85;white-space:nowrap">${right}</div>` : '');
 }
@@ -1466,7 +1560,7 @@ function _bsChromeSpine(title, color, right) {
 /* Teal and Coral: a header tab across the top, a rule running out of it, and
    the status text riding the rule's far end. Teal's tab is chamfered, Coral's
    is a pill -- the one shape each family already used everywhere else. */
-function _bsChromeTab(title, color, right) {
+function _bsChromeTab(title, color, right, rightColor) {
   const S = bsS(), HH = 26;
   const pill = S.key === 'coral';
   const nose = pill ? ''
@@ -1480,7 +1574,7 @@ function _bsChromeTab(title, color, right) {
         `text-transform:uppercase;letter-spacing:${S.ls};white-space:nowrap">${title}</span></div>` +
     `<div style="flex:1;height:${gq(pill ? 5 : 3)};background:${color};` +
       `border-radius:${pill ? '999px' : '0'};opacity:${pill ? '1' : '0.4'}"></div>` +
-    (right ? `<span style="color:${color};font-family:${S.font};font-size:${gq(15)};` +
+    (right ? `<span style="color:${rightColor || color};font-family:${S.font};font-size:${gq(15)};` +
       `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
       `margin-left:${gq(9)};white-space:nowrap">${right}</span>` : '') + `</div>`;
 }
@@ -1492,6 +1586,7 @@ function _bsChromeTab(title, color, right) {
 function bsSegBar(pct, color, w, h, cells, gap) {
   const S = bsS();
   const p = Math.max(0, Math.min(100, bsNum(pct)));
+  if (S.barFn) return S.barFn(p, color, w, h);
   if (!S.seg) {
     const r = S.r >= 999 ? '999px' : S.r + 'px';
     return `<div style="width:${gq(w)};height:${gq(h)};background:${S.track};border-radius:${r};` +
@@ -1553,6 +1648,18 @@ function gpuPowerPctText(card) {
   const p = card.power, lim = card.power_limit;
   if (typeof p !== 'number' || typeof lim !== 'number' || lim <= 0) return '--';
   return Math.round(p / lim * 100) + '%';
+}
+
+/* A sub-value riding a larger one -- "/ 450 W", "/ 2520 MHz". It must not
+   recolour itself while still inheriting the parent's text-shadow: a dim
+   glyph wearing a bright halo is what reads as blur. Skins that keep their
+   units lit (the Vintage families, following their reference designs) just
+   take a smaller size in the same phosphor colour. */
+function bsSub(text, px) {
+  const S = bsS();
+  return S.unitLit
+    ? `<span style="font-size:${gq(px)};opacity:0.72">${text}</span>`
+    : `<span style="font-size:${gq(px)};color:${S.dim};text-shadow:none">${text}</span>`;
 }
 
 function gpuName(card) {
@@ -1639,9 +1746,9 @@ function gpuLayoutSingle(card) {
     bsRegion(348, 62, 300, 240, 'MEMORY', S.a2, '', vramBody, 'center') +
     bsRegion(672, 62, 328, 240, 'TELEMETRY', S.a1, '',
       bsKv('TEMP', bsVal(card.temp, '°C'), tc, 30) +
-      bsKv('POWER', bsVal(card.power) + ` <span style="font-size:${gq(16)};color:${bsS().dim}">/ ${bsVal(card.power_limit)} W</span>`, S.cPower, 30) +
-      bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(16)};color:${bsS().dim}">/ ${bsVal(card.clock_gpu_max)} MHz</span>`, '#e6e6e6', 26) +
-      bsKv('MEMORY', bsVal(card.clock_mem) + ` <span style="font-size:${gq(16)};color:${bsS().dim}">MHz</span>`, '#e6e6e6', 26),
+      bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 16), S.cPower, 30) +
+      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 16), bsS().text, 26) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 16), bsS().text, 26),
       'space-around') +
     bsRegion(24, 312, 624, 116, 'LOAD', col, '',
       bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 596, 34, 14, 12) +
@@ -1666,9 +1773,9 @@ function gpuCardPanel(card, x, y, w, h) {
                  critColor: bsS().bright, linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
 
   const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
-    bsMetered('VRAM', bsVal(card.vram_used) + ` <span style="font-size:${gq(15)};color:${bsS().dim}">/ ${bsVal(card.vram_total)} MiB</span>`,
+    bsMetered('VRAM', bsVal(card.vram_used) + ' ' + bsSub(`/ ${bsVal(card.vram_total)} MiB`, 15),
                bsNum(card.vram_percent), S.a2, 330, 26, 23, 13) +
-    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(15)};color:${bsS().dim}">/ ${bsVal(card.power_limit)} W</span>`,
+    bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 15),
                gpuPowerPct(card), S.cPower, 330, 26, 23, 13) +
     bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 330, 26, 23, 13) +
     `</div>`;
@@ -1677,7 +1784,7 @@ function gpuCardPanel(card, x, y, w, h) {
   // underneath the bars in the middle column.
   const right = `<div style="width:${gq(236)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
     bsKv('TEMP', bsVal(card.temp, '°C'), tc, 26) +
-    bsKv('CORE', bsVal(card.clock_gpu) + ` <span style="font-size:${gq(14)};color:${bsS().dim}">MHz</span>`, '#e6e6e6', 22) +
+    bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub('MHz', 14), bsS().text, 22) +
     `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(30), gpuFanRpm(card)) +
       `<span style="color:${bsS().text};font-family:${bsS().font};font-size:${gq(17)};font-weight:${bsS().fw};` +
       `${bsGlow(6, tc, '99')}">${gpuFanText(card)}</span></div></div>`;
@@ -1704,9 +1811,9 @@ function gpuTile(card, x, y, w, h) {
   const gibTotal = function (mib) { return Math.round(bsNum(mib) / 1024); };
 
   const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
-    bsMetered('VRAM', gibUsed(card.vram_used) + ` <span style="font-size:${gq(12)};color:${bsS().dim}">/ ${gibTotal(card.vram_total)} G</span>`,
+    bsMetered('VRAM', gibUsed(card.vram_used) + ' ' + bsSub(`/ ${gibTotal(card.vram_total)} G`, 12),
                bsNum(card.vram_percent), S.a2, 214, 20, 19, 11) +
-    bsMetered('POWER', bsVal(card.power) + ` <span style="font-size:${gq(12)};color:${bsS().dim}">/ ${bsVal(card.power_limit)} W</span>`,
+    bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 12),
                gpuPowerPct(card), S.cPower, 214, 20, 19, 11) + `</div>`;
 
   const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${bsS().font}">` +
@@ -1739,8 +1846,7 @@ function gpuHeader(cards) {
 
 function bsGpuScreen(c) {
   const cards = asList(m('gpu.cards'));
-  const frame = (body) => `<div class="screen-frame"><div style="position:relative;width:100%;` +
-    `height:100%;background:${bsS().bg};font-family:${bsS().font};overflow:hidden">${body}</div></div>`;
+  const frame = bsFrame;
 
   if (!cards.length) {
     // A machine with no card the collector can read. Say so plainly; the
@@ -1779,6 +1885,9 @@ function bsGpuScreen(c) {
 function panelGoldGpuScreen(c) { bsSkin(BS_SKIN_GOLD); return bsGpuScreen(c); }
 function panelTealGpuScreen(c) { bsSkin(BS_SKIN_TEAL); return bsGpuScreen(c); }
 function panelCoralGpuScreen(c) { bsSkin(BS_SKIN_CORAL); return bsGpuScreen(c); }
+function scanGpuScreen(c) { bsSkin(BS_SKIN_SCAN); return bsGpuScreen(c); }
+function tubeGpuScreen(c) { bsSkin(BS_SKIN_TUBE); return bsGpuScreen(c); }
+function vfdGpuScreen(c) { bsSkin(BS_SKIN_VFD); return bsGpuScreen(c); }
 
 /* ── Bridge Station: screen 1 ────────────────────────────────────────────
  * CORE / THERMALS / COMMS / CHRONOMETER, in the same spine vocabulary as the
@@ -1873,6 +1982,25 @@ function bsThermRowSolid(label, temp, w) {
  * whole Panel family: the same readings land in the same quadrant whichever
  * theme is on, so switching themes never means re-learning the board.
  */
+/* The glass. Scanlines rakes its raster over the whole board and VFD lays
+   filament lines and a grid across it, so the overlay belongs to the frame
+   rather than to any one region. */
+function bsFrame(body) {
+  const S = bsS();
+  // A skin may put the board behind glass: its own filter on the content, its
+  // own overlay stack in front. Scanlines uses both; the rest use neither.
+  const inner = (S.contentFilter || S.contentTransform)
+    ? `<div style="position:absolute;inset:0;` +
+      (S.contentFilter ? `filter:${S.contentFilter};` : '') +
+      (S.contentTransform ? `transform:${S.contentTransform};` : '') +
+      `">${body}</div>`
+    : body;
+  return `<div class="screen-frame">${S.defs || ''}` +
+    `<div style="position:relative;width:100%;height:100%;background:${S.bg};` +
+      `font-family:${S.font};overflow:hidden;${S.frameCss || ''}">` +
+      inner + (S.overlay || '') + `</div></div>`;
+}
+
 function bsScreen1(c) {
   const S = bsS();
 
@@ -1888,21 +2016,35 @@ function bsScreen1(c) {
                  valColor: S.bright, critColor: S.crit, linecap: 'butt',
                  fontWeight: S.fw, valSize: gq(30), labelSize: gq(12)};
 
+  // Each family draws its own instrument: the Panel donut, the Scanlines
+  // phosphor ring, the Tubes magic eye, the VFD segmented dial.
+  const gauge = S.gauge || function (pct, cap, which) {
+    const col = which === 'cpu' ? S.dCpu : which === 'ram' ? S.dRam : S.dVram;
+    return bsGauge(pct, cap, col, S.gaugeSize || 104, S.gaugeSw || 9, dOpts);
+  };
+  const capBar = S.capBar || function (label, cap, pct, which) {
+    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, 428);
+  };
+  const capNone = S.capNone || function (label) {
+    return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls}">` +
+      `${label} &mdash; NONE</div>`;
+  };
+
   // ── CORE
   const core =
     `<div style="display:flex;justify-content:space-around;align-items:center">` +
-      bsGauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', S.dCpu, 104, 9, dOpts) +
-      bsGauge(bsNum(ram.available ? ram.value : 0), 'RAM', S.dRam, 104, 9, dOpts) +
-      bsGauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', S.dVram, 104, 9, dOpts) +
+      gauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', 'cpu') +
+      gauge(bsNum(ram.available ? ram.value : 0), 'RAM', 'ram') +
+      gauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', 'vram') +
     `</div>` +
     `<div style="display:flex;flex-direction:column;gap:${gq(11)};margin-top:${gq(14)}">` +
-      bsCapacityBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
-                    bsNum(rootPct.available ? rootPct.value : 0), S.cPrimary, 428) +
+      capBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
+             bsNum(rootPct.available ? rootPct.value : 0), 'primary') +
       (home.available
-        ? bsCapacityBar('SECONDARY', `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`,
-                        bsNum(homePct.available ? homePct.value : 0), S.cSecondary, 428)
-        : `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};font-weight:${S.fw};` +
-          `text-transform:uppercase;letter-spacing:${S.ls}">SECONDARY &mdash; NONE</div>`) +
+        ? capBar('SECONDARY', `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`,
+                 bsNum(homePct.available ? homePct.value : 0), 'secondary')
+        : capNone('SECONDARY')) +
     `</div>`;
 
   // ── THERMALS
@@ -1916,22 +2058,25 @@ function bsScreen1(c) {
   // The scale has to start and stop exactly where the bars do, or the tick
   // labels point at temperatures the bars never reach.
   const labW = S.seg ? 34 : 38, gap = 11, scaleW = S.seg ? 300 : 340;
-  const bodyW = 486 - (S.key === 'gold' ? 28 : 0);
-  let scale = `<div style="display:flex;justify-content:space-between;` +
+  const bodyW = 486 - (S.chrome === 'spine' ? 28 : 0);
+  let panelScale = `<div style="display:flex;justify-content:space-between;` +
     `margin-left:${gq(labW + gap)};margin-right:${gq(bodyW - labW - gap - scaleW)}">`;
   for (const t of [20, 50, 70, 90, 110, 120]) {
-    scale += `<span style="color:${S.tick};font-family:${S.font};font-size:${gq(12)}">${t}</span>`;
+    panelScale += `<span style="color:${S.tick};font-family:${S.font};font-size:${gq(12)}">${t}</span>`;
   }
-  scale += `</div>`;
+  panelScale += `</div>`;
+  const scale = S.scaleFn ? S.scaleFn() : panelScale;
 
-  const row = S.seg ? bsThermRow : bsThermRowSolid;
+  const row = S.thermRowFn || function (label, temp) {
+    return (S.seg ? bsThermRow : bsThermRowSolid)(label, temp, scaleW);
+  };
   const therm =
     `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
-      row('CPU', cpuT.available ? cpuT.value : null, scaleW) +
-      row('MB', mbT.available ? mbT.value : null, scaleW) +
-      row('GPU', gpuT.available ? gpuT.value : null, scaleW) +
+      row('CPU', cpuT.available ? cpuT.value : null) +
+      row('MB', mbT.available ? mbT.value : null) +
+      row('GPU', gpuT.available ? gpuT.value : null) +
       scale +
-    `</div>` + bsFanRow();
+    `</div>` + (S.fanRowFn ? S.fanRowFn() : bsFanRow());
 
   // ── COMMS
   const linkUp = ip.available;
@@ -1953,7 +2098,12 @@ function bsScreen1(c) {
         `<span style="color:${S.dim};font-family:${S.font};font-size:${gq(9)};font-weight:${S.fw};` +
         `text-transform:uppercase;letter-spacing:${S.ls}">OFF</span></div></div>`;
 
-  const unit = (d) => `<span style="font-size:${gq(13)};color:${S.dim}">${esc(String(d.unit))}</span>`;
+  // The unit rides its own number: same colour, smaller. Recolouring it while
+  // it still inherits the number's text-shadow gives a dim glyph a bright
+  // halo, which reads as blur rather than as a quieter label.
+  const unit = (d) => S.unitLit
+    ? `<span style="font-size:${gq(13)}">${esc(String(d.unit))}</span>`
+    : `<span style="font-size:${gq(13)};color:${S.dim};text-shadow:none">${esc(String(d.unit))}</span>`;
   const comms = identity +
     `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(22)};` +
       `row-gap:${gq(18)}">` +
@@ -1973,7 +2123,9 @@ function bsScreen1(c) {
   const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
   const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST',
                   'SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
-  const chrono =
+  const dayName = days[now.getDay()];
+  const dateStr = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  const chrono = S.clockFn ? S.clockFn(hh, mmn, ss, dayName, dateStr) :
     `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;` +
       `height:100%;gap:${gq(2)}">` +
       `<div style="display:flex;align-items:baseline;gap:${gq(8)}">` +
@@ -1984,20 +2136,16 @@ function bsScreen1(c) {
           `font-variant-numeric:tabular-nums;${bsGlow(14, S.kSec)}">${ss}</span></div>` +
       `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
         `letter-spacing:0.3em;margin-top:${gq(12)};text-transform:uppercase;` +
-        `${bsGlow(10, S.kDay)}">${days[now.getDay()]}</div>` +
+        `${bsGlow(10, S.kDay)}">${dayName}</div>` +
       `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
-        `letter-spacing:${S.ls};text-transform:uppercase">` +
-        `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}</div></div>`;
+        `letter-spacing:${S.ls};text-transform:uppercase">${dateStr}</div></div>`;
 
-  return `<div class="screen-frame"><div style="position:relative;width:100%;height:100%;` +
-    `background:${S.bg};font-family:${S.font};overflow:hidden">` +
+  return bsFrame(
     bsRegion(16, 18, 486, 272, 'CORE', S.a1,
              host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
     bsRegion(522, 18, 486, 272, 'CHRONOMETER', S.a1, '', chrono, 'center') +
-    bsRegion(16, 312, 486, 272, 'THERMALS', S.a3,
-             `<span style="color:${statusColor}">${status}</span>`, therm, 'space-evenly') +
-    bsRegion(522, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly') +
-    `</div></div>`;
+    bsRegion(16, 312, 486, 272, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
+    bsRegion(522, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly'));
 }
 
 /* Gold labels each fan group and colours it; Teal and Coral keep the compact
@@ -2028,3 +2176,6 @@ function bsFanRow() {
 function panelGoldScreen1(c) { bsSkin(BS_SKIN_GOLD); return bsScreen1(c); }
 function panelTealScreen1(c) { bsSkin(BS_SKIN_TEAL); return bsScreen1(c); }
 function panelCoralScreen1(c) { bsSkin(BS_SKIN_CORAL); return bsScreen1(c); }
+function scanScreen1(c) { bsSkin(BS_SKIN_SCAN); return bsScreen1(c); }
+function tubeScreen1(c) { bsSkin(BS_SKIN_TUBE); return bsScreen1(c); }
+function vfdScreen1(c) { bsSkin(BS_SKIN_VFD); return bsScreen1(c); }

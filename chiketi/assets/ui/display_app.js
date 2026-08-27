@@ -70,8 +70,12 @@ function getScreenRegistry(c) {
   // Adaptive: the screen picks its own density from gpu.count, so a
   // single-card box and a four-card rig both read correctly with no
   // configuration. Switch it off in Settings on a machine with no GPU.
-  const gpuFn = isTeal ? panelTealGpuScreen : isCoral ? panelCoralGpuScreen
-                                                     : panelGoldGpuScreen;
+  const gpuFn = isTeal ? panelTealGpuScreen
+              : isCoral ? panelCoralGpuScreen
+              : isVintage && activeVariant === 'Tubes' ? tubeGpuScreen
+              : isVintage && activeVariant === 'VFD' ? vfdGpuScreen
+              : isVintage ? scanGpuScreen
+              : panelGoldGpuScreen;
   screens.push({id:'screen4',name:'GPU',fn:gpuFn});
   return screens;
 }
