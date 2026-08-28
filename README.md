@@ -9,7 +9,7 @@ Built for the GeeekPi 7" (1024x600) but works on any HDMI display.
 
 ## Features
 
-- **11 themed dashboards** across 3 theme families — Sci-Fi (TOS/DS9/TNG), Terminal (hacker plus four distro boards), and Vintage (tubes/VFD/scanlines)
+- **16 themed dashboards** across 3 theme families — Sci-Fi (TOS/DS9/TNG), Terminal (six classic palettes plus four distro boards), and Vintage (tubes/VFD/scanlines)
 - **3 rotating screens** — System stats, a theme-specific second screen (GPU/AI monitor on Terminal themes, a clock on Sci-Fi/Vintage), and Claude Code usage
 - **Remote control panel** — Switch themes, toggle screens, adjust rotation from your phone at `http://<host>:7777`
 - **Display on/off toggle** — Turn the dashboard on/off from the control panel, restoring the console when off

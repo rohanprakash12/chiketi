@@ -22,6 +22,36 @@ class Theme:
 
 THEMES: dict[str, Theme] = {
     # ── Terminal / classic ──
+    "Terminal/cyan": Theme(
+        name="cyan", family="Terminal",
+        background="#0a0a0a", panel="#0a1520", border="#1a3a4a",
+        primary="#00e5ff", accent="#ffb000", critical="#ff3333",
+        dim="#4a6a7a", header="#00e5ff",
+    ),
+    "Terminal/amber": Theme(
+        name="amber", family="Terminal",
+        background="#0a0a00", panel="#141408", border="#3a3a1a",
+        primary="#ffb000", accent="#ff6600", critical="#ff3333",
+        dim="#6a6a3a", header="#ffb000",
+    ),
+    "Terminal/phosphor": Theme(
+        name="phosphor", family="Terminal",
+        background="#000800", panel="#001200", border="#004400",
+        primary="#33ff33", accent="#aaff00", critical="#ff4444",
+        dim="#226622", header="#33ff33",
+    ),
+    "Terminal/red_alert": Theme(
+        name="red_alert", family="Terminal",
+        background="#0a0000", panel="#140808", border="#3a1a1a",
+        primary="#ff4444", accent="#ff8800", critical="#ff0000",
+        dim="#6a3a3a", header="#ff4444",
+    ),
+    "Terminal/blue": Theme(
+        name="blue", family="Terminal",
+        background="#000008", panel="#080818", border="#1a1a4a",
+        primary="#4488ff", accent="#ffb000", critical="#ff3333",
+        dim="#3a3a6a", header="#4488ff",
+    ),
     "Terminal/hacker": Theme(
         name="hacker", family="Terminal",
         background="#0a0a0a", panel="#111111", border="#333333",
