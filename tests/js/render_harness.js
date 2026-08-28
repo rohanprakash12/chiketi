@@ -106,6 +106,38 @@ const TIB_CAPACITY_SCREENS = [
 // six screen1s then.
 const BACKEND_TITLE_SCREENS = ['terminalScreen2'];
 
+
+/* ── Layout px never scales ────────────────────────────────────────────────
+ * .screen-frame is 1024px wide on the kiosk and about 350px in the control
+ * panel, and cqw is what bridges the two. A screen sized in absolute px
+ * renders the same size in both, so a preview gets 1010x480 of content in a
+ * 352x206 box -- which is exactly what shipped on the distro boards.
+ *
+ * Hairlines (<= 2px) are exempt: a 1px rule is a 1px rule at any size.
+ *
+ * ALLOWLIST is a ratchet, not a blessing. Those renderers predate the check
+ * and still size their instruments in px, so their control-panel previews are
+ * wrong today. New screens must not join them.
+ */
+const PX_ALLOWLIST = new Set([
+  'tubeScreen1', 'tubeScreen2', 'tubeGpuScreen',   // magicEye, nixieDigit
+  'claudeScreen3', 'terminalScreen2',
+]);
+const PX_PROPS = 'font-size|width|height|gap|padding|padding-left|padding-right|' +
+  'padding-top|padding-bottom|margin|margin-left|margin-right|margin-top|' +
+  'margin-bottom|left|right|top|bottom';
+
+function layoutPxHits(html) {
+  const re = new RegExp('(?:^|[;"\\s])(' + PX_PROPS + '):\\s*(-?\\d+(?:\\.\\d+)?)px', 'g');
+  const out = new Set();
+  let m;
+  while ((m = re.exec(html))) {
+    if (Math.abs(parseFloat(m[2])) <= 2) continue;
+    out.add(m[1] + ':' + m[2] + 'px');
+  }
+  return [...out];
+}
+
 /* Leak detection by tokenizing, not by pattern-matching a payload.
    
    The obvious check -- does the output contain "<img"? -- is defeated by any
@@ -219,6 +251,15 @@ for (const fixtureName of Object.keys(FIX)) {
       if (fixtureName === 'HOSTILE' || fixtureName === 'GPU_HOSTILE') {
         const leak = leakReason(fn.name, html);
         if (leak) fail(fixtureName, label, 'unescaped metric reached output -- ' + leak);
+      }
+
+      // Layout px does not scale between the kiosk and the control panel.
+      if (fixtureName === 'FULL' && !PX_ALLOWLIST.has(fn.name)) {
+        const px = layoutPxHits(html);
+        if (px.length) {
+          fail(fixtureName, label,
+               'layout px will not scale in the control panel -- ' + px.slice(0, 6).join(' '));
+        }
       }
 
       // A driver that exposes no utilisation must not render as 0%. The

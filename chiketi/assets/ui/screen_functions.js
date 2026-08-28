@@ -411,7 +411,7 @@ function distroSpark(key, value, width, max) {
    reading it read as decoration, which is not what conky's graphs are. */
 function dGraph(key, value, S, width, max) {
   return `<div style="color:${S.meter};white-space:pre;line-height:1;` +
-    `border-bottom:1px solid ${S.dim};padding-bottom:1px;margin-bottom:2px">` +
+    `border-bottom:1px solid ${S.dim};padding-bottom:${gq(1)};margin-bottom:${gq(2)}">` +
     distroSpark(key, value, width, max) + `</div>`;
 }
 
@@ -466,7 +466,8 @@ function activeVariantName() { return _distroName; }
 /* ── character-grid primitives ───────────────────────────────────────── */
 function dRule(title, S, right) {
   const W = 1000;   /* the rule simply fills; the grid is monospace anyway */
-  return `<div style="display:flex;align-items:center;gap:6px;margin:7px 0 3px">` +
+  return `<div style="display:flex;align-items:center;gap:${gq(6)};` +
+    `margin:${gq(7)} 0 ${gq(3)}">` +
     `<span style="color:${S.accent};font-weight:700;white-space:nowrap">${title}</span>` +
     `<span style="flex:1;height:1px;background:${S.dim}"></span>` +
     (right ? `<span style="color:${S.label};white-space:nowrap">${right}</span>` : '') +
@@ -474,7 +475,7 @@ function dRule(title, S, right) {
 }
 
 function dRow(label, value, S, valColor) {
-  return `<div style="display:flex;justify-content:space-between;gap:10px;white-space:nowrap">` +
+  return `<div style="display:flex;justify-content:space-between;gap:${gq(10)};white-space:nowrap">` +
     `<span style="color:${S.label}">${label}</span>` +
     `<span style="color:${valColor || S.value}">${value}</span></div>`;
 }
@@ -483,8 +484,8 @@ function dRow(label, value, S, valColor) {
 function dMeter(label, pct, reading, S, width, labW) {
   const p = distroPct({available: pct !== null && pct !== undefined, value: pct});
   const col = p !== null && p >= 90 ? S.warn : S.meter;
-  return `<div style="display:flex;align-items:baseline;gap:8px;white-space:nowrap">` +
-    `<span style="color:${S.label};display:inline-block;width:${labW || 62}px;` +
+  return `<div style="display:flex;align-items:baseline;gap:${gq(8)};white-space:nowrap">` +
+    `<span style="color:${S.label};display:inline-block;width:${gq(labW || 62)};` +
       `overflow:hidden;text-overflow:ellipsis">${label}</span>` +
     `<span style="color:${col}">${distroBar(p, width)}</span>` +
     `<span style="color:${S.value};margin-left:auto">${reading}</span></div>`;
@@ -546,7 +547,7 @@ function distroScreen1(c) {
     String(now.getHours()).padStart(2, '0') + ':' +
     String(now.getMinutes()).padStart(2, '0'), S.accent) +
     `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
-      `margin-top:4px;color:${S.label};letter-spacing:0.14em">` +
+      `margin-top:${gq(4)};color:${S.label};letter-spacing:0.14em">` +
       `<span>${esc(DAY_NAMES[now.getDay()])} ${now.getDate()} ` +
         `${esc(MONTH_NAMES[now.getMonth()])} ${now.getFullYear()}</span>` +
       `<span style="color:${S.value}">:${String(now.getSeconds()).padStart(2, '0')}</span></div>`;
@@ -559,7 +560,7 @@ function distroScreen1(c) {
     dRow('addr', ip.available ? esc(String(ip.value)) : '--', S);
 
   const left =
-    `<div style="font-size:17px;margin-bottom:6px">${clock}</div>` +
+    `<div style="font-size:${gq(17)};margin-bottom:${gq(6)}">${clock}</div>` +
     dRule('SYSTEM', S) + idBlock +
     dRule('THERMAL', S) +
     dRow('cpu', distroVal(distroPct(cpuT), '\u00b0C'), S,
@@ -604,10 +605,10 @@ function distroScreen1(c) {
     dRule('NETWORK', S, speed.available
       ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GBE' : speed.value + ' MB')
       : '') +
-    `<div style="display:flex;gap:14px">` +
-      `<div style="flex:1"><div style="color:${S.label}">down</div>` +
+    `<div style="display:flex;gap:${gq(14)}">` +
+      `<div style="flex:1;min-width:0"><div style="color:${S.label}">down</div>` +
         dGraph('dl', dl.available ? Number(dl.value) : null, S, 28) + `</div>` +
-      `<div style="flex:1"><div style="color:${S.label}">up</div>` +
+      `<div style="flex:1;min-width:0"><div style="color:${S.label}">up</div>` +
         dGraph('ul', ul.available ? Number(ul.value) : null, S, 28) + `</div>` +
     `</div>` +
     dRow('rx / tx',
@@ -622,23 +623,23 @@ function distroScreen1(c) {
     return `<div style="flex:1;display:flex;white-space:nowrap;min-width:0;` +
       `color:${hot ? S.warn : S.value}">` +
       `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
-      `<span style="width:86px;text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
-      `<span style="width:78px;text-align:right">${typeof p.cpu === 'number' ? p.cpu.toFixed(1) : '--'}</span>` +
-      `<span style="width:78px;text-align:right">${typeof p.mem === 'number' ? p.mem.toFixed(1) : '--'}</span>` +
+      `<span style="width:${gq(86)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
+      `<span style="width:${gq(78)};text-align:right">${typeof p.cpu === 'number' ? p.cpu.toFixed(1) : '--'}</span>` +
+      `<span style="width:${gq(78)};text-align:right">${typeof p.mem === 'number' ? p.mem.toFixed(1) : '--'}</span>` +
       `</div>`;
   }
   function procHead(S) {
     return `<div style="flex:1;display:flex;white-space:nowrap;color:${S.label}">` +
       `<span style="flex:1">NAME</span>` +
-      `<span style="width:86px;text-align:right">PID</span>` +
-      `<span style="width:78px;text-align:right">CPU%</span>` +
-      `<span style="width:78px;text-align:right">MEM%</span></div>`;
+      `<span style="width:${gq(86)};text-align:right">PID</span>` +
+      `<span style="width:${gq(78)};text-align:right">CPU%</span>` +
+      `<span style="width:${gq(78)};text-align:right">MEM%</span></div>`;
   }
   let procRows = '';
   if (procs.length) {
-    procRows = `<div style="display:flex;gap:26px">${procHead(S)}${procHead(S)}</div>`;
+    procRows = `<div style="display:flex;gap:${gq(26)}">${procHead(S)}${procHead(S)}</div>`;
     for (let i = 0; i < 2; i++) {
-      procRows += `<div style="display:flex;gap:26px">` +
+      procRows += `<div style="display:flex;gap:${gq(26)}">` +
         procCell(procs[i], S) + procCell(procs[i + 2], S) + `</div>`;
     }
   } else {
@@ -648,10 +649,11 @@ function distroScreen1(c) {
   // Sized for a 10" panel read from across a room: 16px base rather than 13,
   // and no chrome that only names what you are already looking at.
   return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
-      `font-family:${F};font-size:16px;line-height:1.4;padding:12px 16px;` +
+      `font-family:${F};font-size:${gq(16)};line-height:1.4;` +
+      `padding:${gq(12)} ${gq(16)};` +
       `display:flex;flex-direction:column;overflow:hidden">` +
-    `<div style="display:flex;gap:22px;flex:1;min-height:0">` +
-      `<div style="width:352px;flex-shrink:0">${left}</div>` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="width:${gq(352)};flex-shrink:0">${left}</div>` +
       `<div style="flex:1;min-width:0">${right}</div>` +
     `</div>` +
     dRule('PROCESSES', S, procs.length ? 'TOP 4 BY CPU' : '') + procRows +
@@ -1099,7 +1101,7 @@ function vfdDonut(pct, label, color, size) {
   }
 
   return '<div style="text-align:center">' +
-    '<div style="color:' + p.main + ';text-shadow:0 0 4px ' + p.dim + ';font-size:2.20cqw;font-family:' + F + ';letter-spacing:3px;margin-bottom:3px">' + label + '</div>' +
+    '<div style="color:' + p.main + ';text-shadow:0 0 4px ' + p.dim + ';font-size:2.20cqw;font-family:' + F + ';letter-spacing:3px;margin-bottom:' + gq(3) + '">' + label + '</div>' +
     '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" style="display:block;overflow:visible">' +
       '<defs><filter id="' + fid + '-b" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="5" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
       '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + p.ghost + '" stroke-width="' + sw + '"/>' +
@@ -1627,7 +1629,7 @@ const CRT_OVERLAY =
   /* glowingLine: the refresh haze sitting on the tube. The stops have to stay
      far apart -- clustered at 45/50/55% they put a hard peak across the middle
      of the screen, which reads as a line rather than as a band of light. */
-  '<div style="position:absolute;left:0;right:0;top:32%;height:300px;pointer-events:none;' +
+  '<div style="position:absolute;left:0;right:0;top:32%;height:' + gq(300) + ';pointer-events:none;' +
     'z-index:24;background:linear-gradient(0deg,transparent 0%,rgba(180,255,240,0.018) 28%,' +
     'rgba(196,255,246,0.038) 50%,rgba(180,255,240,0.018) 72%,transparent 100%)"></div>' +
   '<div style="position:absolute;inset:0;pointer-events:none;z-index:25;opacity:0.5">' +
