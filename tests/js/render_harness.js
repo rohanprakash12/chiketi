@@ -69,17 +69,17 @@ eval(
 
 // Mirrors getScreenRegistry() in display_app.js.
 const REGISTRY = [
-  { family: 'Sci-Fi', variant: 'TOS', fns: [sfTosScreen1, sfTosScreen2],
+  { family: 'Sci-Fi', variant: 'TOS', fns: [sfTosScreen1, sfTosNpuScreen, sfTosScreen2],
     gpu: sfTosGpuScreen },
-  { family: 'Sci-Fi', variant: 'TNG', fns: [sfTngScreen1, sfTngScreen2],
+  { family: 'Sci-Fi', variant: 'TNG', fns: [sfTngScreen1, sfTngNpuScreen, sfTngScreen2],
     gpu: sfTngGpuScreen },
-  { family: 'Sci-Fi', variant: 'DS9', fns: [sfDs9Screen1, sfDs9Screen2],
+  { family: 'Sci-Fi', variant: 'DS9', fns: [sfDs9Screen1, sfDs9NpuScreen, sfDs9Screen2],
     gpu: sfDs9GpuScreen },
-  { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanScreen2],
+  { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanNpuScreen, scanScreen2],
     gpu: scanGpuScreen },
-  { family: 'Vintage', variant: 'Tubes', fns: [tubeScreen1, tubeScreen2],
+  { family: 'Vintage', variant: 'Tubes', fns: [tubeScreen1, tubeNpuScreen, tubeScreen2],
     gpu: tubeGpuScreen },
-  { family: 'Vintage', variant: 'VFD', fns: [vfdScreen1, vfdScreen2],
+  { family: 'Vintage', variant: 'VFD', fns: [vfdScreen1, vfdNpuScreen, vfdScreen2],
     gpu: vfdGpuScreen },
   { family: 'Terminal', variant: 'hacker', fns: [terminalScreen1, terminalScreen2] },
   // The distro variants swap screen1 for the conky-style board; screen2 stays

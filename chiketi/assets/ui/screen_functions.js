@@ -660,6 +660,142 @@ function distroScreen1(c) {
   `</div></div>`;
 }
 
+
+/* ── the distro GPU board ────────────────────────────────────────────────
+ * Same vocabulary as the distro system board: a title with a rule running out
+ * of it, character meters, block-height history, and a table. The Sci-Fi GPU
+ * screen was standing in here, which made the family read as two designs.
+ */
+function distroGpuScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+  const cards = asList(m('gpu.cards'));
+
+  const frame = (body) =>
+    `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(16)};line-height:1.4;` +
+      `padding:${gq(12)} ${gq(16)};display:flex;flex-direction:column;overflow:hidden">` +
+      body + `</div></div>`;
+
+  if (!cards.length) {
+    return frame(dRule('GRAPHICS', S) +
+      `<div style="color:${S.dim};padding-top:${gq(10)}">no readable graphics device</div>`);
+  }
+
+  const val = (v, suffix) => (v === null || v === undefined) ? '--' : esc(String(v)) + (suffix || '');
+  const pct = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v) : null;
+
+  /* ── one card, in full ── */
+  if (cards.length === 1) {
+    const k = cards[0];
+    const hot = pct(k.temp) !== null && k.temp >= 80;
+    const left =
+      dRule('DEVICE', S, esc(String(k.vendor || 'GPU'))) +
+      dRow('name', esc(String(k.short_name || k.name || '--')), S, S.accent) +
+      dRow('driver', val(k.driver), S) +
+      dRow('bus', val(k.bus_id), S) +
+      dRule('TELEMETRY', S) +
+      dRow('temp', val(pct(k.temp), '°C'), S, hot ? S.warn : S.value) +
+      dRow('power', `${val(pct(k.power))} / ${val(pct(k.power_limit))} W`, S) +
+      dRow('core', `${val(k.clock_gpu)} / ${val(k.clock_gpu_max)} MHz`, S) +
+      dRow('memory', `${val(k.clock_mem)} MHz`, S) +
+      dRow('fan', gpuFanText(k), S) +
+      dRule('COOLING', S) +
+      `<div style="display:flex;align-items:center;gap:${gq(14)}">` +
+        fanIcon(pct(k.temp) !== null && k.temp >= 80 ? S.warn : S.meter, gq(46), gpuFanRpm(k)) +
+        `<span style="color:${S.value};font-size:${gq(30)}">${gpuFanText(k)}</span></div>` +
+      // The column ran out halfway down and left a dead band across the middle
+      // of the board. Clock history is real data and it belongs here.
+      dRule('CLOCKS', S) +
+      `<div style="color:${S.label}">core</div>` +
+      dGraph('gcore', pct(k.clock_gpu), S, 30) +
+      `<div style="color:${S.label};margin-top:${gq(6)}">memory</div>` +
+      dGraph('gmem', pct(k.clock_mem), S, 30) +
+      dRule('THERMAL', S) +
+      dGraph('gtemp', pct(k.temp), S, 30, 110);
+
+    const right =
+      dRule('UTILISATION', S, val(pct(k.util), '%')) +
+      dGraph('gutil', pct(k.util), S, 62, 100) +
+      dMeter('gpu', pct(k.util), val(pct(k.util), '%'), S, 30, 72) +
+      dRule('MEMORY', S, val(pct(k.vram_percent), '%')) +
+      dGraph('gvram', pct(k.vram_percent), S, 62, 100) +
+      dMeter('vram', pct(k.vram_percent),
+             `${(bsNum(k.vram_used)/1024).toFixed(1)} / ${Math.round(bsNum(k.vram_total)/1024)} G`,
+             S, 30, 72) +
+      dMeter('bus', pct(k.mem_util), val(pct(k.mem_util), '%'), S, 30, 72) +
+      dRule('POWER', S, gpuPowerPctText(k)) +
+      dGraph('gpow', gpuPowerPct(k), S, 62, 100) +
+      dMeter('draw', gpuPowerPct(k), `${val(pct(k.power))} W`, S, 30, 72);
+
+    const procs = asList({available: true, value: k.processes});
+    let table;
+    if (procs.length) {
+      table = `<div style="display:flex;color:${S.label};white-space:nowrap">` +
+        `<span style="flex:1">PROCESS</span>` +
+        `<span style="width:${gq(110)};text-align:right">PID</span>` +
+        `<span style="width:${gq(150)};text-align:right">VRAM</span></div>`;
+      for (let i = 0; i < Math.min(3, procs.length); i++) {
+        const pr = procs[i] || {};
+        table += `<div style="display:flex;white-space:nowrap;color:${S.value}">` +
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(pr.name || '?'))}</span>` +
+          `<span style="width:${gq(110)};text-align:right;color:${S.label}">${val(pr.pid)}</span>` +
+          `<span style="width:${gq(150)};text-align:right">${val(pr.vram_mib)} MiB</span></div>`;
+      }
+    } else {
+      table = `<div style="color:${S.dim}">` +
+        (k.source === 'nvml' ? 'no compute processes on this card'
+         : 'per-process VRAM not exposed by ' + val(k.driver)) + `</div>`;
+    }
+
+    return frame(
+      `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+        `<div style="width:${gq(352)};flex-shrink:0">${left}</div>` +
+        `<div style="flex:1;min-width:0">${right}</div></div>` +
+      dRule('PROCESSES', S, procs.length ? procs.length + ' ACTIVE' : 'IDLE') + table);
+  }
+
+  /* ── several cards: one row each, meters side by side ── */
+  let watts = 0, anyPower = false;
+  for (const k of cards) {
+    if (typeof k.power === 'number' && isFinite(k.power)) { watts += k.power; anyPower = true; }
+  }
+  let body = dRule('GRAPHICS', S,
+    cards.length + ' CARDS' + (anyPower ? '  ·  ' + Math.round(watts) + ' W' : ''));
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    const k = cards[i];
+    const hot = pct(k.temp) !== null && k.temp >= 80;
+    body += `<div style="margin-top:${gq(12)}">` +
+      `<div style="display:flex;align-items:baseline;gap:${gq(12)};white-space:nowrap">` +
+        `<span style="color:${S.accent};font-size:${gq(19)}">` +
+          `${esc(String(k.short_name || k.name || 'GPU'))}</span>` +
+        `<span style="color:${S.dim};font-size:${gq(14)}">${val(k.driver)}</span>` +
+        `<span style="flex:1"></span>` +
+        `<span style="color:${hot ? S.warn : S.value}">${val(pct(k.temp), '°C')}</span>` +
+        `<span style="color:${S.label}">${val(pct(k.power))} W</span></div>` +
+      `<div style="display:flex;gap:${gq(20)};margin-top:${gq(3)}">` +
+        `<div style="flex:1">${dMeter('gpu', pct(k.util), val(pct(k.util), '%'), S, 26, 62)}</div>` +
+        `<div style="flex:1">${dMeter('vram', pct(k.vram_percent),
+           `${(bsNum(k.vram_used)/1024).toFixed(1)}/${Math.round(bsNum(k.vram_total)/1024)}G`,
+           S, 26, 62)}</div></div></div>`;
+  }
+  if (cards.length > 4) {
+    body += `<div style="color:${S.dim};margin-top:${gq(8)}">` +
+      `+${cards.length - 4} more not shown</div>`;
+  }
+  return frame(body);
+}
+
+function distroArchGpu(c) { _distroName = 'Arch'; return distroGpuScreen(c); }
+function distroUbuntuGpu(c) { _distroName = 'Ubuntu'; return distroGpuScreen(c); }
+function distroSuseGpu(c) { _distroName = 'openSUSE'; return distroGpuScreen(c); }
+function distroMandrivaGpu(c) { _distroName = 'Mandriva'; return distroGpuScreen(c); }
+
+const DISTRO_GPU_SCREENS = {
+  Arch: distroArchGpu, Ubuntu: distroUbuntuGpu,
+  openSUSE: distroSuseGpu, Mandriva: distroMandrivaGpu,
+};
+
 const DISTRO_SCREENS = {
   Arch: distroArchScreen1, Ubuntu: distroUbuntuScreen1,
   openSUSE: distroSuseScreen1, Mandriva: distroMandrivaScreen1,
@@ -1454,6 +1590,7 @@ const BS_SKIN_DS9 = {
   kDay: _T.teal || '#2A9D8F', kDate: _T.lavender || '#8888BB',
   crit: _T.alert || '#FF4444', warn: _T.thermOrange || '#DD7733',
   cPower: _T.warm || '#CCAA77', tick: _T.steel || '#9EA5BA',
+  gaugeSize: 132, gaugeSw: 14,
   therm: function (t) {
     if (t >= 90) return _T.thermOrange || '#DD7733';
     if (t >= 70) return _T.thermYellow || '#CCAA44';
@@ -1484,6 +1621,7 @@ const BS_SKIN_TNG = {
   kDay: _C.anakiwa || '#99CCFF', kDate: _C.lilac || '#CC99CC',
   crit: _C.mars || '#FF2200', warn: _C.thermOrange || '#FF9933',
   cPower: _C.neonCarrot || '#FF9933', tick: _C.tanoi || '#FFCC99',
+  gaugeSize: 132, gaugeSw: 14,
   therm: function (t) {
     if (t >= 90) return _C.thermOrange || '#FF9933';
     if (t >= 70) return _C.thermYellow || '#FFCC66';
@@ -1638,8 +1776,8 @@ const CRT_OVERLAY =
 
 /* SCANLINES: phosphor CRT. Two-stage halo on everything, scanline overlay. */
 const BS_SKIN_SCAN = {
-  key: 'scan', chrome: 'rule', font: STM, fw: '400', bg: _SC.bg || '#060810',
-  label: _SC.cyanDim || '#009977', dim: '#6E8899',
+  key: 'scan', chrome: 'rule', font: STM, fw: '700', bg: _SC.bg || '#060810',
+  label: '#7FD9C8', dim: '#8AA6B4',
   bright: _SC.cyan || '#00FFCC', text: _SC.cyan || '#00FFCC',
   soft: _SC.cyanDim || '#009977',
   track: _SC.dim || '#334455', edge: _SC.dim || '#334455', ring: _SC.dim || '#334455',
@@ -1711,7 +1849,7 @@ const BS_SKIN_SCAN = {
 
 /* TUBES: magic eyes, bargraph filaments, dekatrons, nixie digits. */
 const BS_SKIN_TUBE = {
-  key: 'tube', chrome: 'rule', font: PLEX, fw: '400', bg: _NX.bg || '#0A0806',
+  key: 'tube', chrome: 'rule', font: PLEX, fw: '700', bg: _NX.bg || '#0A0806',
   label: _NX.label || '#AA8855', dim: _NX.barDim || '#CC4400',
   bright: '#FFDDAA', text: _NX.warm || '#FF9944', soft: _NX.label || '#AA8855',
   track: _NX.interior || '#0C0A06', edge: _NX.glass || '#332818',
@@ -1816,7 +1954,7 @@ const BS_SKIN_TUBE = {
 
 /* VFD: segmented bars over a ghost track, filament lines across the glass. */
 const BS_SKIN_VFD = {
-  key: 'vfd', chrome: 'rule', font: STM, fw: '400', bg: _VF.substrate || '#0A0A08',
+  key: 'vfd', chrome: 'rule', font: STM, fw: '700', bg: _VF.substrate || '#0A0A08',
   label: _VF.label || '#556655', dim: _VF.greenDim || '#008866',
   bright: _VF.greenBright || '#44FFCC', text: _VF.green || '#00DDAA',
   soft: _VF.greenDim || '#008866',
@@ -1958,12 +2096,20 @@ function bsIcon(kind, color, px) {
 
 /* One section of the board. The rectangle and the body layout are shared;
    only the chrome that frames them changes between families. */
-function bsRegion(x, y, w, h, title, color, right, body, justify, rightColor) {
+function bsRegion(x, y, w, h, title, color, right, body, justify, rightColor, mode) {
   const S = bsS();
-  const inset = S.chrome === 'spine' ? 28 : 0;   /* clear of the spine */
-  const top = S.chrome === 'spine' ? 32 : 36;    /* clear of the tab or rule */
+  // `mode === 'centre'` drops the chrome's rail and centres the title: the
+  // chronometer is one object, not a list, so a rail down its side was
+  // pointing at nothing.
+  const bare = mode === 'centre';
+  const inset = (S.chrome === 'spine' && !bare) ? 28 : 0;   /* clear of the spine */
+  const top = (S.chrome === 'spine' && !bare) ? 32 : 36;    /* clear of the tab or rule */
   return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
-    (S.chrome === 'rule' ? _bsChromeRule(title, color, right, rightColor)
+    (bare ? `<div style="position:absolute;left:0;right:0;top:0;text-align:center;` +
+              `color:${color};font-family:${S.font};font-size:${gq(17)};` +
+              `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+              `${bsGlow(10, color)}">${title}</div>`
+     : S.chrome === 'rule' ? _bsChromeRule(title, color, right, rightColor)
      : S.chrome === 'tab' ? _bsChromeTab(title, color, right, rightColor)
                           : _bsChromeSpine(title, color, right, rightColor)) +
     `<div style="position:absolute;left:${gq(inset)};top:${gq(top)};right:0;bottom:${gq(6)};` +
@@ -2107,7 +2253,7 @@ function bsGauge(pct, caption, color, size, sw, opts) {
   const S = bsS();
   return `<div style="position:relative;display:inline-block;line-height:0">` +
     donut(pct, '', color, size, sw, S.font, opts) +
-    `<div style="position:absolute;left:0;right:0;top:${gq(size * 0.665)};text-align:center;` +
+    `<div style="position:absolute;left:0;right:0;top:${gq(size * 0.705)};text-align:center;` +
       `color:${S.label};font-family:${S.font};font-size:${gq(13)};font-weight:${S.fw};` +
       `line-height:1;text-transform:uppercase;letter-spacing:0.12em;` +
       `pointer-events:none;white-space:nowrap">${caption}</div></div>`;
@@ -2138,14 +2284,14 @@ function gpuLayoutSingle(card) {
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
     : `<div style="display:flex;justify-content:center">${S.gpuGauge
         ? S.gpuGauge(bsNum(card.util), 'UTILISATION', col, 150, 'util')
-        : bsGauge(bsNum(card.util), 'UTILISATION', col, 176, 13, dOpts)}</div>`;
+        : bsGauge(bsNum(card.util), 'UTILISATION', col, 176, 17, dOpts)}</div>`;
 
   const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
     ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
     : `<div style="display:flex;justify-content:center">${S.gpuGauge
         ? S.gpuGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 150, 'vram')
-        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 176, 13, dOpts)}</div>`;
+        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 176, 17, dOpts)}</div>`;
 
   const procs = asList({available: true, value: card.processes});
   let procBody, procRight;
@@ -2182,10 +2328,10 @@ function gpuLayoutSingle(card) {
     bsRegion(14, 52, 320, 250, 'PROCESSOR', col, '', utilBody, 'center') +
     bsRegion(348, 52, 320, 250, 'MEMORY', S.a2, '', vramBody, 'center') +
     bsRegion(682, 52, 328, 250, 'TELEMETRY', S.a1, '',
-      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 36) +
-      bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 16), S.cPower, 30) +
-      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 16), bsS().text, 32) +
-      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 16), bsS().text, 32),
+      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 46, 18) +
+      bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 20), S.cPower, 30) +
+      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 20), bsS().text, 40, 18) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 20), bsS().text, 40, 18),
       'space-around') +
     bsRegion(14, 306, 654, 130, 'LOAD', col, '',
       bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 628, 34, 18, 15) +
@@ -2228,7 +2374,7 @@ function gpuCardPanel(card, x, y, w, h) {
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
     (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 172, 'util')
-                : donut(bsNum(card.util), '', col, 178, 13, bsS().font, dOpts)) +
+                : donut(bsNum(card.util), '', col, 178, 17, bsS().font, dOpts)) +
     stats + `<div style="flex:1"></div>` + right + `</div>`;
 
   return bsRegion(x, y, w, h, gpuName(card), col,
@@ -2263,7 +2409,7 @@ function gpuTile(card, x, y, w, h) {
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
     (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 126, 'util')
-                : donut(bsNum(card.util), '', col, 130, 10, bsS().font, dOpts)) +
+                : donut(bsNum(card.util), '', col, 130, 13, bsS().font, dOpts)) +
     stack + `</div>` + footer;
 
   return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
@@ -2409,7 +2555,7 @@ function bsThermRowSolid(label, temp, w) {
   return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
     `<span style="color:${S.label};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
       `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(46)};flex-shrink:0">${label}</span>` +
-    `<div style="width:${gq(w)};height:${gq(24)};background:${S.track};border-radius:${r};` +
+    `<div style="width:${gq(w)};height:${gq(30)};background:${S.track};border-radius:${r};` +
       `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;background:${c};` +
       `border-radius:${r};transition:width 0.8s ease${flash}"></div></div>` +
     `<span style="color:${c};font-family:${S.font};font-size:${gq(24)};font-weight:${S.fw};` +
@@ -2460,10 +2606,11 @@ function bsScreen1(c) {
   // phosphor ring, the Tubes magic eye, the VFD segmented dial.
   const gauge = S.gauge || function (pct, cap, which) {
     const col = which === 'cpu' ? S.dCpu : which === 'ram' ? S.dRam : S.dVram;
-    return bsGauge(pct, cap, col, S.gaugeSize || 124, S.gaugeSw || 11, dOpts);
+    return bsGauge(pct, cap, col, S.gaugeSize || 124, S.gaugeSw || 14, dOpts);
   };
   const capBar = S.capBar || function (label, cap, pct, which) {
-    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, 442);
+    const w = S.chrome === 'spine' ? 442 : 470;
+    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, w);
   };
   const capNone = S.capNone || function (label) {
     return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};` +
@@ -2498,8 +2645,9 @@ function bsScreen1(c) {
 
   // The scale has to start and stop exactly where the bars do, or the tick
   // labels point at temperatures the bars never reach.
-  const labW = S.seg ? 40 : 44, gap = 11, scaleW = S.seg ? 312 : 346;
   const bodyW = 486 - (S.chrome === 'spine' ? 28 : 0);
+  const labW = S.seg ? 40 : 46, gap = 11, readW = 62;
+  const scaleW = bodyW - labW - readW - gap * 2;
   let panelScale = `<div style="display:flex;justify-content:space-between;` +
     `margin-left:${gq(labW + gap)};margin-right:${gq(bodyW - labW - gap - scaleW)}">`;
   for (const t of [20, 50, 70, 90, 110, 120]) {
@@ -2571,7 +2719,7 @@ function bsScreen1(c) {
       tile('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 40, 'down') +
       tile('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 40, 'up') +
       tile('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 33, 'globe') +
-      tile('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 20, 'chip') +
+      tile('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 21, 'chip') +
     `</div>`;
 
   // ── CHRONOMETER
@@ -2600,9 +2748,9 @@ function bsScreen1(c) {
         `letter-spacing:${S.ls};text-transform:uppercase">${dateStr}</div></div>`;
 
   return bsFrame(
-    bsRegion(14, 10, 486, 288, 'CORE', S.a1,
+    bsRegion(14, 10, 486, 288, 'CHRONOMETER', S.a1, '', chrono, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'CORE', S.a1,
              host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
-    bsRegion(524, 10, 486, 288, 'CHRONOMETER', S.a1, '', chrono, 'center') +
     bsRegion(14, 302, 486, 288, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
     bsRegion(524, 302, 486, 288, 'COMMS', S.a2, identity, comms, 'space-around'));
 }
@@ -2631,6 +2779,129 @@ function bsFanRow() {
     bsFanGroup('CPU', S.a1, cpuFans) + bsFanGroup('CASE', S.a2, caseFans) +
     bsFanGroup('GPU', S.dVram, gpuFans) + `</div>`;
 }
+
+
+/* ── Bridge Station: screen 2, the NPU ───────────────────────────────────
+ * The model readout was displaced from screen 1 when the chronometer took its
+ * quadrant, and has had nowhere to live since. It gets its own board in the
+ * same four-region vocabulary, so every family renders it in its own chrome.
+ *
+ * Everything here is honest about absence: a box with no local model running
+ * says so rather than drawing an empty gauge.
+ */
+function bsNpuScreen(c) {
+  const S = bsS();
+
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const model = m('llama.model'), quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
+  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total'), vramPct = m('gpu.vram_percent');
+  const gpuName = m('gpu.name'), gpuPow = m('gpu.power'), gpuTemp = m('gpu.temp');
+  const cards = asList(m('gpu.cards'));
+  const cardShort = cards.length && cards[0].short_name ? esc(String(cards[0].short_name))
+                  : gpuName.available ? esc(String(gpuName.value)) : '--';
+
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? S.dim : running && healthy ? S.cLink : S.warn;
+  const stateText = !status.available ? 'NOT DETECTED'
+                  : esc(String(status.value)).toUpperCase();
+
+  const big = (label, value, color, valPx, icon) =>
+    `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
+        (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
+      `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
+        `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
+        `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+        `${bsGlow(9, color)}">${value}</span></div>`;
+
+  // ── MODEL: what is loaded
+  const modelName = model.available
+    ? esc(String(model.value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''))
+    : '--';
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : '--';
+  const modelBody =
+    `<div style="color:${S.bright};font-family:${S.font};font-size:${gq(34)};` +
+      `font-weight:${S.fw};line-height:1.1;${bsGlow(10, S.bright)}">${modelName}</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(20)}">` +
+      big('QUANT', quant.available ? esc(String(quant.value)) : '--', S.a4 || S.cLink, 34) +
+      big('CONTEXT', ctxText, S.cIp, 34) +
+      big('SLOTS', slots.available ? String(bsNum(slots.value)) : '--', S.cLink, 34) +
+      big('ENGINE', backend.available ? esc(String(backend.value)) : '--', S.soft, 28) +
+    `</div>`;
+
+  // ── THROUGHPUT: the number you actually watch
+  const tpsVal = tps.available && typeof tps.value === 'number'
+    ? tps.value.toFixed(1) : null;
+  const tpsBody =
+    `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<span style="color:${tpsVal === null ? S.dim : S.cLink};font-family:${S.font};` +
+        `font-size:${gq(96)};font-weight:${S.fw};line-height:1;` +
+        `font-variant-numeric:tabular-nums;${bsGlow(26, tpsVal === null ? S.dim : S.cLink, '66')}">` +
+        `${tpsVal === null ? '--' : tpsVal}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(22)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:0.28em;` +
+        `margin-top:${gq(6)}">TOKENS / SEC</span>` +
+      `<span style="color:${S.soft};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `margin-top:${gq(10)}">` +
+        `${slots.available ? bsNum(slots.value) + ' ACTIVE SLOT' + (bsNum(slots.value) === 1 ? '' : 'S') : 'SLOTS --'}` +
+      `</span></div>`;
+
+  // ── WEIGHTS: what the model is costing the card
+  const gib = (mib) => (bsNum(mib) / 1024).toFixed(1);
+  const weightsBody =
+    bsCapacityBar('VRAM IN USE',
+      vramUsed.available && vramTotal.available
+        ? `${gib(vramUsed.value)} / ${gib(vramTotal.value)} G` : '--',
+      bsNum(vramPct.available ? vramPct.value : 0), S.a2,
+      S.chrome === 'spine' ? 442 : 470) +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(14)};margin-top:${gq(16)}">` +
+      big('CARD', cardShort, S.cIp, 26) +
+      big('DRAW', gpuPow.available ? Math.round(bsNum(gpuPow.value)) + ' W' : '--', S.cPower, 30) +
+    `</div>`;
+
+  // ── SERVICE: is it up, and what is it
+  const serviceBody =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(18)}">` +
+      big('STATE', stateText, stateColor, 34) +
+      big('HEALTH', health.available ? esc(String(health.value)).toUpperCase() : '--',
+          healthy ? S.cLink : S.warn, 34) +
+      big('CARD TEMP', gpuTemp.available ? Math.round(bsNum(gpuTemp.value)) + '°C' : '--',
+          gpuTemp.available ? S.therm(gpuTemp.value) : S.dim, 34) +
+      big('SERVER PID', procs.length ? bsVal(procs[0].pid) : '--',
+          procs.length ? S.cIp : S.dim, 34) +
+    `</div>` +
+    (procs.length ? '' :
+      `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls}">` +
+        `NO LOCAL SERVER PROCESS</div>`);
+
+  return bsFrame(
+    bsRegion(14, 10, 486, 288, 'THROUGHPUT', S.a1, '', tpsBody, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'MODEL', S.a1,
+             backend.available ? esc(String(backend.value)).toUpperCase() : '',
+             modelBody, 'space-between') +
+    bsRegion(14, 302, 486, 288, 'WEIGHTS', S.a3, '', weightsBody, 'space-between') +
+    bsRegion(524, 302, 486, 288, 'SERVICE', S.a2, stateText, serviceBody, 'space-between', stateColor));
+}
+
+function sfTosNpuScreen(c) { bsSkin(BS_SKIN_TOS); return bsNpuScreen(c); }
+function sfDs9NpuScreen(c) { bsSkin(BS_SKIN_DS9); return bsNpuScreen(c); }
+function sfTngNpuScreen(c) { bsSkin(BS_SKIN_TNG); return bsNpuScreen(c); }
+function scanNpuScreen(c) { bsSkin(BS_SKIN_SCAN); return bsNpuScreen(c); }
+function tubeNpuScreen(c) { bsSkin(BS_SKIN_TUBE); return bsNpuScreen(c); }
+function vfdNpuScreen(c) { bsSkin(BS_SKIN_VFD); return bsNpuScreen(c); }
 
 function sfTosScreen1(c) { bsSkin(BS_SKIN_TOS); return bsScreen1(c); }
 function sfDs9Screen1(c) { bsSkin(BS_SKIN_DS9); return bsScreen1(c); }

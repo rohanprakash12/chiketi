@@ -133,19 +133,20 @@ function getScreenRegistry(c) {
   const isCoral = isPanel && selectedVariant === 'TNG';
   const isTeal = isPanel && selectedVariant === 'DS9';
   let screens;
-  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:sfDs9Screen1},{id:'screen2',name:'Clock',fn:sfDs9Screen2}];
-  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:sfTngScreen1},{id:'screen2',name:'Clock',fn:sfTngScreen2}];
-  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:sfTosScreen1},{id:'screen2',name:'Clock',fn:sfTosScreen2}];
-  else if (isVintage && selectedVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'Clock',fn:tubeScreen2}];
-  else if (isVintage && selectedVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'Clock',fn:vfdScreen2}];
-  else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'Clock',fn:scanScreen2}];
+  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:sfDs9Screen1},{id:'screen2',name:'NPU',fn:sfDs9NpuScreen}];
+  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:sfTngScreen1},{id:'screen2',name:'NPU',fn:sfTngNpuScreen}];
+  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:sfTosScreen1},{id:'screen2',name:'NPU',fn:sfTosNpuScreen}];
+  else if (isVintage && selectedVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'NPU',fn:tubeNpuScreen}];
+  else if (isVintage && selectedVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'NPU',fn:vfdNpuScreen}];
+  else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'NPU',fn:scanNpuScreen}];
   else if (DISTRO_SCREENS[selectedVariant]) screens = [{id:'screen1',name:'System Stats',fn:DISTRO_SCREENS[selectedVariant]},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
   else screens = [{id:'screen1',name:'System Stats',fn:terminalScreen1},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
   screens.push({id:'screen3',name:'Claude Usage',fn:claudeScreen3});
   // Adaptive: the screen picks its own density from gpu.count, so a
   // single-card box and a four-card rig both read correctly with no
   // configuration. Switch it off in Settings on a machine with no GPU.
-  const gpuFn = isTeal ? sfDs9GpuScreen
+  const gpuFn = DISTRO_GPU_SCREENS[selectedVariant] ? DISTRO_GPU_SCREENS[selectedVariant]
+              : isTeal ? sfDs9GpuScreen
               : isCoral ? sfTngGpuScreen
               : isVintage && selectedVariant === 'Tubes' ? tubeGpuScreen
               : isVintage && selectedVariant === 'VFD' ? vfdGpuScreen
