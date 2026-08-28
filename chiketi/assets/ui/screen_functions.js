@@ -558,39 +558,18 @@ function distroScreen1(c) {
     dRow('iface', iface.available ? esc(String(iface.value)) : '--', S) +
     dRow('addr', ip.available ? esc(String(ip.value)) : '--', S);
 
-  // Per-core meters, two to a line. conky lists every core it can see.
-  let coreRows = '';
-  for (let i = 0; i < cores.length; i += 2) {
-    const cells = [];
-    for (let j = i; j < Math.min(i + 2, cores.length); j++) {
-      const v = typeof cores[j] === 'number' ? cores[j] : null;
-      const col = v !== null && v >= 90 ? S.warn : S.meter;
-      cells.push(`<span style="color:${S.label}">${String(j).padStart(2, '0')}</span>` +
-        `<span style="color:${col}"> ${distroBar(v, 10)}</span>` +
-        `<span style="color:${S.value}"> ${v === null ? ' --' : String(Math.round(v)).padStart(3)}</span>`);
-    }
-    coreRows += `<div style="display:flex;gap:14px;white-space:nowrap">` +
-      cells.join('') + `</div>`;
-  }
-  if (!cores.length) {
-    coreRows = `<div style="color:${S.dim}">no per-core readings</div>`;
-  }
-
   const left =
     `<div style="font-size:17px;margin-bottom:6px">${clock}</div>` +
     dRule('SYSTEM', S) + idBlock +
-    dRule('CORES', S, cores.length ? cores.length + ' THREADS' : '') + coreRows +
-    // Three short readings on one line rather than three: the column was 37px
-    // over, and losing two lines here costs nothing a reader would miss.
     dRule('THERMAL', S) +
-    `<div style="display:flex;justify-content:space-between">` +
-      ['cpu', 'board', 'gpu'].map((lab, i) => {
-        const t = [cpuT, mbT, gpuT][i];
-        const v = distroPct(t);
-        const col = v !== null && v >= 80 ? S.warn : S.value;
-        return `<span><span style="color:${S.label}">${lab} </span>` +
-          `<span style="color:${col}">${distroVal(v, '\u00b0C')}</span></span>`;
-      }).join('') + `</div>`;
+    dRow('cpu', distroVal(distroPct(cpuT), '\u00b0C'), S,
+         distroPct(cpuT) !== null && cpuT.value >= 80 ? S.warn : S.value) +
+    dRow('board', distroVal(distroPct(mbT), '\u00b0C'), S) +
+    dRow('gpu', distroVal(distroPct(gpuT), '\u00b0C'), S,
+         distroPct(gpuT) !== null && gpuT.value >= 80 ? S.warn : S.value) +
+    dRule('LOAD', S, cores.length ? cores.length + ' THREADS' : '') +
+    dRow('processes', procs.length ? String(m('sys.top_procs').extra.total || '--') : '--', S) +
+    dRow('busiest', procs.length ? esc(String(procs[0].name || '?')) : '--', S, S.accent);
 
   // ── right column: the meters and the graphs
   const cpuPct = distroPct(cpu);
