@@ -59,12 +59,12 @@ function getScreenRegistry(c) {
   const isCoral = isPanel && activeVariant === 'TNG';
   const isTeal = isPanel && activeVariant === 'DS9';
   let screens;
-  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:sfDs9Screen1},{id:'screen2',name:'NPU',fn:sfDs9NpuScreen}];
-  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:sfTngScreen1},{id:'screen2',name:'NPU',fn:sfTngNpuScreen}];
-  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:sfTosScreen1},{id:'screen2',name:'NPU',fn:sfTosNpuScreen}];
-  else if (isVintage && activeVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'NPU',fn:tubeNpuScreen}];
-  else if (isVintage && activeVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'NPU',fn:vfdNpuScreen}];
-  else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'NPU',fn:scanNpuScreen}];
+  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:sfDs9Screen1},{id:'screen2',name:'NPU',fn:sfDs9NpuScreen},{id:'screen5',name:'Clock',fn:sfDs9Screen2}];
+  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:sfTngScreen1},{id:'screen2',name:'NPU',fn:sfTngNpuScreen},{id:'screen5',name:'Clock',fn:sfTngScreen2}];
+  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:sfTosScreen1},{id:'screen2',name:'NPU',fn:sfTosNpuScreen},{id:'screen5',name:'Clock',fn:sfTosScreen2}];
+  else if (isVintage && activeVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'NPU',fn:tubeNpuScreen},{id:'screen5',name:'Clock',fn:tubeScreen2}];
+  else if (isVintage && activeVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'NPU',fn:vfdNpuScreen},{id:'screen5',name:'Clock',fn:vfdScreen2}];
+  else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'NPU',fn:scanNpuScreen},{id:'screen5',name:'Clock',fn:scanScreen2}];
   else if (DISTRO_SCREENS[activeVariant]) screens = [{id:'screen1',name:'System Stats',fn:DISTRO_SCREENS[activeVariant]},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
   else screens = [{id:'screen1',name:'System Stats',fn:terminalScreen1},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
   screens.push({id:'screen3',name:'Claude Usage',fn:claudeScreen3});
@@ -186,18 +186,22 @@ function onRotate() {
 
    Non-clock screens are deliberately left alone: renderDisplay() replaces
    ~130KB of innerHTML and that is not worth doing every second on a Pi. */
-const CLOCK_SCREEN_IDS = ['screen1', 'screen2'];
-/* Families whose screen2 is a clock. Terminal's screen2 is the AI Monitor
-   (see getScreenRegistry(): every non-Sci-Fi/Vintage family falls through to
-   the terminal branch), so this is an allowlist, not a Terminal denylist --
-   a family added later is correctly treated as non-clock by default. */
+const CLOCK_SCREEN_IDS = ['screen1', 'screen5'];
+/* Families carrying a clock: Sci-Fi and Vintage show a chronometer on screen1
+   and the standalone clock on screen5. Terminal's screen2 is the AI Monitor,
+   so this is an allowlist rather than a Terminal denylist -- a family added
+   later is correctly treated as non-clock by default.
+
+   The distro Terminal variants are the exception: their screen1 draws the time
+   in block characters, so they tick too. */
 const CLOCK_FAMILIES = ['Sci-Fi', 'Vintage'];
 
 function isClockScreen() {
   const s = enabledScreens[currentScreenIdx];
   if (!s) return false;
-  return CLOCK_SCREEN_IDS.indexOf(s.id) !== -1 &&
-         CLOCK_FAMILIES.indexOf(activeFamily) !== -1;
+  if (CLOCK_SCREEN_IDS.indexOf(s.id) !== -1 &&
+      CLOCK_FAMILIES.indexOf(activeFamily) !== -1) return true;
+  return s.id === 'screen1' && !!DISTRO_SCREENS[activeVariant];
 }
 
 /* Idempotent: always clears the existing interval first, so calling it on
