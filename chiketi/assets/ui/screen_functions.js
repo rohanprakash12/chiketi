@@ -805,7 +805,7 @@ function nixieDigit(value, size, showTube, opts) {
   const mesh = N.mesh || '#332820';
 
   const chars = String(value).split('');
-  let html = '<span style="display:inline-flex;gap:' + (showTube ? '3px' : '0') + '">';
+  let html = '<span style="display:inline-flex;gap:' + (showTube ? gq(3) : '0') + '">';
   for (let ci = 0; ci < chars.length; ci++) {
     const ch = chars[ci];
     const isDigit = /\d/.test(ch);
@@ -816,11 +816,11 @@ function nixieDigit(value, size, showTube, opts) {
       : 'linear-gradient(180deg, ' + glassTint + '55 0%, transparent 20%, transparent 80%, ' + glassTint + '55 100%)';
     const tubeBorder = showTube ? '1px solid ' + glass + '55' : '1px solid ' + glass + '33';
     const tubeBorderBottom = showTube ? 'border-bottom:3px solid ' + glass + '88;' : '';
-    const tubeRadius = showTube ? 'border-radius:' + (size*0.3) + 'px ' + (size*0.3) + 'px 4px 4px;' : 'border-radius:2px;';
+    const tubeRadius = showTube ? 'border-radius:' + gq(size*0.3) + ' ' + gq(size*0.3) + ' 4px 4px;' : 'border-radius:2px;';
     const tubeBoxShadow = showTube ? 'box-shadow:inset 0 0 ' + (size*0.4) + 'px rgba(255,68,0,0.07),inset 0 0 ' + (size*0.15) + 'px rgba(255,100,34,0.1),inset 0 ' + (size*0.15) + 'px ' + (size*0.3) + 'px rgba(0,0,0,0.4),0 0 ' + (size*0.25) + 'px rgba(255,68,0,0.1);' : '';
 
     html += '<span style="position:relative;display:inline-block;' +
-      (showTube ? 'width:' + tubeW + 'px;height:' + tubeH + 'px;' : 'padding:0 1px;') +
+      (showTube ? 'width:' + gq(tubeW) + ';height:' + gq(tubeH) + ';' : 'padding:0 1px;') +
       'text-align:center;background:' + tubeBg + ';border:' + tubeBorder + ';' + tubeBorderBottom + tubeRadius + tubeBoxShadow + 'overflow:hidden">';
 
     /* Active digit with 5-layer glow */
@@ -839,13 +839,12 @@ function nixieDigit(value, size, showTube, opts) {
                      {d: (n + 3) % 10, o: 0.20, dx: 0.022, dy: -0.010},
                      {d: (n + 7) % 10, o: 0.13, dx: -0.008, dy: -0.020}];
       for (const g of stack) {
-        html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + NIXIE +
+        html += '<span style="' + digitPos + 'font-size:' + gq(size) + ';font-family:' + NIXIE +
           ';color:#6B5140;opacity:' + g.o + ';z-index:' + (10 + stack.indexOf(g)) +
-          ';margin-left:' + (size * g.dx).toFixed(2) + 'px;margin-top:' + (size * g.dy).toFixed(2) +
-          'px;text-shadow:none;pointer-events:none">' + g.d + '</span>';
+          ';margin-left:' + gq(size * g.dx) + ';margin-top:' + gq(size * g.dy) + ';text-shadow:none;pointer-events:none">' + g.d + '</span>';
       }
     }
-    html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:' + litColor + ';text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
+    html += '<span style="' + digitPos + 'font-size:' + gq(size) + ';font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:' + litColor + ';text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
     if (opts.mesh) {
       // An IN-14 anode carries something like 25 wires across the face; at
       // size*0.075 the grid read as a screen door rather than as a mesh.
@@ -945,8 +944,7 @@ function magicEye(pct, label, size, opts) {
   const N = PANEL_SPEC.tubes || {};
 
   return '<div style="text-align:center">' +
-    '<div style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 3px ' + (N.label||'#AA8855') + '44;font-size:2.34cqw;font-family:' + MONO + ';letter-spacing:3px;margin-bottom:3px">' + label + '</div>' +
-    '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto;filter:drop-shadow(0 0 ' + (4*s) + 'px rgba(' + P.bloom + ',0.08)) drop-shadow(0 0 ' + (10*s) + 'px rgba(' + P.bloom + ',0.06))">' +
+    '<div style="position:relative;width:' + gq(size) + ';height:' + gq(size) + ';margin:0 auto;filter:drop-shadow(0 0 ' + gq(4*s) + ' rgba(' + P.bloom + ',0.08)) drop-shadow(0 0 ' + gq(10*s) + ' rgba(' + P.bloom + ',0.06))">' +
       '<svg viewBox="0 0 420 420" width="' + size + '" height="' + size + '" style="display:block">' +
         '<defs>' +
           '<filter id="og-' + eid + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
@@ -972,8 +970,11 @@ function magicEye(pct, label, size, opts) {
             : '') +
         '</g>' +
       '</svg>' +
-      '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + holeSize + 'px;height:' + holeSize + 'px;border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + (5*s) + 'px ' + (10*s) + 'px rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:grid;place-items:center">' +
-        '<span style="color:' + P.ink + ';font-size:' + Math.max(11, holeSize*0.3) + 'px;font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
+      '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + gq(holeSize) + ';height:' + gq(holeSize) + ';border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + gq(5*s) + ' ' + gq(10*s) + ' rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+        '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
+        (label ? '<span style="color:#9d8a72;font-size:' + gq(Math.max(8, holeSize*0.155)) + ';' +
+          'font-family:\'IBM Plex Mono\',monospace;line-height:1;letter-spacing:0.08em;' +
+          'margin-top:' + gq(holeSize*0.06) + '">' + label + '</span>' : '') +
       '</div>' +
     '</div>' +
   '</div>';
@@ -987,7 +988,7 @@ function dekatron(rpm, size) {
   const dekOrange = N.dekOrange || '#FF6600';
   const dekGuide = N.dekGuide || '#552200';
   const dekInactive = '#181410';
-  let html = '<div style="width:' + size + 'px;height:' + size + 'px;position:relative;' + (stopped ? 'opacity:0.3' : 'animation:spin ' + speed.toFixed(2) + 's linear infinite') + '">';
+  let html = '<div style="width:' + gq(size) + ';height:' + gq(size) + ';position:relative;' + (stopped ? 'opacity:0.3' : 'animation:spin ' + speed.toFixed(2) + 's linear infinite') + '">';
   for (let i = 0; i < 10; i++) {
     const angle = (i / 10) * Math.PI * 2;
     const x = size / 2 + (size / 2 - 3) * Math.cos(angle) - 1.5;
@@ -997,7 +998,7 @@ function dekatron(rpm, size) {
     const dotColor = isActive ? dekOrange : isTrail ? dekGuide : dekInactive;
     const dotOpacity = isActive ? 1 : isTrail ? 0.4 : 0.15;
     const dotGlow = isActive ? '0 0 4px ' + dekOrange + ',0 0 10px ' + dekOrange + '66' : isTrail ? '0 0 3px ' + dekGuide : 'none';
-    html += '<div style="position:absolute;left:' + x + 'px;top:' + y + 'px;width:3px;height:3px;border-radius:50%;background:' + dotColor + ';box-shadow:' + dotGlow + ';opacity:' + dotOpacity + '"></div>';
+    html += '<div style="position:absolute;left:' + gq(x) + ';top:' + gq(y) + ';width:' + gq(3) + ';height:' + gq(3) + ';border-radius:50%;background:' + dotColor + ';box-shadow:' + dotGlow + ';opacity:' + dotOpacity + '"></div>';
   }
   html += '</div>';
   return html;
@@ -1034,19 +1035,19 @@ function tubeScreen2(c) {
   const dateStr = months[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
 
   return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:' + MONO + '">' +
-    '<div style="color:' + barDim + ';text-shadow:0 0 3px ' + barDim + '44;font-size:1.76cqw;letter-spacing:8px;margin-bottom:2.05cqw">NIXIE TUBE CHRONOMETER</div>' +
-    '<div style="display:flex;align-items:center;gap:5px">' +
-      nixieDigit(hh[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      nixieDigit(hh[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      '<span style="color:#FF8B33;font-size:11.72cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 16px #FF5A0A,0 0 32px #FF3A00AA,0 0 50px #DC140044;animation:blink 1s infinite;margin:0 3px">:</span>' +
-      nixieDigit(mm[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      nixieDigit(mm[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      '<div style="width:12px"></div>' +
-      nixieDigit(ss[0], 70, true, {neon: true, ghosts: true, mesh: true}) +
-      nixieDigit(ss[1], 70, true, {neon: true, ghosts: true, mesh: true}) +
+    '<div style="color:' + barDim + ';text-shadow:0 0 3px ' + barDim + '44;font-size:2.3cqw;letter-spacing:8px;margin-bottom:2.05cqw">NIXIE TUBE CHRONOMETER</div>' +
+    '<div style="display:flex;align-items:center;gap:' + gq(5) + '">' +
+      nixieDigit(hh[0], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(hh[1], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      '<span style="color:#FF8B33;font-size:14.5cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 16px #FF5A0A,0 0 32px #FF3A00AA,0 0 50px #DC140044;animation:blink 1s infinite;margin:0 3px">:</span>' +
+      nixieDigit(mm[0], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(mm[1], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      '<div style="width:' + gq(12) + '"></div>' +
+      nixieDigit(ss[0], 88, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(ss[1], 88, true, {neon: true, ghosts: true, mesh: true}) +
     '</div>' +
-    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:4.69cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
-    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:5.27cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:6.2cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:6.8cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
     '<div style="display:flex;align-items:center;gap:1.46cqw;margin-top:2.34cqw">' +
       [dekOrange, warm, eyeStd, '#8855DD', eyeStd, warm, dekOrange].map(function(c) { return '<div style="width:0.73cqw;height:0.73cqw;border-radius:50%;background:' + c + ';box-shadow:0 0 4px ' + c + ',0 0 8px ' + c + '66,0 0 14px ' + c + '22;opacity:0.7"></div>'; }).join('') +
     '</div>' +
@@ -1101,7 +1102,6 @@ function vfdDonut(pct, label, color, size) {
   }
 
   return '<div style="text-align:center">' +
-    '<div style="color:' + p.main + ';text-shadow:0 0 4px ' + p.dim + ';font-size:2.20cqw;font-family:' + F + ';letter-spacing:3px;margin-bottom:' + gq(3) + '">' + label + '</div>' +
     '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" style="display:block;overflow:visible">' +
       '<defs><filter id="' + fid + '-b" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="5" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
       '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + p.ghost + '" stroke-width="' + sw + '"/>' +
@@ -1745,9 +1745,9 @@ const BS_SKIN_TUBE = {
                    Math.max(16, Math.round(h) + 6)) + `</div>`;
   },
   gauge: function (pct, cap, which) {
-    return magicEye(pct, cap, 110, {rich: true, invert: true});
+    return magicEye(pct, cap, 146, {rich: true, invert: true});
   },
-  capGap: gq(6), capTop: gq(4),
+  capGap: gq(10), capTop: gq(12),
   gpuGauge: function (pct, cap, color, size, kind) {
     return magicEye(pct, cap, size, {rich: true, invert: true,
                                      phosphor: kind === 'vram' ? 'cyan' : 'green'});
@@ -1781,7 +1781,7 @@ const BS_SKIN_TUBE = {
       `<span style="color:${_NX.label || '#AA8855'};text-shadow:0 0 2px ${_NX.label || '#AA8855'}33;` +
         `font-size:${gq(17)};font-family:${PLEX};width:${gq(98)};flex-shrink:0;` +
         `white-space:nowrap">${label}</span>` +
-      tubeFilament(pct, col, false, 'cap' + label, 21) +
+      tubeFilament(pct, col, false, 'cap' + label, 30) +
       `<span style="color:#FFDDBB;text-shadow:0 0 3px ${col}88;font-size:${gq(16)};` +
         `font-family:${PLEX};width:${gq(116)};text-align:right;flex-shrink:0;` +
         `white-space:nowrap">${cap}</span></div>`;
@@ -1790,7 +1790,7 @@ const BS_SKIN_TUBE = {
     return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
       `<span style="color:${_NX.label || '#AA8855'};font-size:${gq(17)};font-family:${PLEX};` +
         `width:${gq(98)};flex-shrink:0;white-space:nowrap">${label}</span>` +
-      tubeFilament(0, _NX.barDim || '#CC4400', false, 'capNone' + label, 21) +
+      tubeFilament(0, _NX.barDim || '#CC4400', false, 'capNone' + label, 30) +
       `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(16)};font-family:${PLEX};` +
         `width:${gq(116)};text-align:right;flex-shrink:0;white-space:nowrap">NONE</span></div>`;
   },
@@ -1872,7 +1872,7 @@ const BS_SKIN_VFD = {
   },
   gauge: function (pct, cap, which) {
     const name = which === 'cpu' ? 'green' : which === 'ram' ? 'blue' : 'amber';
-    return vfdDonut(pct, cap, name, 116);
+    return vfdDonut(pct, cap, name, 142);
   },
   thermRowFn: function (label, temp) {
     return vfdThermalBar((temp === null || temp === undefined) ? 20 : temp, label);
@@ -1932,6 +1932,28 @@ function bsVal(v, suffix) {
 
 function bsNum(v) {
   return (typeof v === 'number' && isFinite(v)) ? v : 0;
+}
+
+
+/* Small line icons for the comms readings. Drawn rather than labelled: at a
+   metre and a half a glyph reads before a word does, and the word is still
+   there underneath it. */
+function bsIcon(kind, color, px) {
+  const c = color, w = gq(px || 20);
+  const open = `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" ` +
+    `stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ` +
+    `style="flex-shrink:0;vertical-align:-0.15em">`;
+  const paths = {
+    speed: '<path d="M12 20a8 8 0 1 1 8-8"/><path d="M12 12l5-3"/>',
+    ping:  '<path d="M2 12h4l3-7 4 14 3-7h6"/>',
+    down:  '<path d="M12 4v13"/><path d="M6 12l6 6 6-6"/>',
+    up:    '<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>' +
+           '<path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>',
+    chip:  '<rect x="7" y="7" width="10" height="10" rx="1"/>' +
+           '<path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+  };
+  return open + (paths[kind] || '') + '</svg>';
 }
 
 /* One section of the board. The rectangle and the body layout are shared;
@@ -2078,11 +2100,17 @@ function gpuTempColor(card) {
 /* Donut with its caption BELOW the ring. The shared donut() puts the label
    above, which overflows the top of a vertically-centred region and gets
    clipped by its overflow:hidden. */
+/* Caption inside the ring, under the reading. Hung below the dial it cost a
+   line of height and bought nothing -- the ring has a hole in the middle and
+   the name of the thing belongs in it. */
 function bsGauge(pct, caption, color, size, sw, opts) {
-  return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(4)}">` +
-    donut(pct, '', color, size, sw, bsS().font, opts) +
-    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
-      `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${caption}</div></div>`;
+  const S = bsS();
+  return `<div style="position:relative;display:inline-block;line-height:0">` +
+    donut(pct, '', color, size, sw, S.font, opts) +
+    `<div style="position:absolute;left:0;right:0;top:${gq(size * 0.665)};text-align:center;` +
+      `color:${S.label};font-family:${S.font};font-size:${gq(13)};font-weight:${S.fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:0.12em;` +
+      `pointer-events:none;white-space:nowrap">${caption}</div></div>`;
 }
 
 /* ── layout A: one card, everything ── */
@@ -2091,7 +2119,7 @@ function gpuLayoutSingle(card) {
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
   const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
-                 critColor: bsS().bright, linecap: 'butt', valSize: gq(44), labelSize: gq(13),
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(50), labelSize: gq(15),
                  labelColor: bsS().label};
 
   const head = `<div style="position:absolute;left:${gq(24)};top:${gq(16)};right:${gq(24)};` +
@@ -2110,14 +2138,14 @@ function gpuLayoutSingle(card) {
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
     : `<div style="display:flex;justify-content:center">${S.gpuGauge
         ? S.gpuGauge(bsNum(card.util), 'UTILISATION', col, 150, 'util')
-        : bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
+        : bsGauge(bsNum(card.util), 'UTILISATION', col, 176, 13, dOpts)}</div>`;
 
   const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
     ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
     : `<div style="display:flex;justify-content:center">${S.gpuGauge
         ? S.gpuGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 150, 'vram')
-        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 152, 11, dOpts)}</div>`;
+        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 176, 13, dOpts)}</div>`;
 
   const procs = asList({available: true, value: card.processes});
   let procBody, procRight;
@@ -2130,8 +2158,8 @@ function gpuLayoutSingle(card) {
       procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${bsS().font}">` +
         `<span style="color:${bsS().bright};font-size:${gq(17)};font-weight:${bsS().fw};width:${gq(118)};overflow:hidden;` +
           `text-overflow:ellipsis;white-space:nowrap">${esc(String(pr.name || '?'))}</span>` +
-        `<span style="color:${bsS().dim};font-size:${gq(13)};width:${gq(54)}">${bsVal(pr.pid)}</span>` +
-        bsSegBar(pct, S.a2, 560, 13, 30, 3) +
+        `<span style="color:${bsS().dim};font-size:${gq(16)};width:${gq(70)}">${bsVal(pr.pid)}</span>` +
+        bsSegBar(pct, S.a2, 566, 17, 30, 3) +
         `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw};width:${gq(74)};text-align:right;` +
           `font-variant-numeric:tabular-nums">${bsVal(pr.vram_mib)}M</span></div>`;
     }
@@ -2151,26 +2179,26 @@ function gpuLayoutSingle(card) {
   }
 
   return head +
-    bsRegion(24, 62, 300, 240, 'PROCESSOR', col, '', utilBody, 'center') +
-    bsRegion(348, 62, 300, 240, 'MEMORY', S.a2, '', vramBody, 'center') +
-    bsRegion(672, 62, 328, 240, 'TELEMETRY', S.a1, '',
-      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 30) +
+    bsRegion(14, 52, 320, 250, 'PROCESSOR', col, '', utilBody, 'center') +
+    bsRegion(348, 52, 320, 250, 'MEMORY', S.a2, '', vramBody, 'center') +
+    bsRegion(682, 52, 328, 250, 'TELEMETRY', S.a1, '',
+      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 36) +
       bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 16), S.cPower, 30) +
-      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 16), bsS().text, 26) +
-      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 16), bsS().text, 26),
+      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 16), bsS().text, 32) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 16), bsS().text, 32),
       'space-around') +
-    bsRegion(24, 312, 624, 116, 'LOAD', col, '',
-      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 596, 34, 14, 12) +
+    bsRegion(14, 306, 654, 130, 'LOAD', col, '',
+      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 628, 34, 18, 15) +
       bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a2, 596, 34, 14, 12),
       'space-around') +
-    bsRegion(672, 312, 328, 116, 'COOLING', tc, '',
+    bsRegion(682, 306, 328, 130, 'COOLING', tc, '',
       `<div style="display:flex;align-items:center;gap:${gq(18)}">` +
-        fanIcon(tc, gq(54), gpuFanRpm(card)) +
+        fanIcon(tc, gq(56), gpuFanRpm(card)) +
         `<div><div style="color:${bsS().bright};font-family:${bsS().font};font-size:${gq(30)};font-weight:${bsS().fw};` +
           `font-variant-numeric:tabular-nums;${bsGlow(8, tc, '99')}">${gpuFanText(card)}</div>` +
         `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
           `text-transform:uppercase;letter-spacing:${bsS().ls}">FAN</div></div></div>`, 'center') +
-    bsRegion(24, 446, 976, 132, 'PROCESSES', S.a2, procRight, procBody, 'space-around');
+    bsRegion(14, 440, 996, 150, 'PROCESSES', S.a2, procRight, procBody, 'space-around');
 }
 
 /* ── layout B: two cards ── */
@@ -2179,28 +2207,28 @@ function gpuCardPanel(card, x, y, w, h) {
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
   const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
-                 critColor: bsS().bright, linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(46), labelSize: gq(14)};
 
   const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
     bsMetered('VRAM', bsVal(card.vram_used) + ' ' + bsSub(`/ ${bsVal(card.vram_total)} MiB`, 15),
-               bsNum(card.vram_percent), S.a2, 330, 26, 23, 13) +
+               bsNum(card.vram_percent), S.a2, 384, 26, 28, 16) +
     bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 15),
-               gpuPowerPct(card), S.cPower, 330, 26, 23, 13) +
-    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 330, 26, 23, 13) +
+               gpuPowerPct(card), S.cPower, 384, 26, 28, 16) +
+    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 384, 26, 28, 16) +
     `</div>`;
 
   // Fixed width, not flex:1. Stretching this column ran its labels back
   // underneath the bars in the middle column.
-  const right = `<div style="width:${gq(236)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
-    bsKv('TEMP', bsVal(card.temp, '°C'), tc, 26) +
+  const right = `<div style="width:${gq(268)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
+    bsKv('TEMP', bsVal(card.temp, '°C'), tc, 34, 16) +
     bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub('MHz', 14), bsS().text, 22) +
-    `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(30), gpuFanRpm(card)) +
+    `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(40), gpuFanRpm(card)) +
       `<span style="color:${bsS().text};font-family:${bsS().font};font-size:${gq(17)};font-weight:${bsS().fw};` +
       `${bsGlow(6, tc, '99')}">${gpuFanText(card)}</span></div></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
-    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 132, 'util')
-                : donut(bsNum(card.util), '', col, 138, 10, bsS().font, dOpts)) +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 172, 'util')
+                : donut(bsNum(card.util), '', col, 178, 13, bsS().font, dOpts)) +
     stats + `<div style="flex:1"></div>` + right + `</div>`;
 
   return bsRegion(x, y, w, h, gpuName(card), col,
@@ -2213,7 +2241,7 @@ function gpuTile(card, x, y, w, h) {
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
   const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
-                 critColor: bsS().bright, linecap: 'butt', valSize: gq(29), labelSize: gq(11)};
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(36), labelSize: gq(13)};
   // Used keeps a decimal at every magnitude -- rounding 18.3 to 18 on a 24G
   // card throws away the only digit that moves. The total is a fixed board
   // spec, so an integer is right there.
@@ -2222,20 +2250,20 @@ function gpuTile(card, x, y, w, h) {
 
   const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
     bsMetered('VRAM', gibUsed(card.vram_used) + ' ' + bsSub(`/ ${gibTotal(card.vram_total)} G`, 12),
-               bsNum(card.vram_percent), S.a2, 214, 20, 19, 11) +
+               bsNum(card.vram_percent), S.a2, 258, 22, 24, 14) +
     bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 12),
-               gpuPowerPct(card), S.cPower, 214, 20, 19, 11) + `</div>`;
+               gpuPowerPct(card), S.cPower, 258, 22, 24, 14) + `</div>`;
 
   const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${bsS().font}">` +
-    fanIcon(tc, gq(24), gpuFanRpm(card)) +
-    `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw}">${bsVal(card.temp, '°C')}</span>` +
+    fanIcon(tc, gq(32), gpuFanRpm(card)) +
+    `<span style="color:${bsS().text};font-size:${gq(22)};font-weight:${bsS().fw}">${bsVal(card.temp, '°C')}</span>` +
     `<span style="flex:1"></span>` +
     `<span style="color:${bsS().label};font-size:${gq(11)};font-weight:${bsS().fw};text-transform:uppercase;` +
-      `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
+      `letter-spacing:${bsS().ls};white-space:nowrap;font-size:${gq(15)}">${bsVal(card.clock_gpu)} MHz</span></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
-    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 100, 'util')
-                : donut(bsNum(card.util), '', col, 104, 8, bsS().font, dOpts)) +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 126, 'util')
+                : donut(bsNum(card.util), '', col, 130, 10, bsS().font, dOpts)) +
     stack + `</div>` + footer;
 
   return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
@@ -2275,14 +2303,14 @@ function bsGpuScreen(c) {
 
   if (cards.length === 2) {
     return frame(gpuHeader(cards) +
-      gpuCardPanel(cards[0], 24, 52, 976, 254) +
-      gpuCardPanel(cards[1], 24, 324, 976, 254));
+      gpuCardPanel(cards[0], 14, 44, 996, 268) +
+      gpuCardPanel(cards[1], 14, 322, 996, 268));
   }
 
-  const pos = [[24, 52], [516, 52], [24, 322], [516, 322]];
+  const pos = [[14, 44], [518, 44], [14, 320], [518, 320]];
   let body = gpuHeader(cards);
   for (let i = 0; i < Math.min(4, cards.length); i++) {
-    body += gpuTile(cards[i], pos[i][0], pos[i][1], 484, 248);
+    body += gpuTile(cards[i], pos[i][0], pos[i][1], 492, 268);
   }
   // Beyond four the grid has no room; say what is not shown rather than
   // silently truncating the list.
@@ -2321,8 +2349,8 @@ function bsThermRow(label, temp, w) {
     `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
       `text-transform:uppercase;letter-spacing:${bsS().ls};width:${gq(34)};flex-shrink:0">${label}</span>` +
     bsSegBar(pct, c, w, 16, 14, 4) +
-    `<span style="color:${c};font-family:${bsS().font};font-size:${gq(18)};font-weight:${bsS().fw};` +
-      `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+    `<span style="color:${c};font-family:${bsS().font};font-size:${gq(24)};font-weight:${bsS().fw};` +
+      `width:${gq(62)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
       `${bsGlow(8, c, '99')}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
 }
 
@@ -2332,10 +2360,10 @@ function bsThermRow(label, temp, w) {
 function bsFanGroup(label, color, rpms) {
   if (!rpms.length) return '';
   let icons = '';
-  for (const r of rpms) icons += fanIcon(color, gq(26), r);
+  for (const r of rpms) icons += fanIcon(color, gq(46), r);
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(6)}">` +
     `<div style="display:flex;gap:${gq(9)}">${icons}</div>` +
-    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(15)};font-weight:${bsS().fw};` +
       `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</div></div>`;
 }
 
@@ -2362,11 +2390,11 @@ function bsCapacityBar(label, cap, pct, color, w) {
   return `<div style="width:${gq(w)}">` +
     `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
       `margin-bottom:${gq(5)}">` +
-      `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+      `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(15)};font-weight:${bsS().fw};` +
         `text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</span>` +
-      `<span style="color:${bsS().soft};font-family:${bsS().font};font-size:${gq(14)};font-weight:${bsS().fw};` +
+      `<span style="color:${bsS().soft};font-family:${bsS().font};font-size:${gq(18)};font-weight:${bsS().fw};` +
         `font-variant-numeric:tabular-nums">${cap}</span></div>` +
-    bsSegBar(pct, color, w, bsS().seg ? 11 : 15, 26, 3) + `</div>`;
+    bsSegBar(pct, color, w, bsS().seg ? 14 : 18, 26, 3) + `</div>`;
 }
 
 /* Gold segments its thermal track; Teal and Coral keep the continuous bar
@@ -2380,12 +2408,12 @@ function bsThermRowSolid(label, temp, w) {
   const r = S.r >= 999 ? '999px' : S.r + 'px';
   return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
     `<span style="color:${S.label};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
-      `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(38)};flex-shrink:0">${label}</span>` +
-    `<div style="width:${gq(w)};height:${gq(18)};background:${S.track};border-radius:${r};` +
+      `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(46)};flex-shrink:0">${label}</span>` +
+    `<div style="width:${gq(w)};height:${gq(24)};background:${S.track};border-radius:${r};` +
       `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;background:${c};` +
       `border-radius:${r};transition:width 0.8s ease${flash}"></div></div>` +
-    `<span style="color:${c};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
-      `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+    `<span style="color:${c};font-family:${S.font};font-size:${gq(24)};font-weight:${S.fw};` +
+      `width:${gq(62)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
       `${bsGlow(8, c)}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
 }
 
@@ -2426,16 +2454,16 @@ function bsScreen1(c) {
 
   const dOpts = {anticlockwise: true, ticks: S.key === 'gold', bgRing: S.ring,
                  valColor: S.bright, critColor: S.crit, linecap: 'butt',
-                 fontWeight: S.fw, valSize: gq(30), labelSize: gq(12)};
+                 fontWeight: S.fw, valSize: gq(34), labelSize: gq(14)};
 
   // Each family draws its own instrument: the Panel donut, the Scanlines
   // phosphor ring, the Tubes magic eye, the VFD segmented dial.
   const gauge = S.gauge || function (pct, cap, which) {
     const col = which === 'cpu' ? S.dCpu : which === 'ram' ? S.dRam : S.dVram;
-    return bsGauge(pct, cap, col, S.gaugeSize || 104, S.gaugeSw || 9, dOpts);
+    return bsGauge(pct, cap, col, S.gaugeSize || 124, S.gaugeSw || 11, dOpts);
   };
   const capBar = S.capBar || function (label, cap, pct, which) {
-    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, 428);
+    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, 442);
   };
   const capNone = S.capNone || function (label) {
     return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};` +
@@ -2448,10 +2476,10 @@ function bsScreen1(c) {
     `<div style="display:flex;justify-content:space-around;align-items:center">` +
       gauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', 'cpu') +
       gauge(bsNum(ram.available ? ram.value : 0), 'RAM', 'ram') +
-      gauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', 'vram') +
+      gauge(bsNum(vram.available ? vram.value : 0), 'VRAM', 'vram') +
     `</div>` +
-    `<div style="display:flex;flex-direction:column;gap:${S.capGap || 11};` +
-      `margin-top:${S.capTop || gq(14)}">` +
+    `<div style="display:flex;flex-direction:column;gap:${S.capGap || gq(9)};` +
+      `margin-top:${S.capTop || gq(8)}">` +
       capBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
              bsNum(rootPct.available ? rootPct.value : 0), 'primary') +
       (home.available
@@ -2470,7 +2498,7 @@ function bsScreen1(c) {
 
   // The scale has to start and stop exactly where the bars do, or the tick
   // labels point at temperatures the bars never reach.
-  const labW = S.seg ? 34 : 38, gap = 11, scaleW = S.seg ? 300 : 340;
+  const labW = S.seg ? 40 : 44, gap = 11, scaleW = S.seg ? 312 : 346;
   const bodyW = 486 - (S.chrome === 'spine' ? 28 : 0);
   let panelScale = `<div style="display:flex;justify-content:space-between;` +
     `margin-left:${gq(labW + gap)};margin-right:${gq(bodyW - labW - gap - scaleW)}">`;
@@ -2496,36 +2524,54 @@ function bsScreen1(c) {
   const speedStr = speed.available
     ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GbE' : speed.value + ' Mb')
     : '--';
+  // Up on the header row rather than stacked above the grid: it is an
+  // identity, not a reading, and it was costing the grid a third of its height.
+  // One line, so it cannot hang off the header into the row beneath it --
+  // the two-line version landed square on PING.
+  // Which radio is live comes from the interface name -- wl* is wireless,
+  // anything else is wired. Both icons stay on screen; the dim one is the
+  // link you are not using, which is a reading in itself.
+  const ifaceName = iface.available ? String(iface.value) : '';
+  const onWifi = /^(wl|wlan|wlp)/i.test(ifaceName);
   const identity =
-    `<div style="display:flex;justify-content:flex-end;align-items:center;gap:${gq(12)}">` +
-      bsWiredIcon(linkUp ? S.cLink : S.dim, linkUp) +
-      `<div style="text-align:right">` +
-        `<div style="color:${S.bright};font-family:${S.font};font-size:${gq(21)};font-weight:${S.fw};` +
-          `line-height:1.05;${bsGlow(8, S.bright)}">` +
-          `${iface.available ? esc(String(iface.value)) : '--'}</div>` +
-        `<div style="color:${linkUp ? S.cLink : S.dim};font-family:${S.font};font-size:${gq(11)};` +
-          `font-weight:${S.fw};margin-top:${gq(2)};text-transform:uppercase;letter-spacing:${S.ls}">` +
-          `${linkUp ? 'LINK ACTIVE' : 'NO LINK'}</div></div>` +
-      `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(1)};` +
-        `margin-left:${gq(4)}">` + bsWifiIcon(S.dim, false) +
-        `<span style="color:${S.dim};font-family:${S.font};font-size:${gq(9)};font-weight:${S.fw};` +
-        `text-transform:uppercase;letter-spacing:${S.ls}">OFF</span></div></div>`;
+    `<div style="display:flex;align-items:center;gap:${gq(9)};white-space:nowrap">` +
+      bsWiredIcon(linkUp && !onWifi ? S.cLink : S.dim, linkUp && !onWifi) +
+      bsWifiIcon(linkUp && onWifi ? S.cLink : S.dim, linkUp && onWifi) +
+      `<span style="color:${S.bright};font-family:${S.font};font-size:${gq(19)};` +
+        `font-weight:${S.fw};${bsGlow(7, S.bright)}">` +
+        `${ifaceName ? esc(ifaceName) : '--'}</span>` +
+      `<span style="color:${linkUp ? S.cLink : S.dim};font-family:${S.font};` +
+        `font-size:${gq(13)};font-weight:${S.fw};text-transform:uppercase;` +
+        `letter-spacing:${S.ls}">${linkUp ? 'LINK' : 'NO LINK'}</span>` +
+    `</div>`;
 
-  // The unit rides its own number: same colour, smaller. Recolouring it while
-  // it still inherits the number's text-shadow gives a dim glyph a bright
-  // halo, which reads as blur rather than as a quieter label.
+  // A label hard-left and its value hard-right leaves the middle of every cell
+  // empty, and there are six of them. Stacked instead -- caption over reading
+  // -- the pair reads as one object and the number can be three times the size.
   const unit = (d) => S.unitLit
-    ? `<span style="font-size:${gq(13)}">${esc(String(d.unit))}</span>`
-    : `<span style="font-size:${gq(13)};color:${S.dim};text-shadow:none">${esc(String(d.unit))}</span>`;
-  const comms = identity +
-    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(22)};` +
-      `row-gap:${gq(18)}">` +
-      bsKv('LINK', speedStr, S.cLink, 22) +
-      bsKv('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', S.cPing, 22) +
-      bsKv('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 22) +
-      bsKv('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 22) +
-      bsKv('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 18) +
-      bsKv('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 15) +
+    ? `<span style="font-size:${gq(15)}">${esc(String(d.unit))}</span>`
+    : `<span style="font-size:${gq(15)};color:${S.dim};text-shadow:none">${esc(String(d.unit))}</span>`;
+
+  const tile = (label, value, color, valPx, icon) =>
+    `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
+        (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
+      `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
+        `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
+        `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+        `${bsGlow(9, color)}">${value}</span></div>`;
+
+  const comms =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(24)};` +
+      `row-gap:${gq(26)}">` +
+      tile('LINK', speedStr, S.cLink, 40, 'speed') +
+      tile('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', S.cPing, 40, 'ping') +
+      tile('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 40, 'down') +
+      tile('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 40, 'up') +
+      tile('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 33, 'globe') +
+      tile('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 20, 'chip') +
     `</div>`;
 
   // ── CHRONOMETER
@@ -2542,23 +2588,23 @@ function bsScreen1(c) {
     `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;` +
       `height:100%;gap:${gq(2)}">` +
       `<div style="display:flex;align-items:baseline;gap:${gq(8)}">` +
-        `<span style="color:${S.kHour};font-family:${S.font};font-size:${gq(72)};font-weight:${S.fw};` +
+        `<span style="color:${S.kHour};font-family:${S.font};font-size:${gq(138)};font-weight:${S.fw};` +
           `line-height:1;font-variant-numeric:tabular-nums;` +
           `${bsGlow(26, S.kHour, '66')}">${hh}:${mmn}</span>` +
-        `<span style="color:${S.kSec};font-family:${S.font};font-size:${gq(32)};font-weight:${S.fw};` +
+        `<span style="color:${S.kSec};font-family:${S.font};font-size:${gq(58)};font-weight:${S.fw};` +
           `font-variant-numeric:tabular-nums;${bsGlow(14, S.kSec)}">${ss}</span></div>` +
-      `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
+      `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(30)};font-weight:${S.fw};` +
         `letter-spacing:0.3em;margin-top:${gq(12)};text-transform:uppercase;` +
         `${bsGlow(10, S.kDay)}">${dayName}</div>` +
-      `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
+      `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(23)};font-weight:${S.fw};` +
         `letter-spacing:${S.ls};text-transform:uppercase">${dateStr}</div></div>`;
 
   return bsFrame(
-    bsRegion(16, 18, 486, 272, 'CORE', S.a1,
+    bsRegion(14, 10, 486, 288, 'CORE', S.a1,
              host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
-    bsRegion(522, 18, 486, 272, 'CHRONOMETER', S.a1, '', chrono, 'center') +
-    bsRegion(16, 312, 486, 272, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
-    bsRegion(522, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly'));
+    bsRegion(524, 10, 486, 288, 'CHRONOMETER', S.a1, '', chrono, 'center') +
+    bsRegion(14, 302, 486, 288, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
+    bsRegion(524, 302, 486, 288, 'COMMS', S.a2, identity, comms, 'space-around'));
 }
 
 /* Gold labels each fan group and colours it; Teal and Coral keep the compact

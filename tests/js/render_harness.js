@@ -120,7 +120,6 @@ const BACKEND_TITLE_SCREENS = ['terminalScreen2'];
  * wrong today. New screens must not join them.
  */
 const PX_ALLOWLIST = new Set([
-  'tubeScreen1', 'tubeScreen2', 'tubeGpuScreen',   // magicEye, nixieDigit
   'claudeScreen3', 'terminalScreen2',
 ]);
 const PX_PROPS = 'font-size|width|height|gap|padding|padding-left|padding-right|' +
