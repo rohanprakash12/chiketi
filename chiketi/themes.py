@@ -21,42 +21,37 @@ class Theme:
 
 
 THEMES: dict[str, Theme] = {
-    # ── Terminal family ──
+    # ── Terminal / classic ──
     "Terminal/hacker": Theme(
         name="hacker", family="Terminal",
         background="#0a0a0a", panel="#111111", border="#333333",
         primary="#00ff41", accent="#ffb000", critical="#ff3333",
         dim="#555555", header="#00ff41",
     ),
-    "Terminal/cyan": Theme(
-        name="cyan", family="Terminal",
-        background="#0a0a0a", panel="#0a1520", border="#1a3a4a",
-        primary="#00e5ff", accent="#ffb000", critical="#ff3333",
-        dim="#4a6a7a", header="#00e5ff",
+    # ── Terminal / distro: conky in a tty ──
+    "Terminal/Arch": Theme(
+        name="Arch", family="Terminal",
+        background="#06090c", panel="#0a1016", border="#3f5a6d",
+        primary="#1793d1", accent="#4dd0e1", critical="#e06c75",
+        dim="#3f5a6d", header="#1793d1",
     ),
-    "Terminal/amber": Theme(
-        name="amber", family="Terminal",
-        background="#0a0a00", panel="#141408", border="#3a3a1a",
-        primary="#ffb000", accent="#ff6600", critical="#ff3333",
-        dim="#6a6a3a", header="#ffb000",
+    "Terminal/Ubuntu": Theme(
+        name="Ubuntu", family="Terminal",
+        background="#0d0705", panel="#150c08", border="#6b4433",
+        primary="#E95420", accent="#e9a05a", critical="#ff5555",
+        dim="#6b4433", header="#E95420",
     ),
-    "Terminal/phosphor": Theme(
-        name="phosphor", family="Terminal",
-        background="#000800", panel="#001200", border="#004400",
-        primary="#33ff33", accent="#aaff00", critical="#ff4444",
-        dim="#226622", header="#33ff33",
+    "Terminal/openSUSE": Theme(
+        name="openSUSE", family="Terminal",
+        background="#050a04", panel="#0a1207", border="#3d5426",
+        primary="#73ba25", accent="#a4d65e", critical="#e5484d",
+        dim="#3d5426", header="#73ba25",
     ),
-    "Terminal/red_alert": Theme(
-        name="red_alert", family="Terminal",
-        background="#0a0000", panel="#140808", border="#3a1a1a",
-        primary="#ff4444", accent="#ff8800", critical="#ff0000",
-        dim="#6a3a3a", header="#ff4444",
-    ),
-    "Terminal/blue": Theme(
-        name="blue", family="Terminal",
-        background="#000008", panel="#080818", border="#1a1a4a",
-        primary="#4488ff", accent="#ffb000", critical="#ff3333",
-        dim="#3a3a6a", header="#4488ff",
+    "Terminal/Mandriva": Theme(
+        name="Mandriva", family="Terminal",
+        background="#04070b", panel="#0a1017", border="#33556e",
+        primary="#2b7cb8", accent="#e8a33d", critical="#e05c4a",
+        dim="#33556e", header="#2b7cb8",
     ),
     # ── Sci-Fi family ──
     "Sci-Fi/TOS": Theme(

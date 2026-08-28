@@ -958,8 +958,8 @@ class TestPersistence:
         assert saved["brightness"] == 1.1
         # ...but an explicit theme change from the panel does stick.
         with _LiveServer() as srv:
-            self._post(srv, "/api/theme/Terminal/amber", {}).close()
-        assert self._on_disk()["theme"] == "Terminal/amber"
+            self._post(srv, "/api/theme/Terminal/hacker", {}).close()
+        assert self._on_disk()["theme"] == "Terminal/hacker"
 
     def test_persist_falls_back_to_active_theme(self, restore_active_theme):
         """No apply_saved_state() call (bare start_server): record what's live."""

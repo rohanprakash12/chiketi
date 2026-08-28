@@ -82,6 +82,12 @@ const REGISTRY = [
   { family: 'Vintage', variant: 'VFD', fns: [vfdScreen1, vfdScreen2],
     gpu: vfdGpuScreen },
   { family: 'Terminal', variant: 'hacker', fns: [terminalScreen1, terminalScreen2] },
+  // The distro variants swap screen1 for the conky-style board; screen2 stays
+  // the AI Monitor, so both must survive every fixture.
+  { family: 'Terminal', variant: 'Arch', fns: [distroArchScreen1, terminalScreen2] },
+  { family: 'Terminal', variant: 'Ubuntu', fns: [distroUbuntuScreen1, terminalScreen2] },
+  { family: 'Terminal', variant: 'openSUSE', fns: [distroSuseScreen1, terminalScreen2] },
+  { family: 'Terminal', variant: 'Mandriva', fns: [distroMandrivaScreen1, terminalScreen2] },
 ];
 
 // Screens that print the SECONDARY (/home) capacity as a "used / total"

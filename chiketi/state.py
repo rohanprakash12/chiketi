@@ -23,6 +23,13 @@ from chiketi.themes import THEMES
 # "Panel/Gold" would fail the membership test below, lose its choice
 # silently, and come back on the default.
 _THEME_RENAMES = {
+    # Five Terminal colour variations were retired in favour of the four distro
+    # boards; the classic look survives as Terminal/hacker.
+    "Terminal/blue": "Terminal/hacker",
+    "Terminal/cyan": "Terminal/hacker",
+    "Terminal/amber": "Terminal/hacker",
+    "Terminal/phosphor": "Terminal/hacker",
+    "Terminal/red_alert": "Terminal/hacker",
     "Panel/Gold": "Sci-Fi/TOS",
     "Panel/Teal": "Sci-Fi/DS9",
     "Panel/Coral": "Sci-Fi/TNG",

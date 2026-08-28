@@ -481,11 +481,11 @@ class TestRunRestoresSavedState:
 
         save_state(dict(DEFAULT_STATE, theme="Vintage/VFD", brightness=1.7))
         # What __main__ does for `--theme Terminal/amber`.
-        themes.set_active_theme("Terminal/amber")
+        themes.set_active_theme("Terminal/hacker")
 
         assert self._run(monkeypatch, theme_from_cli=True) == 0
 
-        assert themes.get_active_theme().name == "amber"
+        assert themes.get_active_theme().name == "hacker"
         # Everything that isn't the theme still comes from the file...
         assert server_mod._display_brightness == 1.7
         # ...and the file still records the theme the flag overrode, so the

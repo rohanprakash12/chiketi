@@ -360,6 +360,336 @@ function sfDs9Screen2(c) {
 }
 
 /* ═══════════════════════════════════════
+   TERMINAL / DISTRO  — conky in a tty
+   ═══════════════════════════════════════
+ * Modelled on the four conky configs in the reference: dense monospace,
+ * a title with a rule running out of it, thin meters, history graphs, and
+ * tabular process listings. Everything is drawn with characters -- the only
+ * SVG on these screens is nothing at all.
+ */
+
+/* Nothing upstream keeps history: every collector reports an instant. conky's
+   whole look leans on ${cpugraph}, so the renderer keeps its own short ring
+   per series. It fills as the board polls, which is why a graph is stubby for
+   the first half-minute after a theme switch rather than wrong. */
+const DISTRO_HIST = {};
+const DISTRO_HIST_LEN = 48;
+
+function distroPush(key, value) {
+  if (typeof value !== 'number' || !isFinite(value)) return DISTRO_HIST[key] || [];
+  const ring = DISTRO_HIST[key] || (DISTRO_HIST[key] = []);
+  if (ring.length === 0 || ring[ring.length - 1] !== value || ring.length < 2) ring.push(value);
+  else ring.push(value);
+  while (ring.length > DISTRO_HIST_LEN) ring.shift();
+  return ring;
+}
+
+const SPARK_CHARS = ['\u2581','\u2582','\u2583','\u2584','\u2585','\u2586','\u2587','\u2588'];
+
+/* A history graph in eight block heights. Absent readings render as a space,
+   not as a zero -- a flat line at the bottom would claim the metric was idle. */
+function distroSpark(key, value, width, max) {
+  const ring = distroPush(key, value);
+  let cap = max;
+  if (!cap) {
+    cap = 0;
+    for (const v of ring) if (typeof v === 'number' && v > cap) cap = v;
+    cap = cap > 0 ? cap * 1.15 : 1;   // headroom, so the peak is not clipped
+  }
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = ring.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, ring[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return esc(out);
+}
+
+
+/* A history plot: the series, then the axis it sits on. Detached from its
+   reading it read as decoration, which is not what conky's graphs are. */
+function dGraph(key, value, S, width, max) {
+  return `<div style="color:${S.meter};white-space:pre;line-height:1;` +
+    `border-bottom:1px solid ${S.dim};padding-bottom:1px;margin-bottom:2px">` +
+    distroSpark(key, value, width, max) + `</div>`;
+}
+
+/* conky's ${*_bar}, in characters. */
+function distroBar(pct, width, on, off) {
+  const p = Math.max(0, Math.min(100, (typeof pct === 'number' && isFinite(pct)) ? pct : 0));
+  let n = Math.round(width * p / 100);
+  if (n === 0 && p > 0) n = 1;
+  return esc((on || '\u2588').repeat(n) + (off || '\u2591').repeat(width - n));
+}
+
+function distroPct(d) {
+  return (d && d.available && typeof d.value === 'number') ? Math.round(d.value) : null;
+}
+
+function distroVal(v, suffix) {
+  return (v === null || v === undefined) ? '--' : esc(String(v)) + (suffix || '');
+}
+
+/* ── the six distro skins ────────────────────────────────────────────────
+ * Each carries the palette its own conky ships with, and the ASCII mark the
+ * distro is known by. Colours: label / value / accent / meter / warn. */
+const DISTRO_SKINS = {
+  Arch: {
+    label: '#5296c8', value: '#d8e6f0', accent: '#1793d1', meter: '#4dd0e1',
+    dim: '#3f5a6d', warn: '#e06c75', bg: '#06090c',
+  },
+  Ubuntu: {
+    label: '#c8683f', value: '#f2e6dd', accent: '#E95420', meter: '#e9a05a',
+    dim: '#6b4433', warn: '#ff5555', bg: '#0d0705',
+  },
+  openSUSE: {
+    label: '#6fa03a', value: '#e3f0d8', accent: '#73ba25', meter: '#a4d65e',
+    dim: '#3d5426', warn: '#e5484d', bg: '#050a04',
+  },
+  Mandriva: {
+    label: '#4a8fc0', value: '#e8eef4', accent: '#2b7cb8', meter: '#e8a33d',
+    dim: '#33556e', warn: '#e05c4a', bg: '#04070b',
+  },
+};
+
+function distroSkin() {
+  const s = DISTRO_SKINS[activeVariantName()];
+  return s || DISTRO_SKINS.Arch;
+}
+
+/* The renderers are per variant, so each knows its own name without reading a
+   global the control panel spells differently from the display. */
+let _distroName = 'Arch';
+function activeVariantName() { return _distroName; }
+
+/* ── character-grid primitives ───────────────────────────────────────── */
+function dRule(title, S, right) {
+  const W = 1000;   /* the rule simply fills; the grid is monospace anyway */
+  return `<div style="display:flex;align-items:center;gap:6px;margin:7px 0 3px">` +
+    `<span style="color:${S.accent};font-weight:700;white-space:nowrap">${title}</span>` +
+    `<span style="flex:1;height:1px;background:${S.dim}"></span>` +
+    (right ? `<span style="color:${S.label};white-space:nowrap">${right}</span>` : '') +
+    `</div>`;
+}
+
+function dRow(label, value, S, valColor) {
+  return `<div style="display:flex;justify-content:space-between;gap:10px;white-space:nowrap">` +
+    `<span style="color:${S.label}">${label}</span>` +
+    `<span style="color:${valColor || S.value}">${value}</span></div>`;
+}
+
+/* label, meter, reading -- conky's filesystem row. */
+function dMeter(label, pct, reading, S, width, labW) {
+  const p = distroPct({available: pct !== null && pct !== undefined, value: pct});
+  const col = p !== null && p >= 90 ? S.warn : S.meter;
+  return `<div style="display:flex;align-items:baseline;gap:8px;white-space:nowrap">` +
+    `<span style="color:${S.label};display:inline-block;width:${labW || 62}px;` +
+      `overflow:hidden;text-overflow:ellipsis">${label}</span>` +
+    `<span style="color:${col}">${distroBar(p, width)}</span>` +
+    `<span style="color:${S.value};margin-left:auto">${reading}</span></div>`;
+}
+
+/* Block digits, seven rows deep. The screen is read from across a room, so
+   the time is drawn rather than typed -- this is the same trick the omarchy
+   screensaver uses, and it costs nothing but characters. */
+const DAY_NAMES = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+const BIG_DIGITS = {
+  '0': [' ████ ', '██  ██', '██  ██', '██  ██', '██  ██', '██  ██', ' ████ '],
+  '1': ['  ██  ', ' ███  ', '  ██  ', '  ██  ', '  ██  ', '  ██  ', '██████'],
+  '2': [' ████ ', '██  ██', '    ██', '   ██ ', '  ██  ', ' ██   ', '██████'],
+  '3': [' ████ ', '██  ██', '    ██', '  ███ ', '    ██', '██  ██', ' ████ '],
+  '4': ['██  ██', '██  ██', '██  ██', '██████', '    ██', '    ██', '    ██'],
+  '5': ['██████', '██    ', '█████ ', '    ██', '    ██', '██  ██', ' ████ '],
+  '6': [' ████ ', '██  ██', '██    ', '█████ ', '██  ██', '██  ██', ' ████ '],
+  '7': ['██████', '    ██', '   ██ ', '  ██  ', ' ██   ', ' ██   ', ' ██   '],
+  '8': [' ████ ', '██  ██', '██  ██', ' ████ ', '██  ██', '██  ██', ' ████ '],
+  '9': [' ████ ', '██  ██', '██  ██', ' █████', '    ██', '██  ██', ' ████ '],
+  ':': ['    ', ' ██ ', ' ██ ', '    ', ' ██ ', ' ██ ', '    '],
+};
+
+/* Render a string of digits and colons as seven lines of blocks. Anything the
+   map does not know becomes blanks of the right width, so an unexpected
+   character leaves a gap rather than shearing the rows out of alignment. */
+function bigClock(text, color, dimColor) {
+  const rows = ['', '', '', '', '', '', ''];
+  for (const ch of String(text)) {
+    const g = BIG_DIGITS[ch] || ['      ', '      ', '      ', '      ', '      ', '      ', '      '];
+    for (let r = 0; r < 7; r++) rows[r] += g[r] + ' ';
+  }
+  return `<div style="color:${color};line-height:1.0;white-space:pre;font-weight:500">` +
+    rows.map(r => `<div>${esc(r)}</div>`).join('') + `</div>`;
+}
+
+/* ── screen 1 ────────────────────────────────────────────────────────── */
+function distroScreen1(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const cpu = m('cpu.usage'), ram = m('mem.ram_percent'), swap = m('mem.swap_percent');
+  const cores = asList(m('cpu.per_core'));
+  const cpuT = m('cpu.temp'), mbT = m('cpu.mb_temp'), gpuT = m('gpu.temp');
+  const root = m('disk.root_used'), rootPct = m('disk.root_percent');
+  const home = m('disk.home_used'), homePct = m('disk.home_percent');
+  const dl = m('net.dl'), ul = m('net.ul'), ip = m('net.ip'), iface = m('net.iface');
+  const ping = m('net.ping'), speed = m('net.speed');
+  const host = m('sys.hostname'), up = m('sys.uptime'), kernel = m('sys.kernel');
+  const gUtil = m('gpu.util'), gVram = m('gpu.vram_percent'), gPow = m('gpu.power');
+  const procs = asList(m('sys.top_procs'));
+
+  const now = new Date();
+
+  // ── left column: the time, drawn big, then the identity block
+  const clock = bigClock(
+    String(now.getHours()).padStart(2, '0') + ':' +
+    String(now.getMinutes()).padStart(2, '0'), S.accent) +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
+      `margin-top:4px;color:${S.label};letter-spacing:0.14em">` +
+      `<span>${esc(DAY_NAMES[now.getDay()])} ${now.getDate()} ` +
+        `${esc(MONTH_NAMES[now.getMonth()])} ${now.getFullYear()}</span>` +
+      `<span style="color:${S.value}">:${String(now.getSeconds()).padStart(2, '0')}</span></div>`;
+
+  const idBlock =
+    dRow('host', host.available ? esc(String(host.value)) : '--', S, S.accent) +
+    dRow('kernel', kernel.available ? esc(String(kernel.value)) : '--', S) +
+    dRow('uptime', up.available ? esc(String(up.value)) : '--', S) +
+    dRow('iface', iface.available ? esc(String(iface.value)) : '--', S) +
+    dRow('addr', ip.available ? esc(String(ip.value)) : '--', S);
+
+  // Per-core meters, two to a line. conky lists every core it can see.
+  let coreRows = '';
+  for (let i = 0; i < cores.length; i += 2) {
+    const cells = [];
+    for (let j = i; j < Math.min(i + 2, cores.length); j++) {
+      const v = typeof cores[j] === 'number' ? cores[j] : null;
+      const col = v !== null && v >= 90 ? S.warn : S.meter;
+      cells.push(`<span style="color:${S.label}">${String(j).padStart(2, '0')}</span>` +
+        `<span style="color:${col}"> ${distroBar(v, 10)}</span>` +
+        `<span style="color:${S.value}"> ${v === null ? ' --' : String(Math.round(v)).padStart(3)}</span>`);
+    }
+    coreRows += `<div style="display:flex;gap:14px;white-space:nowrap">` +
+      cells.join('') + `</div>`;
+  }
+  if (!cores.length) {
+    coreRows = `<div style="color:${S.dim}">no per-core readings</div>`;
+  }
+
+  const left =
+    `<div style="font-size:17px;margin-bottom:6px">${clock}</div>` +
+    dRule('SYSTEM', S) + idBlock +
+    dRule('CORES', S, cores.length ? cores.length + ' THREADS' : '') + coreRows +
+    // Three short readings on one line rather than three: the column was 37px
+    // over, and losing two lines here costs nothing a reader would miss.
+    dRule('THERMAL', S) +
+    `<div style="display:flex;justify-content:space-between">` +
+      ['cpu', 'board', 'gpu'].map((lab, i) => {
+        const t = [cpuT, mbT, gpuT][i];
+        const v = distroPct(t);
+        const col = v !== null && v >= 80 ? S.warn : S.value;
+        return `<span><span style="color:${S.label}">${lab} </span>` +
+          `<span style="color:${col}">${distroVal(v, '\u00b0C')}</span></span>`;
+      }).join('') + `</div>`;
+
+  // ── right column: the meters and the graphs
+  const cpuPct = distroPct(cpu);
+  const ramPct = distroPct(ram);
+
+  const right =
+    dRule('CPU', S, distroVal(cpuPct, '%')) +
+    dGraph('cpu', cpuPct, S, 62, 100) +
+    dMeter('load', cpuPct, distroVal(cpuPct, '%'), S, 28) +
+
+    dRule('MEMORY', S) +
+    dGraph('ram', ramPct, S, 62, 100) +
+    dMeter('ram', ramPct,
+           `${fmtCapacity(m('mem.ram_used'))} / ${fmtCapacityTotal(m('mem.ram_used'))}`, S, 28) +
+    dMeter('swap', distroPct(swap), distroVal(distroPct(swap), '%'), S, 28) +
+
+    dRule('FILESYSTEMS', S) +
+    dMeter('/', distroPct(rootPct),
+           `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`, S, 28) +
+    (home.available
+      ? dMeter('/home', distroPct(homePct),
+               `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`, S, 28)
+      : `<div style="color:${S.dim}">/home&nbsp;&nbsp;not a separate volume</div>`) +
+
+    dRule('GPU', S, gUtil.available ? distroVal(distroPct(gUtil), '% UTIL') : 'NO CARD') +
+    (gUtil.available || gVram.available
+      ? dGraph('gpu', distroPct(gUtil), S, 62, 100) +
+        dMeter('vram', distroPct(gVram), distroVal(distroPct(gVram), '%'), S, 28) +
+        dRow('power', gPow.available ? distroVal(Math.round(gPow.value), ' W') : '--', S)
+      : `<div style="color:${S.dim}">no readable graphics device</div>`) +
+
+    dRule('NETWORK', S, speed.available
+      ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GBE' : speed.value + ' MB')
+      : '') +
+    `<div style="display:flex;gap:14px">` +
+      `<div style="flex:1"><div style="color:${S.label}">down</div>` +
+        dGraph('dl', dl.available ? Number(dl.value) : null, S, 28) + `</div>` +
+      `<div style="flex:1"><div style="color:${S.label}">up</div>` +
+        dGraph('ul', ul.available ? Number(ul.value) : null, S, 28) + `</div>` +
+    `</div>` +
+    dRow('rx / tx',
+         (dl.available ? esc(dl.value + ' ' + dl.unit) : '--') + '  /  ' +
+         (ul.available ? esc(ul.value + ' ' + ul.unit) : '--'), S) +
+    dRow('ping', ping.available ? Number(ping.value).toFixed(1) + ' ms' : '--', S);
+
+  // ── processes: four, two abreast, so each row can carry a readable size
+  function procCell(p, S) {
+    if (!p) return `<div style="flex:1"></div>`;
+    const hot = typeof p.cpu === 'number' && p.cpu >= 50;
+    return `<div style="flex:1;display:flex;white-space:nowrap;min-width:0;` +
+      `color:${hot ? S.warn : S.value}">` +
+      `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+      `<span style="width:86px;text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
+      `<span style="width:78px;text-align:right">${typeof p.cpu === 'number' ? p.cpu.toFixed(1) : '--'}</span>` +
+      `<span style="width:78px;text-align:right">${typeof p.mem === 'number' ? p.mem.toFixed(1) : '--'}</span>` +
+      `</div>`;
+  }
+  function procHead(S) {
+    return `<div style="flex:1;display:flex;white-space:nowrap;color:${S.label}">` +
+      `<span style="flex:1">NAME</span>` +
+      `<span style="width:86px;text-align:right">PID</span>` +
+      `<span style="width:78px;text-align:right">CPU%</span>` +
+      `<span style="width:78px;text-align:right">MEM%</span></div>`;
+  }
+  let procRows = '';
+  if (procs.length) {
+    procRows = `<div style="display:flex;gap:26px">${procHead(S)}${procHead(S)}</div>`;
+    for (let i = 0; i < 2; i++) {
+      procRows += `<div style="display:flex;gap:26px">` +
+        procCell(procs[i], S) + procCell(procs[i + 2], S) + `</div>`;
+    }
+  } else {
+    procRows = `<div style="color:${S.dim}">process table not available</div>`;
+  }
+
+  // Sized for a 10" panel read from across a room: 16px base rather than 13,
+  // and no chrome that only names what you are already looking at.
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:16px;line-height:1.4;padding:12px 16px;` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:22px;flex:1;min-height:0">` +
+      `<div style="width:352px;flex-shrink:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div>` +
+    `</div>` +
+    dRule('PROCESSES', S, procs.length ? 'TOP 4 BY CPU' : '') + procRows +
+  `</div></div>`;
+}
+
+const DISTRO_SCREENS = {
+  Arch: distroArchScreen1, Ubuntu: distroUbuntuScreen1,
+  openSUSE: distroSuseScreen1, Mandriva: distroMandrivaScreen1,
+};
+
+function distroArchScreen1(c) { _distroName = 'Arch'; return distroScreen1(c); }
+function distroUbuntuScreen1(c) { _distroName = 'Ubuntu'; return distroScreen1(c); }
+function distroSuseScreen1(c) { _distroName = 'openSUSE'; return distroScreen1(c); }
+function distroMandrivaScreen1(c) { _distroName = 'Mandriva'; return distroScreen1(c); }
+
+/* ═══════════════════════════════════════
    VINTAGE / SCANLINES
    ═══════════════════════════════════════ */
 

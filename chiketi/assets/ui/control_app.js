@@ -139,6 +139,7 @@ function getScreenRegistry(c) {
   else if (isVintage && selectedVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'Clock',fn:tubeScreen2}];
   else if (isVintage && selectedVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'Clock',fn:vfdScreen2}];
   else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'Clock',fn:scanScreen2}];
+  else if (DISTRO_SCREENS[selectedVariant]) screens = [{id:'screen1',name:'System Stats',fn:DISTRO_SCREENS[selectedVariant]},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
   else screens = [{id:'screen1',name:'System Stats',fn:terminalScreen1},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
   screens.push({id:'screen3',name:'Claude Usage',fn:claudeScreen3});
   // Adaptive: the screen picks its own density from gpu.count, so a
