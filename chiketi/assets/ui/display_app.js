@@ -52,33 +52,45 @@ __SHARED_HELPERS__
 
 __SCREEN_FUNCTIONS__
 
-/* ── Screen registry for current theme ── */
+/* ── Screen registry for current theme ──────────────────────────────────
+   Every family names all five of its own screens. Nothing falls through to
+   another family's renderer any more: screen 3 was one generic board serving
+   all sixteen themes, and screen 4 handed the Terminal palettes the Sci-Fi
+   TOS panel -- which is how a green-on-black tty rotated into gold LCARS
+   every fourth screen and took itself back afterwards. */
 function getScreenRegistry(c) {
-  const isPanel = activeFamily === 'Sci-Fi';
-  const isVintage = activeFamily === 'Vintage';
-  const isCoral = isPanel && activeVariant === 'TNG';
-  const isTeal = isPanel && activeVariant === 'DS9';
-  let screens;
-  if (isTeal) screens = [{id:'screen1',name:'System Stats',fn:sfDs9Screen1},{id:'screen2',name:'NPU',fn:sfDs9NpuScreen},{id:'screen5',name:'Clock',fn:sfDs9Screen2}];
-  else if (isCoral) screens = [{id:'screen1',name:'System Stats',fn:sfTngScreen1},{id:'screen2',name:'NPU',fn:sfTngNpuScreen},{id:'screen5',name:'Clock',fn:sfTngScreen2}];
-  else if (isPanel) screens = [{id:'screen1',name:'System Stats',fn:sfTosScreen1},{id:'screen2',name:'NPU',fn:sfTosNpuScreen},{id:'screen5',name:'Clock',fn:sfTosScreen2}];
-  else if (isVintage && activeVariant === 'Tubes') screens = [{id:'screen1',name:'System Stats',fn:tubeScreen1},{id:'screen2',name:'NPU',fn:tubeNpuScreen},{id:'screen5',name:'Clock',fn:tubeScreen2}];
-  else if (isVintage && activeVariant === 'VFD') screens = [{id:'screen1',name:'System Stats',fn:vfdScreen1},{id:'screen2',name:'NPU',fn:vfdNpuScreen},{id:'screen5',name:'Clock',fn:vfdScreen2}];
-  else if (isVintage) screens = [{id:'screen1',name:'System Stats',fn:scanScreen1},{id:'screen2',name:'NPU',fn:scanNpuScreen},{id:'screen5',name:'Clock',fn:scanScreen2}];
-  else if (DISTRO_SCREENS[activeVariant]) screens = [{id:'screen1',name:'System Stats',fn:DISTRO_SCREENS[activeVariant]},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
-  else screens = [{id:'screen1',name:'System Stats',fn:terminalScreen1},{id:'screen2',name:'AI Monitor',fn:terminalScreen2}];
-  screens.push({id:'screen3',name:'Claude Usage',fn:claudeScreen3});
-  // Adaptive: the screen picks its own density from gpu.count, so a
-  // single-card box and a four-card rig both read correctly with no
-  // configuration. Switch it off in Settings on a machine with no GPU.
-  const gpuFn = DISTRO_GPU_SCREENS[activeVariant] ? DISTRO_GPU_SCREENS[activeVariant]
-              : isTeal ? sfDs9GpuScreen
-              : isCoral ? sfTngGpuScreen
-              : isVintage && activeVariant === 'Tubes' ? tubeGpuScreen
-              : isVintage && activeVariant === 'VFD' ? vfdGpuScreen
-              : isVintage ? scanGpuScreen
-              : sfTosGpuScreen;
-  screens.push({id:'screen4',name:'GPU',fn:gpuFn});
+  const fam = activeFamily, v = activeVariant;
+  let fns, second;
+  if (fam === 'Sci-Fi') {
+    second = 'NPU';
+    fns = v === 'DS9' ? [sfDs9Screen1, sfDs9NpuScreen, sfDs9ClaudeScreen, sfDs9GpuScreen, sfDs9Screen2]
+        : v === 'TNG' ? [sfTngScreen1, sfTngNpuScreen, sfTngClaudeScreen, sfTngGpuScreen, sfTngScreen2]
+                      : [sfTosScreen1, sfTosNpuScreen, sfTosClaudeScreen, sfTosGpuScreen, sfTosScreen2];
+  } else if (fam === 'Vintage') {
+    second = 'NPU';
+    fns = v === 'Tubes' ? [tubeScreen1, tubeNpuScreen, tubeClaudeScreen, tubeGpuScreen, tubeScreen2]
+        : v === 'VFD'   ? [vfdScreen1, vfdNpuScreen, vfdClaudeScreen, vfdGpuScreen, vfdScreen2]
+                        : [scanScreen1, scanNpuScreen, scanClaudeScreen, scanGpuScreen, scanScreen2];
+  } else if (DISTRO_SCREENS[v]) {
+    // The distro boards draw the time in block characters on screen 1, so the
+    // family has no separate clock screen to toggle.
+    second = 'AI Monitor';
+    fns = [DISTRO_SCREENS[v], DISTRO_AI_SCREENS[v], DISTRO_CLAUDE_SCREENS[v],
+           DISTRO_GPU_SCREENS[v], null];
+  } else {
+    second = 'AI Monitor';
+    fns = [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen, null];
+  }
+  const screens = [
+    {id: 'screen1', name: 'System Stats', fn: fns[0]},
+    {id: 'screen2', name: second, fn: fns[1]},
+    {id: 'screen3', name: 'Claude Usage', fn: fns[2]},
+    // Adaptive: the GPU screen picks its own density from the card count, so a
+    // single-card box and a four-card rig both read correctly with no
+    // configuration. Switch it off in Settings on a machine with no GPU.
+    {id: 'screen4', name: 'GPU', fn: fns[3]},
+  ];
+  if (fns[4]) screens.push({id: 'screen5', name: 'Clock', fn: fns[4]});
   return screens;
 }
 

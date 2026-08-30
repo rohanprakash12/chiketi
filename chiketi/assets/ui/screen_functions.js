@@ -195,62 +195,242 @@ function terminalScreen1(c) {
     `</div></div>`;
 }
 
+/* ── the classic Terminal AI monitor ─────────────────────────────────────
+ * This screen used to be a second GPU board -- utilisation, clocks, CUDA
+ * processes -- which read as a duplicate the moment the family got a GPU
+ * screen of its own. It is the AI monitor now, the same subject the Sci-Fi
+ * and Vintage families put on screen 2: what is loaded, how fast it runs,
+ * and what it is costing the card. Sized in cqw so the control-panel preview
+ * scales with the frame.
+ */
 function terminalScreen2(c) {
-  const gpuName = m('gpu.name'), gpuUtil = m('gpu.util');
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
   const vram = m('gpu.vram_used'), vramPct = m('gpu.vram_percent');
+  const gpuName = m('gpu.name'), gpuUtil = m('gpu.util');
   const gpuTemp = m('gpu.temp'), gpuPower = m('gpu.power');
-  const gpuClk = m('gpu.clock_gpu'), memClk = m('gpu.clock_mem'), memUtil = m('gpu.mem_util');
-  const procs = m('gpu.processes');
-  const llamaStatus = m('llama.status'), llamaHealth = m('llama.health'), llamaModel = m('llama.model');
 
-  const nameStr = gpuName.available ? esc(String(gpuName.value)) : 'GPU Not Detected';
-  const vramStr = vram.available ? `${vram.value}/${vram.extra.total || '?'} MiB` : 'N/A';
-  let tempPowerStr = 'N/A';
-  if (gpuTemp.available) {
-    tempPowerStr = gpuTemp.value + '\u00b0C';
-    if (gpuPower.available) tempPowerStr += `      Power: ${gpuPower.value}W / ${gpuPower.extra.limit||'?'}W`;
-  }
-  let clockStr = 'N/A';
-  if (gpuClk.available) {
-    clockStr = `${gpuClk.value}/${gpuClk.extra.max||'?'} MHz`;
-    if (memClk.available) clockStr += `  Mem: ${memClk.value}/${memClk.extra.max||'?'} MHz`;
-  }
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? c.dim : running && healthy ? c.primary : c.critical;
+  const stateText = status.available ? esc(String(status.value)) : 'Not detected';
 
-  let procRows = `<div class="t-row" style="color:${c.dim};font-size:12px">PID       Name              VRAM</div>`;
-  if (procs.available && Array.isArray(procs.value)) {
-    for (const p of procs.value.slice(0, 5)) {
-      const pid = esc(String(p.pid || '')).padEnd(10);
-      const name = esc(String(p.name || '')).padEnd(18);
-      const mem = (p.vram_mib || p.vram || p.used_memory || '?') + ' MiB';
-      procRows += `<div class="t-row" style="color:${c.primary};font-size:12px">${pid}${name}${mem}</div>`;
+  const tpsVal = (tps.available && typeof tps.value === 'number') ? tps.value.toFixed(1) : '--';
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : 'N/A';
+  const vramStr = vram.available
+    ? `${vram.value}/${vram.extra.total || '?'} ${vram.unit || 'MiB'}` : 'N/A';
+
+  let procRows = '';
+  if (procs.length) {
+    for (let i = 0; i < Math.min(3, procs.length); i++) {
+      const p = procs[i] || {};
+      procRows += `<div class="t-row" style="color:${c.primary}">` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+        `<span style="width:${gq(110)};text-align:right;color:${c.dim}">${esc(String(p.pid || '--'))}</span></div>`;
     }
   } else {
-    procRows += `<div class="t-row" style="color:${c.dim};font-size:12px">No processes</div>`;
+    procRows = `<div class="t-row" style="color:${c.dim}">no local server process</div>`;
   }
 
-  let statusText = 'Unknown';
-  if (llamaStatus.available) {
-    if (llamaStatus.value === 'Running') {
-      statusText = llamaHealth.available ? `Running (${esc(String(llamaHealth.value))})` : 'Running';
-    } else statusText = 'Stopped';
-  }
-
-  return `<div class="screen-frame"><div class="t-screen t-1col-3row" style="background:${c.background}">` +
-    tPanel(c, 'GPU PERFORMANCE',
-      `<div class="t-row" style="color:${c.accent};font-size:13px">${nameStr}</div>` +
-      tRow(c, 'Utilization:', tBar(c, gpuUtil.available ? gpuUtil.value : null), gpuUtil.available ? gpuUtil.value + '%' : 'N/A') +
-      tRow(c, 'VRAM:', tBar(c, vramPct.available ? vramPct.value : null), vramStr) +
-      tRow(c, 'Temperature:', '', tempPowerStr) +
-      tRow(c, 'GPU Clock:', '', clockStr) +
-      tRow(c, 'Mem BW Util:', tBar(c, memUtil.available ? memUtil.value : null), memUtil.available ? memUtil.value + '%' : 'N/A')
-    ) +
-    tPanel(c, 'CUDA PROCESSES', procRows) +
+  return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
+    tPanel(c, 'THROUGHPUT',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(46)};line-height:1.05">${tpsVal}</div>` +
+      `<div class="t-row" style="color:${c.dim}">tokens / sec</div>` +
+      tRow(c, 'Slots:', '', slots.available ? String(slots.value) : 'N/A')) +
+    tPanel(c, 'MODEL',
+      `<div class="t-row" style="color:${c.accent}">${cleanModel()}</div>` +
+      tRow(c, 'Quant:', '', quant.available ? esc(String(quant.value)) : 'N/A') +
+      tRow(c, 'Context:', '', ctxText) +
+      tRow(c, 'Engine:', '', backend.available ? esc(String(backend.value)) : 'N/A', c.dim)) +
     tPanel(c, backendTitle(),
-      tRow(c, 'Status:', '', statusText) +
-      tRow(c, 'Model:', '', cleanModel()) +
-      tRow(c, 'Quant:', '', mv('llama.quant')) +
-      tRow(c, 'Context:', '', mv('llama.context'))
-    ) +
+      tRow(c, 'Status:', '', stateText, stateColor) +
+      tRow(c, 'Health:', '', health.available ? esc(String(health.value)) : 'N/A',
+           healthy ? c.primary : c.critical) +
+      tRow(c, 'PID:', '', procs.length ? esc(String(procs[0].pid || '--')) : '--', c.dim)) +
+    tPanel(c, 'WEIGHTS',
+      tRow(c, 'VRAM:', tBar(c, vramPct.available ? vramPct.value : null), vramStr) +
+      tRow(c, 'Card:', '', gpuName.available ? esc(String(gpuName.value)) : 'N/A', c.dim)) +
+    tPanel(c, 'CARD LOAD',
+      tRow(c, 'Util:', tBar(c, gpuUtil.available ? gpuUtil.value : null),
+           gpuUtil.available ? gpuUtil.value + '%' : 'N/A') +
+      tRow(c, 'Temp:', '', gpuTemp.available ? gpuTemp.value + '°C' : 'N/A',
+           gpuTemp.available && gpuTemp.value >= 80 ? c.critical : c.primary) +
+      tRow(c, 'Power:', '',
+           gpuPower.available ? `${gpuPower.value} / ${gpuPower.extra.limit || '?'} W` : 'N/A', c.dim)) +
+    tPanel(c, 'SERVER PROCESSES', procRows) +
+    `</div></div>`;
+}
+
+/* ── Terminal: block-height history, so a graph is characters like the rest ── */
+function tSpark(samples, width, color, dim) {
+  const arr = (samples && samples.length) ? samples : [];
+  let cap = 0;
+  for (const v of arr) if (typeof v === 'number' && v > cap) cap = v;
+  cap = cap > 0 ? cap * 1.15 : 1;
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = arr.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, arr[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return `<div class="t-row" style="color:${color};white-space:pre;line-height:1;` +
+    `border-bottom:1px solid ${dim};padding-bottom:1px">${esc(out)}</div>`;
+}
+
+/* ── the classic Terminal GPU board ──────────────────────────────────────
+ * The six palette variants had no GPU screen of their own, so the rotation
+ * fell through to the Sci-Fi TOS board: a green-on-black tty handed over to a
+ * gold LCARS panel every fourth screen and took itself back afterwards. Same
+ * vocabulary as the rest of the family -- bordered panels, a --[ TITLE ] rule,
+ * character meters, tabular listings -- and adaptive to card count the way the
+ * Sci-Fi and distro boards already are.
+ */
+function terminalGpuScreen(c) {
+  const cards = asList(m('gpu.cards'));
+  const frame = (cls, body) =>
+    `<div class="screen-frame"><div class="t-screen ${cls}" style="background:${c.background}">` +
+      body + `</div></div>`;
+  const val = (v, sfx) => (v === null || v === undefined || v === '') ? 'N/A' : esc(String(v)) + (sfx || '');
+  const pc = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v) : null;
+
+  if (!cards.length) {
+    return frame('', tPanel(c, 'GRAPHICS',
+      `<div class="t-row" style="color:${c.dim}">No readable graphics device.</div>` +
+      `<div class="t-row" style="color:${c.dim}">Switch this screen off in Settings.</div>`));
+  }
+
+  /* ── one card, in full: the 2x3 grid the family already reads ── */
+  if (cards.length === 1) {
+    const k = cards[0];
+    const hot = pc(k.temp) !== null && k.temp >= 80;
+    const vramG = `${(bsNum(k.vram_used) / 1024).toFixed(1)}/${(bsNum(k.vram_total) / 1024).toFixed(1)}G`;
+    const procs = asList({ available: true, value: k.processes });
+
+    let procRows = `<div class="t-row" style="color:${c.dim}">` +
+      `<span class="t-label" style="flex:1">PROCESS</span>` +
+      `<span style="width:${gq(96)};text-align:right">PID</span>` +
+      `<span style="width:${gq(120)};text-align:right">VRAM</span></div>`;
+    if (procs.length) {
+      for (let i = 0; i < Math.min(3, procs.length); i++) {
+        const p = procs[i] || {};
+        procRows += `<div class="t-row" style="color:${c.primary}">` +
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+          `<span style="width:${gq(96)};text-align:right;color:${c.dim}">${val(p.pid)}</span>` +
+          `<span style="width:${gq(120)};text-align:right">${val(p.vram_mib, ' MiB')}</span></div>`;
+      }
+    } else {
+      procRows += `<div class="t-row" style="color:${c.dim}">` +
+        (k.source === 'nvml' ? 'no compute processes on this card'
+                             : 'per-process VRAM not exposed by ' + val(k.driver)) + `</div>`;
+    }
+
+    return frame('t-2col-3row',
+      tPanel(c, 'DEVICE',
+        `<div class="t-row" style="color:${c.accent}">${esc(String(k.short_name || k.name || 'GPU'))}</div>` +
+        tRow(c, 'Vendor:', '', val(k.vendor)) +
+        tRow(c, 'Driver:', '', val(k.driver), c.dim) +
+        tRow(c, 'Bus:', '', val(k.bus_id), c.dim)) +
+      tPanel(c, 'UTILISATION',
+        tRow(c, 'Core:', tBar(c, pc(k.util)), val(pc(k.util), '%')) +
+        tRow(c, 'VRAM:', tBar(c, pc(k.vram_percent)), val(pc(k.vram_percent), '%')) +
+        tRow(c, 'Mem BW:', tBar(c, pc(k.mem_util)), val(pc(k.mem_util), '%'))) +
+      tPanel(c, 'TELEMETRY',
+        tRow(c, 'Temp:', '', val(pc(k.temp), '°C'), hot ? c.critical : c.primary) +
+        tRow(c, 'Power:', tBar(c, gpuPowerPct(k)), `${val(pc(k.power))} / ${val(pc(k.power_limit))} W`) +
+        tRow(c, 'Fan:', '', gpuFanText(k), c.dim)) +
+      tPanel(c, 'CLOCKS',
+        tRow(c, 'Core:', '', `${val(k.clock_gpu)} / ${val(k.clock_gpu_max)} MHz`) +
+        tRow(c, 'Memory:', '', `${val(k.clock_mem)} / ${val(k.clock_mem_max)} MHz`)) +
+      tPanel(c, 'MEMORY',
+        tRow(c, 'Used:', tBar(c, pc(k.vram_percent)), vramG) +
+        tRow(c, 'Free:', '',
+             `${((bsNum(k.vram_total) - bsNum(k.vram_used)) / 1024).toFixed(1)}G`, c.dim)) +
+      tPanel(c, 'PROCESSES', procRows));
+  }
+
+  /* ── several cards: one panel each, and a header that totals the rig ── */
+  let watts = 0, anyPower = false;
+  for (const k of cards) {
+    if (typeof k.power === 'number' && isFinite(k.power)) { watts += k.power; anyPower = true; }
+  }
+  let body = tPanel(c, 'GRAPHICS',
+    tRow(c, 'Cards:', '', String(cards.length)) +
+    tRow(c, 'Draw:', '', anyPower ? Math.round(watts) + ' W total' : 'N/A', c.dim));
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    const k = cards[i];
+    const hot = pc(k.temp) !== null && k.temp >= 80;
+    body += tPanel(c, esc(String(k.short_name || k.name || ('GPU ' + i))),
+      tRow(c, 'Core:', tBar(c, pc(k.util)), val(pc(k.util), '%')) +
+      tRow(c, 'VRAM:', tBar(c, pc(k.vram_percent)),
+           `${(bsNum(k.vram_used) / 1024).toFixed(1)}/${Math.round(bsNum(k.vram_total) / 1024)}G`) +
+      tRow(c, 'Temp:', '', `${val(pc(k.temp), '°C')}   ${val(pc(k.power), ' W')}`,
+           hot ? c.critical : c.dim));
+  }
+  // Four fit the grid beside the header. More than that is declared, never
+  // dropped in silence -- a rig quietly rendered as a smaller rig is worse
+  // than no screen at all.
+  if (cards.length > 4) {
+    body += tPanel(c, 'OVERFLOW',
+      `<div class="t-row" style="color:${c.dim}">+${cards.length - 4} more not shown</div>`);
+  }
+  return frame('t-2col-3row', body);
+}
+
+/* ── the classic Terminal Claude board ───────────────────────────────────
+ * Screen 3 used to be one generic renderer for all sixteen themes: theme
+ * colours, but nobody's chrome. Here it is in the family's own panels.
+ */
+function terminalClaudeScreen(c) {
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, total) => total > 0 ? Math.round((part / total) * 100) : null;
+  const total = nz(tokTotal), sess = nz(sTotal);
+
+  return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
+    tPanel(c, 'ALL-TIME TOKENS',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(34)};line-height:1.1">${fmtTok(total)}</div>` +
+      tRow(c, 'Input:', tBar(c, share(nz(tokIn), total)), fmtTok(nz(tokIn))) +
+      tRow(c, 'Output:', tBar(c, share(nz(tokOut), total)), fmtTok(nz(tokOut))) +
+      tRow(c, 'Cache W:', tBar(c, share(nz(tokCW), total)), fmtTok(nz(tokCW))) +
+      tRow(c, 'Cache R:', tBar(c, share(nz(tokCR), total)), fmtTok(nz(tokCR)))) +
+    tPanel(c, 'THIS SESSION',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(34)};line-height:1.1">${fmtTok(sess)}</div>` +
+      tRow(c, 'Input:', tBar(c, share(nz(sIn), sess)), fmtTok(nz(sIn))) +
+      tRow(c, 'Output:', tBar(c, share(nz(sOut), sess)), fmtTok(nz(sOut))) +
+      tRow(c, 'Cache W:', tBar(c, share(nz(sCW), sess)), fmtTok(nz(sCW))) +
+      tRow(c, 'Cache R:', tBar(c, share(nz(sCR), sess)), fmtTok(nz(sCR)))) +
+    tPanel(c, 'MESSAGES',
+      tRow(c, 'Total:', '', fmtNum(mAll)) +
+      tRow(c, 'User:', '', fmtNum(mUser), c.dim) +
+      tRow(c, 'Assistant:', '', fmtNum(mAsst), c.dim) +
+      tRow(c, 'Session:', '', fmtNum(sMsgs))) +
+    tPanel(c, 'TOKEN RATE',
+      tSpark(spark.available ? spark.value : [], 30, c.primary, c.border) +
+      tRow(c, 'Now:', '', fmtNum(rate, '0') + ' tok/min') +
+      tRow(c, 'Agents:', '', String(agents.available ? agents.value : 0), c.accent)) +
+    tPanel(c, 'MONTHLY AVERAGE',
+      tRow(c, 'Tokens:', '', fmtTok(nz(monTok))) +
+      tRow(c, 'Messages:', '', fmtNum(monMsg), c.dim)) +
+    tPanel(c, 'HISTORY',
+      tRow(c, 'Active days:', '', days.available ? String(days.value) : '--') +
+      tRow(c, 'Sessions:', '', sessions.available ? String(sessions.value) : '--', c.dim)) +
     `</div></div>`;
 }
 
@@ -438,18 +618,22 @@ const DISTRO_SKINS = {
   Arch: {
     label: '#5296c8', value: '#d8e6f0', accent: '#1793d1', meter: '#4dd0e1',
     dim: '#3f5a6d', warn: '#e06c75', bg: '#06090c',
+    series: ['#1793d1', '#4dd0e1', '#8e79c9', '#c3cdd4'],
   },
   Ubuntu: {
     label: '#c8683f', value: '#f2e6dd', accent: '#E95420', meter: '#e9a05a',
     dim: '#6b4433', warn: '#ff5555', bg: '#0d0705',
+    series: ['#E95420', '#e9a05a', '#a4487a', '#c9bfb6'],
   },
   openSUSE: {
     label: '#6fa03a', value: '#e3f0d8', accent: '#73ba25', meter: '#a4d65e',
     dim: '#3d5426', warn: '#e5484d', bg: '#050a04',
+    series: ['#73ba25', '#a4d65e', '#35b9ab', '#c3cdb4'],
   },
   Mandriva: {
     label: '#4a8fc0', value: '#e8eef4', accent: '#2b7cb8', meter: '#e8a33d',
     dim: '#33556e', warn: '#e05c4a', bg: '#04070b',
+    series: ['#2b7cb8', '#e8a33d', '#6fb1d8', '#b6c4ce'],
   },
 };
 
@@ -481,14 +665,43 @@ function dRow(label, value, S, valColor) {
 }
 
 /* label, meter, reading -- conky's filesystem row. */
-function dMeter(label, pct, reading, S, width, labW) {
+function dMeter(label, pct, reading, S, width, labW, noWarn) {
   const p = distroPct({available: pct !== null && pct !== undefined, value: pct});
-  const col = p !== null && p >= 90 ? S.warn : S.meter;
+  // A filesystem at 95% is a warning; a cache-read share at 95% is the system
+  // working well. Only capacity readings opt in to the warn colour.
+  const col = (!noWarn && p !== null && p >= 90) ? S.warn : S.meter;
   return `<div style="display:flex;align-items:baseline;gap:${gq(8)};white-space:nowrap">` +
     `<span style="color:${S.label};display:inline-block;width:${gq(labW || 62)};` +
       `overflow:hidden;text-overflow:ellipsis">${label}</span>` +
     `<span style="color:${col}">${distroBar(p, width)}</span>` +
     `<span style="color:${S.value};margin-left:auto">${reading}</span></div>`;
+}
+
+/* A composition bar: one row of cells, each segment's share of the whole in
+   its own colour. Four separate meters show four magnitudes; this shows the
+   proportions, which is the thing the board is actually about. Rounding is
+   settled on the last non-empty segment so the row is always exactly `width`
+   cells and never shears the rows beneath it. */
+function dStack(label, parts, colors, S, width, labW) {
+  const total = parts.reduce((a, b) => a + (typeof b === 'number' && isFinite(b) ? b : 0), 0);
+  let html = `<div style="display:flex;align-items:baseline;gap:${gq(8)};white-space:nowrap">` +
+    `<span style="color:${S.label};display:inline-block;width:${gq(labW || 96)};` +
+      `overflow:hidden;text-overflow:ellipsis">${label}</span>`;
+  if (total <= 0) {
+    html += `<span style="color:${S.dim}">${esc('░'.repeat(width))}</span>`;
+  } else {
+    const cells = parts.map(v => Math.floor((Math.max(0, v) / total) * width));
+    let used = cells.reduce((a, b) => a + b, 0);
+    for (let i = cells.length - 1; i >= 0 && used < width; i--) {
+      if (cells[i] > 0 || parts[i] > 0) { cells[i] += width - used; used = width; }
+    }
+    if (used < width) { cells[cells.length - 1] += width - used; }
+    for (let i = 0; i < cells.length; i++) {
+      if (cells[i] <= 0) continue;
+      html += `<span style="color:${colors[i]}">${esc('█'.repeat(cells[i]))}</span>`;
+    }
+  }
+  return html + `</div>`;
 }
 
 /* Block digits, seven rows deep. The screen is read from across a room, so
@@ -805,6 +1018,286 @@ function distroArchScreen1(c) { _distroName = 'Arch'; return distroScreen1(c); }
 function distroUbuntuScreen1(c) { _distroName = 'Ubuntu'; return distroScreen1(c); }
 function distroSuseScreen1(c) { _distroName = 'openSUSE'; return distroScreen1(c); }
 function distroMandrivaScreen1(c) { _distroName = 'Mandriva'; return distroScreen1(c); }
+
+/* ── the distro AI monitor ───────────────────────────────────────────────
+ * The four distro boards were borrowing the classic Terminal AI screen, so
+ * every second screen dropped the conky vocabulary for bordered panels. Same
+ * subject, same characters as the rest of the family.
+ */
+function distroAiScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
+  const vramPct = m('gpu.vram_percent'), vramUsed = m('gpu.vram_used'), vramTot = m('gpu.vram_total');
+  const gUtil = m('gpu.util'), gTemp = m('gpu.temp'), gPow = m('gpu.power');
+  const gMem = m('gpu.mem_util'), gClk = m('gpu.clock_gpu'), mClk = m('gpu.clock_mem');
+  const gFan = m('gpu.fan'), gpuName = m('gpu.name');
+  const cards = asList(m('gpu.cards'));
+  const card = cards.length ? cards[0] : {};
+  const gpuProcs = asList({available: true, value: card.processes});
+
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? S.dim : running && healthy ? S.meter : S.warn;
+  const tpsNum = (tps.available && typeof tps.value === 'number') ? tps.value : null;
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : '--';
+  const modelName = m('llama.model').available
+    ? esc(String(m('llama.model').value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''))
+    : '--';
+
+  const powPct = (gPow.available && gPow.extra && gPow.extra.limit)
+    ? Math.round((bsNum(gPow.value) / bsNum(gPow.extra.limit)) * 100) : null;
+  const clkPct = (gClk.available && gClk.extra && gClk.extra.max)
+    ? Math.round((bsNum(gClk.value) / bsNum(gClk.extra.max)) * 100) : null;
+  const tempPct = distroPct(gTemp) === null ? null
+    : Math.max(0, Math.min(100, Math.round(((bsNum(gTemp.value) - 20) / 100) * 100)));
+
+  // The number you actually watch, drawn at the size the room needs.
+  const head =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${tpsNum === null ? '--' : tpsNum.toFixed(1)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">TOK/S</span>` +
+      `<span style="flex:1"></span>` +
+      `<span style="color:${stateColor};letter-spacing:0.16em">` +
+        `${status.available ? esc(String(status.value)).toUpperCase() : 'NOT DETECTED'}</span></div>`;
+
+  let serverRows;
+  if (procs.length) {
+    serverRows = '';
+    for (let i = 0; i < Math.min(2, procs.length); i++) {
+      const p = procs[i] || {};
+      serverRows += `<div style="display:flex;white-space:nowrap;color:${S.value}">` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+        `<span style="width:${gq(96)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span></div>`;
+    }
+  } else {
+    serverRows = `<div style="color:${S.dim}">no local server process</div>`;
+  }
+
+  const left =
+    head +
+    dGraph('tps', tpsNum, S, 34) +
+    dRule('MODEL', S, backend.available ? esc(String(backend.value)).toUpperCase() : '') +
+    `<div style="color:${S.value};font-size:${gq(24)};line-height:1.25;` +
+      `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${modelName}</div>` +
+    dRow('quant', quant.available ? esc(String(quant.value)) : '--', S) +
+    dRow('context', ctxText, S) +
+    dRow('slots', slots.available ? String(slots.value) : '--', S, S.accent) +
+    dRule('RESIDENCY', S, distroVal(distroPct(vramPct), '%')) +
+    dMeter('weights', distroPct(vramPct),
+           vramUsed.available && vramTot.available
+             ? `${(bsNum(vramUsed.value) / 1024).toFixed(1)} / ${(bsNum(vramTot.value) / 1024).toFixed(1)} G`
+             : '--',
+           S, 20, 88, true) +
+    dRow('free',
+         vramUsed.available && vramTot.available
+           ? `${((bsNum(vramTot.value) - bsNum(vramUsed.value)) / 1024).toFixed(1)} G` : '--', S) +
+    dRule('SERVICE', S, healthy ? 'HEALTHY' : '') +
+    dRow('engine', backend.available ? esc(String(backend.value)) : '--', S) +
+    dRow('health', health.available ? esc(String(health.value)) : '--', S,
+         healthy ? S.meter : S.warn) +
+    dRule('SERVER', S, procs.length ? procs.length + ' PROC' : 'IDLE') +
+    serverRows;
+
+  const right =
+    dRule('CARD', S, gpuName.available ? esc(String(gpuName.value)) : 'NO CARD') +
+    dGraph('aiutil', distroPct(gUtil), S, 46, 100) +
+    dMeter('compute', distroPct(gUtil), distroVal(distroPct(gUtil), '%'), S, 23, 88, true) +
+    dMeter('mem bus', distroPct(gMem), distroVal(distroPct(gMem), '%'), S, 23, 88, true) +
+    dMeter('power', powPct,
+           gPow.available
+             ? `${Math.round(bsNum(gPow.value))} / ${distroVal(gPow.extra && gPow.extra.limit)} W`
+             : '--', S, 23, 88, true) +
+    dMeter('thermal', tempPct, distroVal(distroPct(gTemp), '°C'), S, 23, 88) +
+    dMeter('fan', distroPct(gFan), gFan.available ? distroVal(distroPct(gFan), '%') : '--',
+           S, 23, 88, true) +
+    dRule('CLOCKS', S, clkPct === null ? '' : clkPct + '% OF MAX') +
+    dGraph('aicore', gClk.available ? bsNum(gClk.value) : null, S, 46) +
+    dRow('core', gClk.available
+           ? `${bsNum(gClk.value)} / ${distroVal(gClk.extra && gClk.extra.max)} MHz` : '--', S) +
+    dGraph('aimem', mClk.available ? bsNum(mClk.value) : null, S, 46) +
+    dRow('memory', mClk.available
+           ? `${bsNum(mClk.value)} / ${distroVal(mClk.extra && mClk.extra.max)} MHz` : '--', S) +
+    dRule('THERMAL', S) +
+    dGraph('aitemp', distroPct(gTemp), S, 46, 110) +
+    dRow('driver', distroVal(card.driver), S) +
+    dRow('bus', distroVal(card.bus_id), S);
+
+  // What else is resident on the card. The server's own footprint is only half
+  // the story when a browser or a second model is holding VRAM too.
+  function gpuCell(p) {
+    if (!p) return `<div style="flex:1"></div>`;
+    return `<div style="flex:1;display:flex;white-space:nowrap;min-width:0;color:${S.value}">` +
+      `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+      `<span style="width:${gq(96)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
+      `<span style="width:${gq(116)};text-align:right">${distroVal(p.vram_mib, ' MiB')}</span></div>`;
+  }
+  function gpuHead() {
+    return `<div style="flex:1;display:flex;white-space:nowrap;color:${S.label}">` +
+      `<span style="flex:1">ON THE CARD</span>` +
+      `<span style="width:${gq(96)};text-align:right">PID</span>` +
+      `<span style="width:${gq(116)};text-align:right">VRAM</span></div>`;
+  }
+  let cardTable;
+  if (gpuProcs.length) {
+    cardTable = `<div style="display:flex;gap:${gq(26)}">${gpuHead()}${gpuHead()}</div>`;
+    for (let i = 0; i < 2; i++) {
+      cardTable += `<div style="display:flex;gap:${gq(26)}">` +
+        gpuCell(gpuProcs[i]) + gpuCell(gpuProcs[i + 2]) + `</div>`;
+    }
+  } else {
+    cardTable = `<div style="color:${S.dim}">` +
+      (card.source === 'nvml' ? 'no compute processes on this card'
+                              : 'per-process VRAM not exposed by ' + distroVal(card.driver)) +
+      `</div>`;
+  }
+
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(17)};line-height:1.45;padding:${gq(12)} ${gq(16)};` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="width:${gq(430)};flex-shrink:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div></div>` +
+    dRule('GRAPHICS MEMORY', S,
+          gpuProcs.length ? gpuProcs.length + ' CLIENT' + (gpuProcs.length === 1 ? '' : 'S') : '') +
+    cardTable + `</div></div>`;
+}
+
+/* ── the distro Claude board ─────────────────────────────────────────── */
+function distroClaudeScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, whole) => whole > 0 ? Math.round((part / whole) * 100) : 0;
+  const total = nz(tokTotal), sess = nz(sTotal);
+  const msgs = nz(mAll), sessN = nz(sessions), daysN = nz(days);
+  const read = (part, whole) => `${fmtTok(part)}  ${String(share(part, whole)).padStart(3)}%`;
+
+  const left =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${fmtTok(total)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">TOKENS</span></div>` +
+    dRule('ALL TIME', S, daysN ? daysN + ' DAYS' : '') +
+    dMeter('input', share(nz(tokIn), total), read(nz(tokIn), total), S, 21, 96, true) +
+    dMeter('output', share(nz(tokOut), total), read(nz(tokOut), total), S, 21, 96, true) +
+    dMeter('cache w', share(nz(tokCW), total), read(nz(tokCW), total), S, 21, 96, true) +
+    dMeter('cache r', share(nz(tokCR), total), read(nz(tokCR), total), S, 21, 96, true) +
+    // Derived, not collected: the ratios are the reason anyone reads this board.
+    dRule('AVERAGES', S) +
+    dRow('per session', sessN ? fmtTok(Math.round(total / sessN)) : '--', S) +
+    dRow('per message', msgs ? fmtTok(Math.round(total / msgs)) : '--', S) +
+    dRow('per day', daysN ? fmtTok(Math.round(total / daysN)) : '--', S) +
+    dRule('MESSAGES', S, fmtNum(mAll)) +
+    dMeter('user', share(nz(mUser), msgs), fmtNum(mUser), S, 21, 96, true) +
+    dMeter('assistant', share(nz(mAsst), msgs), fmtNum(mAsst), S, 21, 96, true) +
+    dRow('sessions', sessN ? fmtNum(sessions) : '--', S) +
+    dRow('monthly tokens', fmtTok(nz(monTok)), S) +
+    dRow('monthly messages', fmtNum(monMsg), S);
+
+  const right =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.meter};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${fmtTok(sess)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">SESSION</span></div>` +
+    dRule('THIS SESSION', S, fmtNum(sMsgs) + ' MSGS') +
+    dMeter('input', share(nz(sIn), sess), read(nz(sIn), sess), S, 21, 96, true) +
+    dMeter('output', share(nz(sOut), sess), read(nz(sOut), sess), S, 21, 96, true) +
+    dMeter('cache w', share(nz(sCW), sess), read(nz(sCW), sess), S, 21, 96, true) +
+    dMeter('cache r', share(nz(sCR), sess), read(nz(sCR), sess), S, 21, 96, true) +
+    dRow('share of all time', total ? share(sess, total) + '%' : '--', S) +
+    // The collector keeps thirty rate samples, so the plot is thirty cells:
+    // sized to the data rather than to the column, it fills as the ring does.
+    dRule('TOKEN RATE', S, fmtNum(rate, '0') + ' /MIN') +
+    `<div style="color:${S.meter};white-space:pre;line-height:1;` +
+      `border-bottom:1px solid ${S.dim};padding-bottom:${gq(1)};margin-bottom:${gq(2)}">` +
+      distroSparkFrom(spark.available ? spark.value : [], 30) + `</div>` +
+    dRule('AGENTS', S) +
+    `<div style="display:flex;align-items:baseline;gap:${gq(12)}">` +
+      `<span style="color:${S.accent};font-size:${gq(44)};line-height:1.1">` +
+        `${agents.available ? agents.value : 0}</span>` +
+      `<span style="color:${S.label}">spawned this session</span></div>` +
+    dRow('cache read share', total ? share(nz(tokCR), total) + '%' : '--', S, S.accent) +
+    dRow('assistant / user', nz(mUser) ? (nz(mAsst) / nz(mUser)).toFixed(2) + ' : 1' : '--', S);
+
+  // A composition bar reads the split at a glance the way four separate meters
+  // cannot: one row, four colours, proportions to scale.
+  const SER = S.series || [S.accent, S.meter, S.label, S.value];
+  const legend =
+    `<div style="display:flex;gap:${gq(22)};color:${S.label};margin-top:${gq(2)}">` +
+      ['input', 'output', 'cache write', 'cache read'].map((t, i) =>
+        `<span style="color:${SER[i]}">\u25A0 ${t}</span>`).join('') + `</div>`;
+
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(17)};line-height:1.45;padding:${gq(12)} ${gq(16)};` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="flex:1;min-width:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div></div>` +
+    dRule('COMPOSITION', S, fmtTok(total) + '  /  ' + fmtTok(sess)) +
+    dStack('all time', [nz(tokIn), nz(tokOut), nz(tokCW), nz(tokCR)], SER, S, 82) +
+    dStack('session', [nz(sIn), nz(sOut), nz(sCW), nz(sCR)], SER, S, 82) +
+    legend + `</div></div>`;
+}
+
+/* A block-height plot of a series the caller already holds. distroSpark()
+   pushes onto the renderer's own ring; the Claude sparkline arrives complete
+   from the collector, so it must not be pushed anywhere. */
+function distroSparkFrom(samples, width) {
+  const arr = (samples && samples.length) ? samples : [];
+  let cap = 0;
+  for (const v of arr) if (typeof v === 'number' && v > cap) cap = v;
+  cap = cap > 0 ? cap * 1.15 : 1;
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = arr.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, arr[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return esc(out);
+}
+
+function distroArchAi(c) { _distroName = 'Arch'; return distroAiScreen(c); }
+function distroUbuntuAi(c) { _distroName = 'Ubuntu'; return distroAiScreen(c); }
+function distroSuseAi(c) { _distroName = 'openSUSE'; return distroAiScreen(c); }
+function distroMandrivaAi(c) { _distroName = 'Mandriva'; return distroAiScreen(c); }
+
+function distroArchClaude(c) { _distroName = 'Arch'; return distroClaudeScreen(c); }
+function distroUbuntuClaude(c) { _distroName = 'Ubuntu'; return distroClaudeScreen(c); }
+function distroSuseClaude(c) { _distroName = 'openSUSE'; return distroClaudeScreen(c); }
+function distroMandrivaClaude(c) { _distroName = 'Mandriva'; return distroClaudeScreen(c); }
+
+const DISTRO_AI_SCREENS = {
+  Arch: distroArchAi, Ubuntu: distroUbuntuAi,
+  openSUSE: distroSuseAi, Mandriva: distroMandrivaAi,
+};
+
+const DISTRO_CLAUDE_SCREENS = {
+  Arch: distroArchClaude, Ubuntu: distroUbuntuClaude,
+  openSUSE: distroSuseClaude, Mandriva: distroMandrivaClaude,
+};
 
 /* ═══════════════════════════════════════
    VINTAGE / SCANLINES
@@ -1368,152 +1861,6 @@ function sparkline(samples, color, w, h) {
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
     `<polygon points="${fillPts}" fill="${color}" opacity="0.15"/>` +
     `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
-}
-
-function claudeScreen3(c) {
-  const pri = c.primary || '#00ff41';
-  const acc = c.accent || '#ffb000';
-  const dim = c.dim || c.border || '#333';
-  const hdr = c.header || pri;
-  const crit = c.critical || '#ff3333';
-  const bg = c.panel || 'rgba(0,0,0,0.3)';
-  const font = c.font || 'monospace';
-  // Token type colors derived from theme
-  const cIn = pri, cOut = acc, cCW = hdr, cCR = crit;
-
-  const tokIn = m('claude.tokens_input');
-  const tokOut = m('claude.tokens_output');
-  const tokCW = m('claude.tokens_cache_write');
-  const tokCR = m('claude.tokens_cache_read');
-  const tokTotal = m('claude.tokens_total');
-
-  const sessIn = m('claude.session_input');
-  const sessOut = m('claude.session_output');
-  const sessCW = m('claude.session_cache_write');
-  const sessCR = m('claude.session_cache_read');
-  const sessTotal = m('claude.session_total');
-  const sessMsgs = m('claude.session_msgs');
-
-  const msgsUser = m('claude.msgs_user');
-  const msgsAsst = m('claude.msgs_assistant');
-  const msgsTotal = m('claude.msgs_total');
-  const monthlyTok = m('claude.monthly_tokens');
-  const monthlyMsg = m('claude.monthly_messages');
-  const days = m('claude.days_active');
-  const sessions = m('claude.sessions');
-  const agents = m('claude.agents_active');
-  const rate = m('claude.token_rate');
-  const spark = m('claude.sparkline');
-
-  // Token breakdown bar
-  function tokBar(input, output, cw, cr, total) {
-    if (!total || total === 0) return `<div style="height:6px;background:${dim};border-radius:3px"></div>`;
-    const t = total;
-    const pI = (input / t) * 100;
-    const pO = (output / t) * 100;
-    const pW = (cw / t) * 100;
-    const pR = (cr / t) * 100;
-    return `<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:${dim}">` +
-      `<div style="width:${pI}%;background:${cIn}" title="Input"></div>` +
-      `<div style="width:${pO}%;background:${cOut}" title="Output"></div>` +
-      `<div style="width:${pW}%;background:${cCW}" title="Cache Write"></div>` +
-      `<div style="width:${pR}%;background:${cCR}" title="Cache Read"></div>` +
-    `</div>`;
-  }
-
-  function statRow(label, val, color) {
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:1px 0">` +
-      `<span style="color:${dim};font-size:1.56cqw">${label}</span>` +
-      `<span style="color:${color || pri};font-size:1.76cqw;font-weight:600">${val}</span></div>`;
-  }
-
-  function sectionTitle(text) {
-    return `<div style="color:${hdr};font-size:1.66cqw;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;border-bottom:1px solid ${dim};padding-bottom:2px">${text}</div>`;
-  }
-
-  // Legend for token types
-  const legend = `<div style="display:flex;gap:8px;margin-top:4px;font-size:1.27cqw">` +
-    `<span style="color:${cIn}">\u25A0 Input</span>` +
-    `<span style="color:${cOut}">\u25A0 Output</span>` +
-    `<span style="color:${cCW}">\u25A0 Cache W</span>` +
-    `<span style="color:${cCR}">\u25A0 Cache R</span>` +
-  `</div>`;
-
-  const totalVal = tokTotal.available ? tokTotal.value : 0;
-  const sTotalVal = sessTotal.available ? sessTotal.value : 0;
-
-  // LEFT COLUMN — All-time
-  const left =
-    `<div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-right:10px;border-right:1px solid ${dim}22">` +
-      `<div>` +
-        sectionTitle('All-Time Tokens') +
-        `<div style="color:${pri};font-size:3.52cqw;font-weight:700;margin:2px 0">${fmtTok(totalVal)}</div>` +
-        tokBar(tokIn.value||0, tokOut.value||0, tokCW.value||0, tokCR.value||0, totalVal) +
-        legend +
-        `<div style="margin-top:6px">` +
-          statRow('Input', fmtTok(tokIn.value||0), cIn) +
-          statRow('Output', fmtTok(tokOut.value||0), cOut) +
-          statRow('Cache Write', fmtTok(tokCW.value||0), cCW) +
-          statRow('Cache Read', fmtTok(tokCR.value||0), cCR) +
-        `</div>` +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Messages') +
-        `<div style="display:flex;gap:12px;align-items:baseline">` +
-          `<span style="color:${pri};font-size:3.52cqw;font-weight:700">${fmtNum(msgsTotal)}</span>` +
-          `<span style="color:${dim};font-size:1.37cqw">total</span>` +
-        `</div>` +
-        statRow('User', fmtNum(msgsUser)) +
-        statRow('Assistant', fmtNum(msgsAsst)) +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Monthly Average') +
-        statRow('Tokens', fmtTok(monthlyTok.value||0)) +
-        statRow('Messages', fmtNum(monthlyMsg)) +
-        statRow('Active Days', days.available ? days.value : '--') +
-        statRow('Sessions', sessions.available ? sessions.value : '--') +
-      `</div>` +
-    `</div>`;
-
-  // RIGHT COLUMN — Session + Live
-  const sparkData = spark.available ? spark.value : [];
-
-  const right =
-    `<div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-left:10px">` +
-      `<div>` +
-        sectionTitle('This Session') +
-        `<div style="color:${pri};font-size:3.52cqw;font-weight:700;margin:2px 0">${fmtTok(sTotalVal)}</div>` +
-        tokBar(sessIn.value||0, sessOut.value||0, sessCW.value||0, sessCR.value||0, sTotalVal) +
-        `<div style="margin-top:6px">` +
-          statRow('Input', fmtTok(sessIn.value||0), cIn) +
-          statRow('Output', fmtTok(sessOut.value||0), cOut) +
-          statRow('Cache Write', fmtTok(sessCW.value||0), cCW) +
-          statRow('Cache Read', fmtTok(sessCR.value||0), cCR) +
-          statRow('Messages', fmtNum(sessMsgs)) +
-        `</div>` +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Token Rate') +
-        `<div style="margin:4px 0">` +
-          sparkline(sparkData, pri, 400, 50) +
-        `</div>` +
-        `<div style="color:${pri};font-size:2.34cqw;font-weight:700">` +
-          `${fmtNum(rate, '0')} <span style="color:${dim};font-size:1.37cqw">tok/min</span>` +
-        `</div>` +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Agents') +
-        `<div style="display:flex;align-items:center;gap:8px">` +
-          `<span style="color:${pri};font-size:3.52cqw;font-weight:700">${agents.available ? agents.value : 0}</span>` +
-          `<span style="color:${dim};font-size:1.56cqw">spawned this session</span>` +
-        `</div>` +
-      `</div>` +
-    `</div>`;
-
-  return '<div class="screen-frame" style="font-family:' + font + '">' +
-    '<div style="display:flex;height:100%;padding:12px 16px;gap:0;box-sizing:border-box">' +
-      left + right +
-    '</div></div>';
 }
 
 /* ── Bridge Station: shared primitives, then the GPU screen ──────────────────────────────────────────────────────────
@@ -2789,6 +3136,23 @@ function bsFanRow() {
  * Everything here is honest about absence: a box with no local model running
  * says so rather than drawing an empty gauge.
  */
+/* A captioned readout: the label small and quiet above, the number as large
+   as the region allows. Shared by every Bridge Station screen so a caption is
+   the same caption everywhere -- it was copied per screen until screen 3
+   needed a third one. */
+function bsBig(label, value, color, valPx, icon) {
+  const S = bsS();
+  return `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
+    `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
+      (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
+    `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
+      `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
+      `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+      `${bsGlow(9, color)}">${value}</span></div>`;
+}
+
 function bsNpuScreen(c) {
   const S = bsS();
 
@@ -2808,16 +3172,7 @@ function bsNpuScreen(c) {
   const stateText = !status.available ? 'NOT DETECTED'
                   : esc(String(status.value)).toUpperCase();
 
-  const big = (label, value, color, valPx, icon) =>
-    `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
-      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
-        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
-        `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
-        (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
-      `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
-        `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
-        `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
-        `${bsGlow(9, color)}">${value}</span></div>`;
+  const big = bsBig;
 
   // ── MODEL: what is loaded
   const modelName = model.available
@@ -2909,3 +3264,144 @@ function sfTngScreen1(c) { bsSkin(BS_SKIN_TNG); return bsScreen1(c); }
 function scanScreen1(c) { bsSkin(BS_SKIN_SCAN); return bsScreen1(c); }
 function tubeScreen1(c) { bsSkin(BS_SKIN_TUBE); return bsScreen1(c); }
 function vfdScreen1(c) { bsSkin(BS_SKIN_VFD); return bsScreen1(c); }
+
+/* ── Screen 3 in the Bridge Station skins ────────────────────────────────
+ * Claude usage used to be one generic renderer for all sixteen themes: it
+ * took the palette and nothing else, so every rotation dropped its family's
+ * chrome for a plain two-column web layout on the third screen. Here it is on
+ * the same four-region board as System Stats and the NPU panel, which means
+ * TOS gets its spine, DS9 and TNG their tabs, and the Vintage skins their
+ * rules, glass and overlays -- for free.
+ */
+
+/* A history plot in the skin's own ink. viewBox coordinates are the 1024px
+   authoring grid; the element itself is sized in cqw, so it scales with the
+   frame the way every other instrument on these boards does. */
+function bsSpark(samples, color, w, h) {
+  const S = bsS();
+  const halo = S.glow ? `filter:drop-shadow(0 0 ${gq(5)} ${color})` : '';
+  const arr = (samples && samples.length >= 2) ? samples : null;
+  if (!arr) {
+    return `<svg width="${gq(w)}" height="${gq(h)}" viewBox="0 0 ${w} ${h}" ` +
+      `preserveAspectRatio="none" style="${halo}">` +
+      `<line x1="0" y1="${h - 1}" x2="${w}" y2="${h - 1}" stroke="${color}" ` +
+      `stroke-width="1.5" opacity="0.25"/></svg>`;
+  }
+  let max = 1;
+  for (const v of arr) if (typeof v === 'number' && v > max) max = v;
+  const pts = arr.map((v, i) => {
+    const x = (i / (arr.length - 1)) * w;
+    const y = h - (Math.max(0, bsNum(v)) / max) * (h - 3);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg width="${gq(w)}" height="${gq(h)}" viewBox="0 0 ${w} ${h}" ` +
+    `preserveAspectRatio="none" style="${halo}">` +
+    `<polygon points="${pts} ${w},${h} 0,${h}" fill="${color}" opacity="0.16"/>` +
+    `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" ` +
+    `stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function bsClaudeScreen(c) {
+  const S = bsS();
+  const bodyW = S.chrome === 'spine' ? 442 : 470;
+
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, whole) => whole > 0 ? (part / whole) * 100 : 0;
+  const total = nz(tokTotal), sess = nz(sTotal);
+
+  /* Input / output / cache-write / cache-read take the skin's four accents,
+     so the same reading is the same colour in every family. */
+  const cIn = S.a1, cOut = S.a2, cCW = S.a3, cCR = S.a4 || S.cLink;
+
+  // ── USAGE: the all-time total, and the scale it was accumulated over
+  const usageBody =
+    `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<span style="color:${total ? S.cLink : S.dim};font-family:${S.font};font-size:${gq(92)};` +
+        `font-weight:${S.fw};line-height:1;font-variant-numeric:tabular-nums;` +
+        `${bsGlow(26, total ? S.cLink : S.dim, '66')}">${fmtTok(total)}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(22)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:0.28em;` +
+        `margin-top:${gq(6)}">TOKENS ALL TIME</span>` +
+      `<span style="color:${S.soft};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `margin-top:${gq(10)}">` +
+        `${sessions.available ? bsNum(sessions.value) : '--'} SESSIONS` +
+        ` &middot; ${days.available ? bsNum(days.value) : '--'} DAYS` +
+      `</span></div>`;
+
+  // ── BREAKDOWN: where those tokens went
+  const breakdownBody =
+    bsMetered('INPUT', fmtTok(nz(tokIn)), share(nz(tokIn), total), cIn, bodyW, 26, 26, 15) +
+    bsMetered('OUTPUT', fmtTok(nz(tokOut)), share(nz(tokOut), total), cOut, bodyW, 26, 26, 15) +
+    bsMetered('CACHE WRITE', fmtTok(nz(tokCW)), share(nz(tokCW), total), cCW, bodyW, 26, 26, 15) +
+    bsMetered('CACHE READ', fmtTok(nz(tokCR)), share(nz(tokCR), total), cCR, bodyW, 26, 26, 15);
+
+  // ── SESSION: the same shape, scoped to the conversation in front of you
+  const sessionBody =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(12)}">` +
+      bsBig('SESSION TOKENS', fmtTok(sess), S.cIp, 40) +
+      bsBig('MESSAGES', fmtNum(sMsgs), S.bright, 40) +
+    `</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(12)};margin-top:${gq(12)}">` +
+      bsBig('IN', fmtTok(nz(sIn)), cIn, 28) +
+      bsBig('OUT', fmtTok(nz(sOut)), cOut, 28) +
+      bsBig('CACHE W', fmtTok(nz(sCW)), cCW, 28) +
+      bsBig('CACHE R', fmtTok(nz(sCR)), cCR, 28) +
+    `</div>`;
+
+  // ── ACTIVITY: the live rate, plotted, and the long-run averages
+  const activityBody =
+    `<div style="display:flex;align-items:flex-end;gap:${gq(14)}">` +
+      `<span style="color:${S.cPing};font-family:${S.font};font-size:${gq(52)};` +
+        `font-weight:${S.fw};line-height:1;font-variant-numeric:tabular-nums;` +
+        `${bsGlow(16, S.cPing)}">${fmtNum(rate, '0')}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `padding-bottom:${gq(6)}">TOK / MIN</span></div>` +
+    `<div style="margin-top:${gq(6)}">` +
+      bsSpark(spark.available ? spark.value : null, S.cPing, bodyW, 50) + `</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(10)};margin-top:${gq(10)}">` +
+      bsBig('AGENTS', String(agents.available ? bsNum(agents.value) : 0), S.cLink, 34, 'chip') +
+      bsBig('MESSAGES', fmtNum(mAll), S.bright, 34) +
+      bsBig('TOKENS / MO', fmtTok(nz(monTok)), S.soft, 28) +
+      bsBig('MSGS / MO', fmtNum(monMsg), S.soft, 28) +
+    `</div>`;
+
+  const ratio = (mAsst.available && mUser.available && bsNum(mUser.value) > 0)
+    ? (bsNum(mAsst.value) / bsNum(mUser.value)).toFixed(1) + ':1'
+    : '';
+
+  return bsFrame(
+    bsRegion(14, 10, 486, 288, 'USAGE', S.a1, '', usageBody, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'BREAKDOWN', S.a1, fmtTok(total), breakdownBody, 'space-evenly') +
+    bsRegion(14, 302, 486, 288, 'SESSION', S.a3, ratio ? 'A/U ' + ratio : '',
+             sessionBody, 'space-evenly') +
+    bsRegion(524, 302, 486, 288, 'ACTIVITY', S.a2,
+             agents.available && bsNum(agents.value) > 0 ? 'ACTIVE' : '',
+             activityBody, 'space-evenly',
+             agents.available && bsNum(agents.value) > 0 ? S.cLink : null));
+}
+
+function sfTosClaudeScreen(c) { bsSkin(BS_SKIN_TOS); return bsClaudeScreen(c); }
+function sfDs9ClaudeScreen(c) { bsSkin(BS_SKIN_DS9); return bsClaudeScreen(c); }
+function sfTngClaudeScreen(c) { bsSkin(BS_SKIN_TNG); return bsClaudeScreen(c); }
+function scanClaudeScreen(c) { bsSkin(BS_SKIN_SCAN); return bsClaudeScreen(c); }
+function tubeClaudeScreen(c) { bsSkin(BS_SKIN_TUBE); return bsClaudeScreen(c); }
+function vfdClaudeScreen(c) { bsSkin(BS_SKIN_VFD); return bsClaudeScreen(c); }

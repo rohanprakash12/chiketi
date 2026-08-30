@@ -67,27 +67,36 @@ eval(
   fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8')
 );
 
-// Mirrors getScreenRegistry() in display_app.js.
+// Mirrors getScreenRegistry() in display_app.js. Every family names all of
+// its own screens: nothing here may fall through to another family's
+// renderer, which is exactly the bug this list used to encode -- `gpu`
+// defaulted to sfTosGpuScreen, so the six Terminal palettes were "tested"
+// against a Sci-Fi board and the four distro GPU screens were never rendered
+// at all.
 const REGISTRY = [
-  { family: 'Sci-Fi', variant: 'TOS', fns: [sfTosScreen1, sfTosNpuScreen, sfTosScreen2],
-    gpu: sfTosGpuScreen },
-  { family: 'Sci-Fi', variant: 'TNG', fns: [sfTngScreen1, sfTngNpuScreen, sfTngScreen2],
-    gpu: sfTngGpuScreen },
-  { family: 'Sci-Fi', variant: 'DS9', fns: [sfDs9Screen1, sfDs9NpuScreen, sfDs9Screen2],
-    gpu: sfDs9GpuScreen },
-  { family: 'Vintage', variant: 'Scanlines', fns: [scanScreen1, scanNpuScreen, scanScreen2],
-    gpu: scanGpuScreen },
-  { family: 'Vintage', variant: 'Tubes', fns: [tubeScreen1, tubeNpuScreen, tubeScreen2],
-    gpu: tubeGpuScreen },
-  { family: 'Vintage', variant: 'VFD', fns: [vfdScreen1, vfdNpuScreen, vfdScreen2],
-    gpu: vfdGpuScreen },
-  { family: 'Terminal', variant: 'hacker', fns: [terminalScreen1, terminalScreen2] },
-  // The distro variants swap screen1 for the conky-style board; screen2 stays
-  // the AI Monitor, so both must survive every fixture.
-  { family: 'Terminal', variant: 'Arch', fns: [distroArchScreen1, terminalScreen2] },
-  { family: 'Terminal', variant: 'Ubuntu', fns: [distroUbuntuScreen1, terminalScreen2] },
-  { family: 'Terminal', variant: 'openSUSE', fns: [distroSuseScreen1, terminalScreen2] },
-  { family: 'Terminal', variant: 'Mandriva', fns: [distroMandrivaScreen1, terminalScreen2] },
+  { family: 'Sci-Fi', variant: 'TOS',
+    fns: [sfTosScreen1, sfTosNpuScreen, sfTosClaudeScreen, sfTosGpuScreen, sfTosScreen2] },
+  { family: 'Sci-Fi', variant: 'TNG',
+    fns: [sfTngScreen1, sfTngNpuScreen, sfTngClaudeScreen, sfTngGpuScreen, sfTngScreen2] },
+  { family: 'Sci-Fi', variant: 'DS9',
+    fns: [sfDs9Screen1, sfDs9NpuScreen, sfDs9ClaudeScreen, sfDs9GpuScreen, sfDs9Screen2] },
+  { family: 'Vintage', variant: 'Scanlines',
+    fns: [scanScreen1, scanNpuScreen, scanClaudeScreen, scanGpuScreen, scanScreen2] },
+  { family: 'Vintage', variant: 'Tubes',
+    fns: [tubeScreen1, tubeNpuScreen, tubeClaudeScreen, tubeGpuScreen, tubeScreen2] },
+  { family: 'Vintage', variant: 'VFD',
+    fns: [vfdScreen1, vfdNpuScreen, vfdClaudeScreen, vfdGpuScreen, vfdScreen2] },
+  { family: 'Terminal', variant: 'hacker',
+    fns: [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen] },
+  // The distro variants swap every screen for a conky-style board.
+  { family: 'Terminal', variant: 'Arch',
+    fns: [distroArchScreen1, distroArchAi, distroArchClaude, distroArchGpu] },
+  { family: 'Terminal', variant: 'Ubuntu',
+    fns: [distroUbuntuScreen1, distroUbuntuAi, distroUbuntuClaude, distroUbuntuGpu] },
+  { family: 'Terminal', variant: 'openSUSE',
+    fns: [distroSuseScreen1, distroSuseAi, distroSuseClaude, distroSuseGpu] },
+  { family: 'Terminal', variant: 'Mandriva',
+    fns: [distroMandrivaScreen1, distroMandrivaAi, distroMandrivaClaude, distroMandrivaGpu] },
 ];
 
 // Screens that print the SECONDARY (/home) capacity as a "used / total"
@@ -119,9 +128,7 @@ const BACKEND_TITLE_SCREENS = ['terminalScreen2'];
  * and still size their instruments in px, so their control-panel previews are
  * wrong today. New screens must not join them.
  */
-const PX_ALLOWLIST = new Set([
-  'claudeScreen3', 'terminalScreen2',
-]);
+const PX_ALLOWLIST = new Set([]);
 const PX_PROPS = 'font-size|width|height|gap|padding|padding-left|padding-right|' +
   'padding-top|padding-bottom|margin|margin-left|margin-right|margin-top|' +
   'margin-bottom|left|right|top|bottom';
@@ -176,7 +183,7 @@ const CLEAN_TAGS = {};
   metrics = FIX.FULL;
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    entry.fns.concat([claudeScreen3, entry.gpu || sfTosGpuScreen]).forEach(function (fn) {
+    entry.fns.forEach(function (fn) {
       if (CLEAN_TAGS[fn.name]) return;
       try {
         CLEAN_TAGS[fn.name] = tokenize(fn(colors)).tags;
@@ -227,7 +234,7 @@ for (const fixtureName of Object.keys(FIX)) {
   metrics = FIX[fixtureName];
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3, entry.gpu || sfTosGpuScreen]);
+    const fns = entry.fns;
     fns.forEach(function (fn, i) {
       const label = entry.family + '/' + entry.variant + ' screen' + (i + 1) + ' (' + fn.name + ')';
       let html;
@@ -277,23 +284,29 @@ for (const fixtureName of Object.keys(FIX)) {
       // An empty NVML process list means the card is idle, not that the
       // data is unavailable -- the screen said "not exposed by nvidia" on a
       // real 3090 Ti, which is simply false. FULL's card is an idle NVML one.
-      if ((fixtureName === 'FULL' || fixtureName === 'GPU_IDLE') &&
-          /GpuScreen$/.test(fn.name)) {
+      // Slot 4 is the GPU screen in every family (see REGISTRY, which mirrors
+      // getScreenRegistry's fixed order). Matching on the function NAME instead
+      // let the four distro boards -- distroArchGpu and friends -- skip all
+      // three assertions below, so they were rendered but never checked.
+      if ((fixtureName === 'FULL' || fixtureName === 'GPU_IDLE') && i === 3) {
         if (/NOT EXPOSED BY NVIDIA/i.test(html)) {
           fail(fixtureName, label, 'claims NVIDIA does not expose per-process VRAM');
         }
       }
 
       // The empty state has to say why it is empty.
-      if (fixtureName === 'GPU_NONE' && /GpuScreen$/.test(fn.name) &&
-          !/NO GPU DETECTED/.test(html)) {
+      // Case-insensitive, and either phrasing: the Sci-Fi and Vintage boards
+      // shout NO GPU DETECTED, the Terminal and distro boards say it in their
+      // own lowercase voice. What matters is that the blank screen says why.
+      if (fixtureName === 'GPU_NONE' && i === 3 &&
+          !/no (readable )?(gpu|graphics)/i.test(html)) {
         fail(fixtureName, label, 'no-GPU state does not explain itself');
       }
 
       // More cards than the grid holds: declare the overflow, never truncate
       // silently. GPU_MANY carries seven.
-      if (fixtureName === 'GPU_MANY' && /GpuScreen$/.test(fn.name) &&
-          !/\+3 MORE NOT SHOWN/.test(html)) {
+      if (fixtureName === 'GPU_MANY' && i === 3 &&
+          !/\+3 more not shown/i.test(html)) {
         fail(fixtureName, label, 'cards dropped from the grid without saying so');
       }
 
@@ -343,7 +356,7 @@ const STRING_KEYS = Object.keys(FIX.FULL).filter(function (k) {
 for (const key of STRING_KEYS) {
   for (const entry of REGISTRY) {
     const colors = FAMILIES[entry.family][entry.variant];
-    const fns = entry.fns.concat([claudeScreen3, entry.gpu || sfTosGpuScreen]);
+    const fns = entry.fns;
     fns.forEach(function (fn, i) {
       metrics = Object.assign({}, FIX.FULL);
       metrics[key] = Object.assign({}, FIX.FULL[key], { value: PAYLOAD });
