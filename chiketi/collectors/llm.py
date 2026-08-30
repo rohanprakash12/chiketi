@@ -319,7 +319,12 @@ class LlmCollector(MetricCollector):
                         if arg in ("-m", "--model") and i + 1 < len(cmdline):
                             model = cmdline[i + 1].rsplit("/", 1)[-1]
                             break
-                    procs.append({"pid": proc.info["pid"], "model": model})
+                    # Keep the name as well as the model: the dashboards list
+                    # these processes by name, and dropping it here left them
+                    # printing "?" beside a real PID.
+                    procs.append(
+                        {"pid": proc.info["pid"], "name": name, "model": model}
+                    )
         # Broad on purpose: process_iter can raise psutil.NoSuchProcess,
         # psutil.AccessDenied, OSError, or (on a /proc race) almost anything
         # mid-iteration. MetricCollector.collect() must never raise, and a

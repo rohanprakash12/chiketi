@@ -89,6 +89,17 @@ function asList(d) {
    cleanModel() because cleanModel() is duplicated in display_app.js,
    control_app.js and the docs/site shim -- screen_functions.js is the single
    file all three hosts share, and the only consumer of this. */
+/* A llama-server process row's label. The collector reports {pid, name, model};
+   older payloads carried no name at all, and printing "?" beside a live PID
+   reads as a broken row rather than a missing field. */
+function llamaProcName(p) {
+  if (p && p.name) return esc(String(p.name));
+  if (p && p.model) {
+    return esc(String(p.model).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''));
+  }
+  return 'llama-server';
+}
+
 function backendTitle() {
   const d = m('llama.backend');
   if (!d.available || !d.value || d.value === 'none') return 'AI ENGINE';
@@ -313,7 +324,7 @@ function terminalScreen2(c) {
     for (let i = 0; i < Math.min(3, procs.length); i++) {
       const p = procs[i] || {};
       procRows += `<div class="t-row" style="color:${c.primary}">` +
-        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${llamaProcName(p)}</span>` +
         `<span style="width:${gq(110)};text-align:right;color:${c.dim}">${esc(String(p.pid || '--'))}</span></div>`;
     }
   } else {
@@ -322,8 +333,10 @@ function terminalScreen2(c) {
 
   return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
     tPanel(c, 'THROUGHPUT',
-      `<div class="t-row" style="color:${c.accent};font-size:${gq(46)};line-height:1.05">${tpsVal}</div>` +
-      `<div class="t-row" style="color:${c.dim}">tokens / sec</div>` +
+      (tpsVal === '--'
+        ? `<div class="t-row" style="color:${c.dim};font-size:${gq(24)};line-height:1.3">Not generating</div>`
+        : `<div class="t-row" style="color:${c.accent};font-size:${gq(46)};line-height:1.05">${tpsVal}</div>` +
+          `<div class="t-row" style="color:${c.dim}">tokens / sec</div>`) +
       tRow(c, 'Slots:', '', slots.available ? String(slots.value) : 'N/A')) +
     tPanel(c, 'MODEL',
       `<div class="t-row" style="color:${c.accent}">${cleanModel()}</div>` +
@@ -1145,9 +1158,12 @@ function distroAiScreen(c) {
   // The number you actually watch, drawn at the size the room needs.
   const head =
     `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
-      `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
-        `font-variant-numeric:tabular-nums">${tpsNum === null ? '--' : tpsNum.toFixed(1)}</span>` +
-      `<span style="color:${S.label};letter-spacing:0.2em">TOK/S</span>` +
+      (tpsNum === null
+        ? `<span style="color:${S.dim};font-size:${gq(40)};line-height:1.5;` +
+            `letter-spacing:0.12em">NOT GENERATING</span>`
+        : `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
+            `font-variant-numeric:tabular-nums">${tpsNum.toFixed(1)}</span>` +
+          `<span style="color:${S.label};letter-spacing:0.2em">TOK/S</span>`) +
       `<span style="flex:1"></span>` +
       `<span style="color:${stateColor};letter-spacing:0.16em">` +
         `${status.available ? esc(String(status.value)).toUpperCase() : 'NOT DETECTED'}</span></div>`;
@@ -1158,7 +1174,7 @@ function distroAiScreen(c) {
     for (let i = 0; i < Math.min(2, procs.length); i++) {
       const p = procs[i] || {};
       serverRows += `<div style="display:flex;white-space:nowrap;color:${S.value}">` +
-        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${llamaProcName(p)}</span>` +
         `<span style="width:${gq(96)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span></div>`;
     }
   } else {
