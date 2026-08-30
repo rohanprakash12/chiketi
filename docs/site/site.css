@@ -484,6 +484,39 @@ section[id] {
   height: 100%;
 }
 
+/* ── gallery screen tabs ──────────────────────────────────────────────
+   Under the device, not beside it: the tabs choose which of the theme's own
+   boards is showing, and the swatches choose the theme. Keeping the two rows
+   on different axes is what stops them reading as one control. */
+.screen-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+.screen-tab {
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+.screen-tab:hover { border-color: #44444f; color: var(--ink); }
+.screen-tab.active {
+  color: var(--ink-strong);
+  background: var(--panel-2);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold) inset;
+}
+
 .swatches {
   display: flex;
   flex-direction: column;

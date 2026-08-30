@@ -279,62 +279,242 @@ function terminalScreen1(c) {
     `</div></div>`;
 }
 
+/* ── the classic Terminal AI monitor ─────────────────────────────────────
+ * This screen used to be a second GPU board -- utilisation, clocks, CUDA
+ * processes -- which read as a duplicate the moment the family got a GPU
+ * screen of its own. It is the AI monitor now, the same subject the Sci-Fi
+ * and Vintage families put on screen 2: what is loaded, how fast it runs,
+ * and what it is costing the card. Sized in cqw so the control-panel preview
+ * scales with the frame.
+ */
 function terminalScreen2(c) {
-  const gpuName = m('gpu.name'), gpuUtil = m('gpu.util');
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
   const vram = m('gpu.vram_used'), vramPct = m('gpu.vram_percent');
+  const gpuName = m('gpu.name'), gpuUtil = m('gpu.util');
   const gpuTemp = m('gpu.temp'), gpuPower = m('gpu.power');
-  const gpuClk = m('gpu.clock_gpu'), memClk = m('gpu.clock_mem'), memUtil = m('gpu.mem_util');
-  const procs = m('gpu.processes');
-  const llamaStatus = m('llama.status'), llamaHealth = m('llama.health'), llamaModel = m('llama.model');
 
-  const nameStr = gpuName.available ? esc(String(gpuName.value)) : 'GPU Not Detected';
-  const vramStr = vram.available ? `${vram.value}/${vram.extra.total || '?'} MiB` : 'N/A';
-  let tempPowerStr = 'N/A';
-  if (gpuTemp.available) {
-    tempPowerStr = gpuTemp.value + '\u00b0C';
-    if (gpuPower.available) tempPowerStr += `      Power: ${gpuPower.value}W / ${gpuPower.extra.limit||'?'}W`;
-  }
-  let clockStr = 'N/A';
-  if (gpuClk.available) {
-    clockStr = `${gpuClk.value}/${gpuClk.extra.max||'?'} MHz`;
-    if (memClk.available) clockStr += `  Mem: ${memClk.value}/${memClk.extra.max||'?'} MHz`;
-  }
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? c.dim : running && healthy ? c.primary : c.critical;
+  const stateText = status.available ? esc(String(status.value)) : 'Not detected';
 
-  let procRows = `<div class="t-row" style="color:${c.dim};font-size:12px">PID       Name              VRAM</div>`;
-  if (procs.available && Array.isArray(procs.value)) {
-    for (const p of procs.value.slice(0, 5)) {
-      const pid = esc(String(p.pid || '')).padEnd(10);
-      const name = esc(String(p.name || '')).padEnd(18);
-      const mem = (p.vram_mib || p.vram || p.used_memory || '?') + ' MiB';
-      procRows += `<div class="t-row" style="color:${c.primary};font-size:12px">${pid}${name}${mem}</div>`;
+  const tpsVal = (tps.available && typeof tps.value === 'number') ? tps.value.toFixed(1) : '--';
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : 'N/A';
+  const vramStr = vram.available
+    ? `${vram.value}/${vram.extra.total || '?'} ${vram.unit || 'MiB'}` : 'N/A';
+
+  let procRows = '';
+  if (procs.length) {
+    for (let i = 0; i < Math.min(3, procs.length); i++) {
+      const p = procs[i] || {};
+      procRows += `<div class="t-row" style="color:${c.primary}">` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+        `<span style="width:${gq(110)};text-align:right;color:${c.dim}">${esc(String(p.pid || '--'))}</span></div>`;
     }
   } else {
-    procRows += `<div class="t-row" style="color:${c.dim};font-size:12px">No processes</div>`;
+    procRows = `<div class="t-row" style="color:${c.dim}">no local server process</div>`;
   }
 
-  let statusText = 'Unknown';
-  if (llamaStatus.available) {
-    if (llamaStatus.value === 'Running') {
-      statusText = llamaHealth.available ? `Running (${esc(String(llamaHealth.value))})` : 'Running';
-    } else statusText = 'Stopped';
-  }
-
-  return `<div class="screen-frame"><div class="t-screen t-1col-3row" style="background:${c.background}">` +
-    tPanel(c, 'GPU PERFORMANCE',
-      `<div class="t-row" style="color:${c.accent};font-size:13px">${nameStr}</div>` +
-      tRow(c, 'Utilization:', tBar(c, gpuUtil.available ? gpuUtil.value : null), gpuUtil.available ? gpuUtil.value + '%' : 'N/A') +
-      tRow(c, 'VRAM:', tBar(c, vramPct.available ? vramPct.value : null), vramStr) +
-      tRow(c, 'Temperature:', '', tempPowerStr) +
-      tRow(c, 'GPU Clock:', '', clockStr) +
-      tRow(c, 'Mem BW Util:', tBar(c, memUtil.available ? memUtil.value : null), memUtil.available ? memUtil.value + '%' : 'N/A')
-    ) +
-    tPanel(c, 'CUDA PROCESSES', procRows) +
+  return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
+    tPanel(c, 'THROUGHPUT',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(46)};line-height:1.05">${tpsVal}</div>` +
+      `<div class="t-row" style="color:${c.dim}">tokens / sec</div>` +
+      tRow(c, 'Slots:', '', slots.available ? String(slots.value) : 'N/A')) +
+    tPanel(c, 'MODEL',
+      `<div class="t-row" style="color:${c.accent}">${cleanModel()}</div>` +
+      tRow(c, 'Quant:', '', quant.available ? esc(String(quant.value)) : 'N/A') +
+      tRow(c, 'Context:', '', ctxText) +
+      tRow(c, 'Engine:', '', backend.available ? esc(String(backend.value)) : 'N/A', c.dim)) +
     tPanel(c, backendTitle(),
-      tRow(c, 'Status:', '', statusText) +
-      tRow(c, 'Model:', '', cleanModel()) +
-      tRow(c, 'Quant:', '', mv('llama.quant')) +
-      tRow(c, 'Context:', '', mv('llama.context'))
-    ) +
+      tRow(c, 'Status:', '', stateText, stateColor) +
+      tRow(c, 'Health:', '', health.available ? esc(String(health.value)) : 'N/A',
+           healthy ? c.primary : c.critical) +
+      tRow(c, 'PID:', '', procs.length ? esc(String(procs[0].pid || '--')) : '--', c.dim)) +
+    tPanel(c, 'WEIGHTS',
+      tRow(c, 'VRAM:', tBar(c, vramPct.available ? vramPct.value : null), vramStr) +
+      tRow(c, 'Card:', '', gpuName.available ? esc(String(gpuName.value)) : 'N/A', c.dim)) +
+    tPanel(c, 'CARD LOAD',
+      tRow(c, 'Util:', tBar(c, gpuUtil.available ? gpuUtil.value : null),
+           gpuUtil.available ? gpuUtil.value + '%' : 'N/A') +
+      tRow(c, 'Temp:', '', gpuTemp.available ? gpuTemp.value + '°C' : 'N/A',
+           gpuTemp.available && gpuTemp.value >= 80 ? c.critical : c.primary) +
+      tRow(c, 'Power:', '',
+           gpuPower.available ? `${gpuPower.value} / ${gpuPower.extra.limit || '?'} W` : 'N/A', c.dim)) +
+    tPanel(c, 'SERVER PROCESSES', procRows) +
+    `</div></div>`;
+}
+
+/* ── Terminal: block-height history, so a graph is characters like the rest ── */
+function tSpark(samples, width, color, dim) {
+  const arr = (samples && samples.length) ? samples : [];
+  let cap = 0;
+  for (const v of arr) if (typeof v === 'number' && v > cap) cap = v;
+  cap = cap > 0 ? cap * 1.15 : 1;
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = arr.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, arr[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return `<div class="t-row" style="color:${color};white-space:pre;line-height:1;` +
+    `border-bottom:1px solid ${dim};padding-bottom:1px">${esc(out)}</div>`;
+}
+
+/* ── the classic Terminal GPU board ──────────────────────────────────────
+ * The six palette variants had no GPU screen of their own, so the rotation
+ * fell through to the Sci-Fi TOS board: a green-on-black tty handed over to a
+ * gold LCARS panel every fourth screen and took itself back afterwards. Same
+ * vocabulary as the rest of the family -- bordered panels, a --[ TITLE ] rule,
+ * character meters, tabular listings -- and adaptive to card count the way the
+ * Sci-Fi and distro boards already are.
+ */
+function terminalGpuScreen(c) {
+  const cards = asList(m('gpu.cards'));
+  const frame = (cls, body) =>
+    `<div class="screen-frame"><div class="t-screen ${cls}" style="background:${c.background}">` +
+      body + `</div></div>`;
+  const val = (v, sfx) => (v === null || v === undefined || v === '') ? 'N/A' : esc(String(v)) + (sfx || '');
+  const pc = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v) : null;
+
+  if (!cards.length) {
+    return frame('', tPanel(c, 'GRAPHICS',
+      `<div class="t-row" style="color:${c.dim}">No readable graphics device.</div>` +
+      `<div class="t-row" style="color:${c.dim}">Switch this screen off in Settings.</div>`));
+  }
+
+  /* ── one card, in full: the 2x3 grid the family already reads ── */
+  if (cards.length === 1) {
+    const k = cards[0];
+    const hot = pc(k.temp) !== null && k.temp >= 80;
+    const vramG = `${(bsNum(k.vram_used) / 1024).toFixed(1)}/${(bsNum(k.vram_total) / 1024).toFixed(1)}G`;
+    const procs = asList({ available: true, value: k.processes });
+
+    let procRows = `<div class="t-row" style="color:${c.dim}">` +
+      `<span class="t-label" style="flex:1">PROCESS</span>` +
+      `<span style="width:${gq(96)};text-align:right">PID</span>` +
+      `<span style="width:${gq(120)};text-align:right">VRAM</span></div>`;
+    if (procs.length) {
+      for (let i = 0; i < Math.min(3, procs.length); i++) {
+        const p = procs[i] || {};
+        procRows += `<div class="t-row" style="color:${c.primary}">` +
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+          `<span style="width:${gq(96)};text-align:right;color:${c.dim}">${val(p.pid)}</span>` +
+          `<span style="width:${gq(120)};text-align:right">${val(p.vram_mib, ' MiB')}</span></div>`;
+      }
+    } else {
+      procRows += `<div class="t-row" style="color:${c.dim}">` +
+        (k.source === 'nvml' ? 'no compute processes on this card'
+                             : 'per-process VRAM not exposed by ' + val(k.driver)) + `</div>`;
+    }
+
+    return frame('t-2col-3row',
+      tPanel(c, 'DEVICE',
+        `<div class="t-row" style="color:${c.accent}">${esc(String(k.short_name || k.name || 'GPU'))}</div>` +
+        tRow(c, 'Vendor:', '', val(k.vendor)) +
+        tRow(c, 'Driver:', '', val(k.driver), c.dim) +
+        tRow(c, 'Bus:', '', val(k.bus_id), c.dim)) +
+      tPanel(c, 'UTILISATION',
+        tRow(c, 'Core:', tBar(c, pc(k.util)), val(pc(k.util), '%')) +
+        tRow(c, 'VRAM:', tBar(c, pc(k.vram_percent)), val(pc(k.vram_percent), '%')) +
+        tRow(c, 'Mem BW:', tBar(c, pc(k.mem_util)), val(pc(k.mem_util), '%'))) +
+      tPanel(c, 'TELEMETRY',
+        tRow(c, 'Temp:', '', val(pc(k.temp), '°C'), hot ? c.critical : c.primary) +
+        tRow(c, 'Power:', tBar(c, gpuPowerPct(k)), `${val(pc(k.power))} / ${val(pc(k.power_limit))} W`) +
+        tRow(c, 'Fan:', '', gpuFanText(k), c.dim)) +
+      tPanel(c, 'CLOCKS',
+        tRow(c, 'Core:', '', `${val(k.clock_gpu)} / ${val(k.clock_gpu_max)} MHz`) +
+        tRow(c, 'Memory:', '', `${val(k.clock_mem)} / ${val(k.clock_mem_max)} MHz`)) +
+      tPanel(c, 'MEMORY',
+        tRow(c, 'Used:', tBar(c, pc(k.vram_percent)), vramG) +
+        tRow(c, 'Free:', '',
+             `${((bsNum(k.vram_total) - bsNum(k.vram_used)) / 1024).toFixed(1)}G`, c.dim)) +
+      tPanel(c, 'PROCESSES', procRows));
+  }
+
+  /* ── several cards: one panel each, and a header that totals the rig ── */
+  let watts = 0, anyPower = false;
+  for (const k of cards) {
+    if (typeof k.power === 'number' && isFinite(k.power)) { watts += k.power; anyPower = true; }
+  }
+  let body = tPanel(c, 'GRAPHICS',
+    tRow(c, 'Cards:', '', String(cards.length)) +
+    tRow(c, 'Draw:', '', anyPower ? Math.round(watts) + ' W total' : 'N/A', c.dim));
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    const k = cards[i];
+    const hot = pc(k.temp) !== null && k.temp >= 80;
+    body += tPanel(c, esc(String(k.short_name || k.name || ('GPU ' + i))),
+      tRow(c, 'Core:', tBar(c, pc(k.util)), val(pc(k.util), '%')) +
+      tRow(c, 'VRAM:', tBar(c, pc(k.vram_percent)),
+           `${(bsNum(k.vram_used) / 1024).toFixed(1)}/${Math.round(bsNum(k.vram_total) / 1024)}G`) +
+      tRow(c, 'Temp:', '', `${val(pc(k.temp), '°C')}   ${val(pc(k.power), ' W')}`,
+           hot ? c.critical : c.dim));
+  }
+  // Four fit the grid beside the header. More than that is declared, never
+  // dropped in silence -- a rig quietly rendered as a smaller rig is worse
+  // than no screen at all.
+  if (cards.length > 4) {
+    body += tPanel(c, 'OVERFLOW',
+      `<div class="t-row" style="color:${c.dim}">+${cards.length - 4} more not shown</div>`);
+  }
+  return frame('t-2col-3row', body);
+}
+
+/* ── the classic Terminal Claude board ───────────────────────────────────
+ * Screen 3 used to be one generic renderer for all sixteen themes: theme
+ * colours, but nobody's chrome. Here it is in the family's own panels.
+ */
+function terminalClaudeScreen(c) {
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, total) => total > 0 ? Math.round((part / total) * 100) : null;
+  const total = nz(tokTotal), sess = nz(sTotal);
+
+  return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
+    tPanel(c, 'ALL-TIME TOKENS',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(34)};line-height:1.1">${fmtTok(total)}</div>` +
+      tRow(c, 'Input:', tBar(c, share(nz(tokIn), total)), fmtTok(nz(tokIn))) +
+      tRow(c, 'Output:', tBar(c, share(nz(tokOut), total)), fmtTok(nz(tokOut))) +
+      tRow(c, 'Cache W:', tBar(c, share(nz(tokCW), total)), fmtTok(nz(tokCW))) +
+      tRow(c, 'Cache R:', tBar(c, share(nz(tokCR), total)), fmtTok(nz(tokCR)))) +
+    tPanel(c, 'THIS SESSION',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(34)};line-height:1.1">${fmtTok(sess)}</div>` +
+      tRow(c, 'Input:', tBar(c, share(nz(sIn), sess)), fmtTok(nz(sIn))) +
+      tRow(c, 'Output:', tBar(c, share(nz(sOut), sess)), fmtTok(nz(sOut))) +
+      tRow(c, 'Cache W:', tBar(c, share(nz(sCW), sess)), fmtTok(nz(sCW))) +
+      tRow(c, 'Cache R:', tBar(c, share(nz(sCR), sess)), fmtTok(nz(sCR)))) +
+    tPanel(c, 'MESSAGES',
+      tRow(c, 'Total:', '', fmtNum(mAll)) +
+      tRow(c, 'User:', '', fmtNum(mUser), c.dim) +
+      tRow(c, 'Assistant:', '', fmtNum(mAsst), c.dim) +
+      tRow(c, 'Session:', '', fmtNum(sMsgs))) +
+    tPanel(c, 'TOKEN RATE',
+      tSpark(spark.available ? spark.value : [], 30, c.primary, c.border) +
+      tRow(c, 'Now:', '', fmtNum(rate, '0') + ' tok/min') +
+      tRow(c, 'Agents:', '', String(agents.available ? agents.value : 0), c.accent)) +
+    tPanel(c, 'MONTHLY AVERAGE',
+      tRow(c, 'Tokens:', '', fmtTok(nz(monTok))) +
+      tRow(c, 'Messages:', '', fmtNum(monMsg), c.dim)) +
+    tPanel(c, 'HISTORY',
+      tRow(c, 'Active days:', '', days.available ? String(days.value) : '--') +
+      tRow(c, 'Sessions:', '', sessions.available ? String(sessions.value) : '--', c.dim)) +
     `</div></div>`;
 }
 
@@ -495,7 +675,7 @@ function distroSpark(key, value, width, max) {
    reading it read as decoration, which is not what conky's graphs are. */
 function dGraph(key, value, S, width, max) {
   return `<div style="color:${S.meter};white-space:pre;line-height:1;` +
-    `border-bottom:1px solid ${S.dim};padding-bottom:1px;margin-bottom:2px">` +
+    `border-bottom:1px solid ${S.dim};padding-bottom:${gq(1)};margin-bottom:${gq(2)}">` +
     distroSpark(key, value, width, max) + `</div>`;
 }
 
@@ -522,18 +702,22 @@ const DISTRO_SKINS = {
   Arch: {
     label: '#5296c8', value: '#d8e6f0', accent: '#1793d1', meter: '#4dd0e1',
     dim: '#3f5a6d', warn: '#e06c75', bg: '#06090c',
+    series: ['#1793d1', '#4dd0e1', '#8e79c9', '#c3cdd4'],
   },
   Ubuntu: {
     label: '#c8683f', value: '#f2e6dd', accent: '#E95420', meter: '#e9a05a',
     dim: '#6b4433', warn: '#ff5555', bg: '#0d0705',
+    series: ['#E95420', '#e9a05a', '#a4487a', '#c9bfb6'],
   },
   openSUSE: {
     label: '#6fa03a', value: '#e3f0d8', accent: '#73ba25', meter: '#a4d65e',
     dim: '#3d5426', warn: '#e5484d', bg: '#050a04',
+    series: ['#73ba25', '#a4d65e', '#35b9ab', '#c3cdb4'],
   },
   Mandriva: {
     label: '#4a8fc0', value: '#e8eef4', accent: '#2b7cb8', meter: '#e8a33d',
     dim: '#33556e', warn: '#e05c4a', bg: '#04070b',
+    series: ['#2b7cb8', '#e8a33d', '#6fb1d8', '#b6c4ce'],
   },
 };
 
@@ -550,7 +734,8 @@ function activeVariantName() { return _distroName; }
 /* ── character-grid primitives ───────────────────────────────────────── */
 function dRule(title, S, right) {
   const W = 1000;   /* the rule simply fills; the grid is monospace anyway */
-  return `<div style="display:flex;align-items:center;gap:6px;margin:7px 0 3px">` +
+  return `<div style="display:flex;align-items:center;gap:${gq(6)};` +
+    `margin:${gq(7)} 0 ${gq(3)}">` +
     `<span style="color:${S.accent};font-weight:700;white-space:nowrap">${title}</span>` +
     `<span style="flex:1;height:1px;background:${S.dim}"></span>` +
     (right ? `<span style="color:${S.label};white-space:nowrap">${right}</span>` : '') +
@@ -558,20 +743,49 @@ function dRule(title, S, right) {
 }
 
 function dRow(label, value, S, valColor) {
-  return `<div style="display:flex;justify-content:space-between;gap:10px;white-space:nowrap">` +
+  return `<div style="display:flex;justify-content:space-between;gap:${gq(10)};white-space:nowrap">` +
     `<span style="color:${S.label}">${label}</span>` +
     `<span style="color:${valColor || S.value}">${value}</span></div>`;
 }
 
 /* label, meter, reading -- conky's filesystem row. */
-function dMeter(label, pct, reading, S, width, labW) {
+function dMeter(label, pct, reading, S, width, labW, noWarn) {
   const p = distroPct({available: pct !== null && pct !== undefined, value: pct});
-  const col = p !== null && p >= 90 ? S.warn : S.meter;
-  return `<div style="display:flex;align-items:baseline;gap:8px;white-space:nowrap">` +
-    `<span style="color:${S.label};display:inline-block;width:${labW || 62}px;` +
+  // A filesystem at 95% is a warning; a cache-read share at 95% is the system
+  // working well. Only capacity readings opt in to the warn colour.
+  const col = (!noWarn && p !== null && p >= 90) ? S.warn : S.meter;
+  return `<div style="display:flex;align-items:baseline;gap:${gq(8)};white-space:nowrap">` +
+    `<span style="color:${S.label};display:inline-block;width:${gq(labW || 62)};` +
       `overflow:hidden;text-overflow:ellipsis">${label}</span>` +
     `<span style="color:${col}">${distroBar(p, width)}</span>` +
     `<span style="color:${S.value};margin-left:auto">${reading}</span></div>`;
+}
+
+/* A composition bar: one row of cells, each segment's share of the whole in
+   its own colour. Four separate meters show four magnitudes; this shows the
+   proportions, which is the thing the board is actually about. Rounding is
+   settled on the last non-empty segment so the row is always exactly `width`
+   cells and never shears the rows beneath it. */
+function dStack(label, parts, colors, S, width, labW) {
+  const total = parts.reduce((a, b) => a + (typeof b === 'number' && isFinite(b) ? b : 0), 0);
+  let html = `<div style="display:flex;align-items:baseline;gap:${gq(8)};white-space:nowrap">` +
+    `<span style="color:${S.label};display:inline-block;width:${gq(labW || 96)};` +
+      `overflow:hidden;text-overflow:ellipsis">${label}</span>`;
+  if (total <= 0) {
+    html += `<span style="color:${S.dim}">${esc('░'.repeat(width))}</span>`;
+  } else {
+    const cells = parts.map(v => Math.floor((Math.max(0, v) / total) * width));
+    let used = cells.reduce((a, b) => a + b, 0);
+    for (let i = cells.length - 1; i >= 0 && used < width; i--) {
+      if (cells[i] > 0 || parts[i] > 0) { cells[i] += width - used; used = width; }
+    }
+    if (used < width) { cells[cells.length - 1] += width - used; }
+    for (let i = 0; i < cells.length; i++) {
+      if (cells[i] <= 0) continue;
+      html += `<span style="color:${colors[i]}">${esc('█'.repeat(cells[i]))}</span>`;
+    }
+  }
+  return html + `</div>`;
 }
 
 /* Block digits, seven rows deep. The screen is read from across a room, so
@@ -630,7 +844,7 @@ function distroScreen1(c) {
     String(now.getHours()).padStart(2, '0') + ':' +
     String(now.getMinutes()).padStart(2, '0'), S.accent) +
     `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
-      `margin-top:4px;color:${S.label};letter-spacing:0.14em">` +
+      `margin-top:${gq(4)};color:${S.label};letter-spacing:0.14em">` +
       `<span>${esc(DAY_NAMES[now.getDay()])} ${now.getDate()} ` +
         `${esc(MONTH_NAMES[now.getMonth()])} ${now.getFullYear()}</span>` +
       `<span style="color:${S.value}">:${String(now.getSeconds()).padStart(2, '0')}</span></div>`;
@@ -642,39 +856,18 @@ function distroScreen1(c) {
     dRow('iface', iface.available ? esc(String(iface.value)) : '--', S) +
     dRow('addr', ip.available ? esc(String(ip.value)) : '--', S);
 
-  // Per-core meters, two to a line. conky lists every core it can see.
-  let coreRows = '';
-  for (let i = 0; i < cores.length; i += 2) {
-    const cells = [];
-    for (let j = i; j < Math.min(i + 2, cores.length); j++) {
-      const v = typeof cores[j] === 'number' ? cores[j] : null;
-      const col = v !== null && v >= 90 ? S.warn : S.meter;
-      cells.push(`<span style="color:${S.label}">${String(j).padStart(2, '0')}</span>` +
-        `<span style="color:${col}"> ${distroBar(v, 10)}</span>` +
-        `<span style="color:${S.value}"> ${v === null ? ' --' : String(Math.round(v)).padStart(3)}</span>`);
-    }
-    coreRows += `<div style="display:flex;gap:14px;white-space:nowrap">` +
-      cells.join('') + `</div>`;
-  }
-  if (!cores.length) {
-    coreRows = `<div style="color:${S.dim}">no per-core readings</div>`;
-  }
-
   const left =
-    `<div style="font-size:17px;margin-bottom:6px">${clock}</div>` +
+    `<div style="font-size:${gq(17)};margin-bottom:${gq(6)}">${clock}</div>` +
     dRule('SYSTEM', S) + idBlock +
-    dRule('CORES', S, cores.length ? cores.length + ' THREADS' : '') + coreRows +
-    // Three short readings on one line rather than three: the column was 37px
-    // over, and losing two lines here costs nothing a reader would miss.
     dRule('THERMAL', S) +
-    `<div style="display:flex;justify-content:space-between">` +
-      ['cpu', 'board', 'gpu'].map((lab, i) => {
-        const t = [cpuT, mbT, gpuT][i];
-        const v = distroPct(t);
-        const col = v !== null && v >= 80 ? S.warn : S.value;
-        return `<span><span style="color:${S.label}">${lab} </span>` +
-          `<span style="color:${col}">${distroVal(v, '\u00b0C')}</span></span>`;
-      }).join('') + `</div>`;
+    dRow('cpu', distroVal(distroPct(cpuT), '\u00b0C'), S,
+         distroPct(cpuT) !== null && cpuT.value >= 80 ? S.warn : S.value) +
+    dRow('board', distroVal(distroPct(mbT), '\u00b0C'), S) +
+    dRow('gpu', distroVal(distroPct(gpuT), '\u00b0C'), S,
+         distroPct(gpuT) !== null && gpuT.value >= 80 ? S.warn : S.value) +
+    dRule('LOAD', S, cores.length ? cores.length + ' THREADS' : '') +
+    dRow('processes', procs.length ? String(m('sys.top_procs').extra.total || '--') : '--', S) +
+    dRow('busiest', procs.length ? esc(String(procs[0].name || '?')) : '--', S, S.accent);
 
   // ── right column: the meters and the graphs
   const cpuPct = distroPct(cpu);
@@ -709,10 +902,10 @@ function distroScreen1(c) {
     dRule('NETWORK', S, speed.available
       ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GBE' : speed.value + ' MB')
       : '') +
-    `<div style="display:flex;gap:14px">` +
-      `<div style="flex:1"><div style="color:${S.label}">down</div>` +
+    `<div style="display:flex;gap:${gq(14)}">` +
+      `<div style="flex:1;min-width:0"><div style="color:${S.label}">down</div>` +
         dGraph('dl', dl.available ? Number(dl.value) : null, S, 28) + `</div>` +
-      `<div style="flex:1"><div style="color:${S.label}">up</div>` +
+      `<div style="flex:1;min-width:0"><div style="color:${S.label}">up</div>` +
         dGraph('ul', ul.available ? Number(ul.value) : null, S, 28) + `</div>` +
     `</div>` +
     dRow('rx / tx',
@@ -727,23 +920,23 @@ function distroScreen1(c) {
     return `<div style="flex:1;display:flex;white-space:nowrap;min-width:0;` +
       `color:${hot ? S.warn : S.value}">` +
       `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
-      `<span style="width:86px;text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
-      `<span style="width:78px;text-align:right">${typeof p.cpu === 'number' ? p.cpu.toFixed(1) : '--'}</span>` +
-      `<span style="width:78px;text-align:right">${typeof p.mem === 'number' ? p.mem.toFixed(1) : '--'}</span>` +
+      `<span style="width:${gq(86)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
+      `<span style="width:${gq(78)};text-align:right">${typeof p.cpu === 'number' ? p.cpu.toFixed(1) : '--'}</span>` +
+      `<span style="width:${gq(78)};text-align:right">${typeof p.mem === 'number' ? p.mem.toFixed(1) : '--'}</span>` +
       `</div>`;
   }
   function procHead(S) {
     return `<div style="flex:1;display:flex;white-space:nowrap;color:${S.label}">` +
       `<span style="flex:1">NAME</span>` +
-      `<span style="width:86px;text-align:right">PID</span>` +
-      `<span style="width:78px;text-align:right">CPU%</span>` +
-      `<span style="width:78px;text-align:right">MEM%</span></div>`;
+      `<span style="width:${gq(86)};text-align:right">PID</span>` +
+      `<span style="width:${gq(78)};text-align:right">CPU%</span>` +
+      `<span style="width:${gq(78)};text-align:right">MEM%</span></div>`;
   }
   let procRows = '';
   if (procs.length) {
-    procRows = `<div style="display:flex;gap:26px">${procHead(S)}${procHead(S)}</div>`;
+    procRows = `<div style="display:flex;gap:${gq(26)}">${procHead(S)}${procHead(S)}</div>`;
     for (let i = 0; i < 2; i++) {
-      procRows += `<div style="display:flex;gap:26px">` +
+      procRows += `<div style="display:flex;gap:${gq(26)}">` +
         procCell(procs[i], S) + procCell(procs[i + 2], S) + `</div>`;
     }
   } else {
@@ -753,15 +946,152 @@ function distroScreen1(c) {
   // Sized for a 10" panel read from across a room: 16px base rather than 13,
   // and no chrome that only names what you are already looking at.
   return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
-      `font-family:${F};font-size:16px;line-height:1.4;padding:12px 16px;` +
+      `font-family:${F};font-size:${gq(16)};line-height:1.4;` +
+      `padding:${gq(12)} ${gq(16)};` +
       `display:flex;flex-direction:column;overflow:hidden">` +
-    `<div style="display:flex;gap:22px;flex:1;min-height:0">` +
-      `<div style="width:352px;flex-shrink:0">${left}</div>` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="width:${gq(352)};flex-shrink:0">${left}</div>` +
       `<div style="flex:1;min-width:0">${right}</div>` +
     `</div>` +
     dRule('PROCESSES', S, procs.length ? 'TOP 4 BY CPU' : '') + procRows +
   `</div></div>`;
 }
+
+
+/* ── the distro GPU board ────────────────────────────────────────────────
+ * Same vocabulary as the distro system board: a title with a rule running out
+ * of it, character meters, block-height history, and a table. The Sci-Fi GPU
+ * screen was standing in here, which made the family read as two designs.
+ */
+function distroGpuScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+  const cards = asList(m('gpu.cards'));
+
+  const frame = (body) =>
+    `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(16)};line-height:1.4;` +
+      `padding:${gq(12)} ${gq(16)};display:flex;flex-direction:column;overflow:hidden">` +
+      body + `</div></div>`;
+
+  if (!cards.length) {
+    return frame(dRule('GRAPHICS', S) +
+      `<div style="color:${S.dim};padding-top:${gq(10)}">no readable graphics device</div>`);
+  }
+
+  const val = (v, suffix) => (v === null || v === undefined) ? '--' : esc(String(v)) + (suffix || '');
+  const pct = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v) : null;
+
+  /* ── one card, in full ── */
+  if (cards.length === 1) {
+    const k = cards[0];
+    const hot = pct(k.temp) !== null && k.temp >= 80;
+    const left =
+      dRule('DEVICE', S, esc(String(k.vendor || 'GPU'))) +
+      dRow('name', esc(String(k.short_name || k.name || '--')), S, S.accent) +
+      dRow('driver', val(k.driver), S) +
+      dRow('bus', val(k.bus_id), S) +
+      dRule('TELEMETRY', S) +
+      dRow('temp', val(pct(k.temp), '°C'), S, hot ? S.warn : S.value) +
+      dRow('power', `${val(pct(k.power))} / ${val(pct(k.power_limit))} W`, S) +
+      dRow('core', `${val(k.clock_gpu)} / ${val(k.clock_gpu_max)} MHz`, S) +
+      dRow('memory', `${val(k.clock_mem)} MHz`, S) +
+      dRow('fan', gpuFanText(k), S) +
+      dRule('COOLING', S) +
+      `<div style="display:flex;align-items:center;gap:${gq(14)}">` +
+        fanIcon(pct(k.temp) !== null && k.temp >= 80 ? S.warn : S.meter, gq(46), gpuFanRpm(k)) +
+        `<span style="color:${S.value};font-size:${gq(30)}">${gpuFanText(k)}</span></div>` +
+      // The column ran out halfway down and left a dead band across the middle
+      // of the board. Clock history is real data and it belongs here.
+      dRule('CLOCKS', S) +
+      `<div style="color:${S.label}">core</div>` +
+      dGraph('gcore', pct(k.clock_gpu), S, 30) +
+      `<div style="color:${S.label};margin-top:${gq(6)}">memory</div>` +
+      dGraph('gmem', pct(k.clock_mem), S, 30) +
+      dRule('THERMAL', S) +
+      dGraph('gtemp', pct(k.temp), S, 30, 110);
+
+    const right =
+      dRule('UTILISATION', S, val(pct(k.util), '%')) +
+      dGraph('gutil', pct(k.util), S, 62, 100) +
+      dMeter('gpu', pct(k.util), val(pct(k.util), '%'), S, 30, 72) +
+      dRule('MEMORY', S, val(pct(k.vram_percent), '%')) +
+      dGraph('gvram', pct(k.vram_percent), S, 62, 100) +
+      dMeter('vram', pct(k.vram_percent),
+             `${(bsNum(k.vram_used)/1024).toFixed(1)} / ${Math.round(bsNum(k.vram_total)/1024)} G`,
+             S, 30, 72) +
+      dMeter('bus', pct(k.mem_util), val(pct(k.mem_util), '%'), S, 30, 72) +
+      dRule('POWER', S, gpuPowerPctText(k)) +
+      dGraph('gpow', gpuPowerPct(k), S, 62, 100) +
+      dMeter('draw', gpuPowerPct(k), `${val(pct(k.power))} W`, S, 30, 72);
+
+    const procs = asList({available: true, value: k.processes});
+    let table;
+    if (procs.length) {
+      table = `<div style="display:flex;color:${S.label};white-space:nowrap">` +
+        `<span style="flex:1">PROCESS</span>` +
+        `<span style="width:${gq(110)};text-align:right">PID</span>` +
+        `<span style="width:${gq(150)};text-align:right">VRAM</span></div>`;
+      for (let i = 0; i < Math.min(3, procs.length); i++) {
+        const pr = procs[i] || {};
+        table += `<div style="display:flex;white-space:nowrap;color:${S.value}">` +
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(pr.name || '?'))}</span>` +
+          `<span style="width:${gq(110)};text-align:right;color:${S.label}">${val(pr.pid)}</span>` +
+          `<span style="width:${gq(150)};text-align:right">${val(pr.vram_mib)} MiB</span></div>`;
+      }
+    } else {
+      table = `<div style="color:${S.dim}">` +
+        (k.source === 'nvml' ? 'no compute processes on this card'
+         : 'per-process VRAM not exposed by ' + val(k.driver)) + `</div>`;
+    }
+
+    return frame(
+      `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+        `<div style="width:${gq(352)};flex-shrink:0">${left}</div>` +
+        `<div style="flex:1;min-width:0">${right}</div></div>` +
+      dRule('PROCESSES', S, procs.length ? procs.length + ' ACTIVE' : 'IDLE') + table);
+  }
+
+  /* ── several cards: one row each, meters side by side ── */
+  let watts = 0, anyPower = false;
+  for (const k of cards) {
+    if (typeof k.power === 'number' && isFinite(k.power)) { watts += k.power; anyPower = true; }
+  }
+  let body = dRule('GRAPHICS', S,
+    cards.length + ' CARDS' + (anyPower ? '  ·  ' + Math.round(watts) + ' W' : ''));
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    const k = cards[i];
+    const hot = pct(k.temp) !== null && k.temp >= 80;
+    body += `<div style="margin-top:${gq(12)}">` +
+      `<div style="display:flex;align-items:baseline;gap:${gq(12)};white-space:nowrap">` +
+        `<span style="color:${S.accent};font-size:${gq(19)}">` +
+          `${esc(String(k.short_name || k.name || 'GPU'))}</span>` +
+        `<span style="color:${S.dim};font-size:${gq(14)}">${val(k.driver)}</span>` +
+        `<span style="flex:1"></span>` +
+        `<span style="color:${hot ? S.warn : S.value}">${val(pct(k.temp), '°C')}</span>` +
+        `<span style="color:${S.label}">${val(pct(k.power))} W</span></div>` +
+      `<div style="display:flex;gap:${gq(20)};margin-top:${gq(3)}">` +
+        `<div style="flex:1">${dMeter('gpu', pct(k.util), val(pct(k.util), '%'), S, 26, 62)}</div>` +
+        `<div style="flex:1">${dMeter('vram', pct(k.vram_percent),
+           `${(bsNum(k.vram_used)/1024).toFixed(1)}/${Math.round(bsNum(k.vram_total)/1024)}G`,
+           S, 26, 62)}</div></div></div>`;
+  }
+  if (cards.length > 4) {
+    body += `<div style="color:${S.dim};margin-top:${gq(8)}">` +
+      `+${cards.length - 4} more not shown</div>`;
+  }
+  return frame(body);
+}
+
+function distroArchGpu(c) { _distroName = 'Arch'; return distroGpuScreen(c); }
+function distroUbuntuGpu(c) { _distroName = 'Ubuntu'; return distroGpuScreen(c); }
+function distroSuseGpu(c) { _distroName = 'openSUSE'; return distroGpuScreen(c); }
+function distroMandrivaGpu(c) { _distroName = 'Mandriva'; return distroGpuScreen(c); }
+
+const DISTRO_GPU_SCREENS = {
+  Arch: distroArchGpu, Ubuntu: distroUbuntuGpu,
+  openSUSE: distroSuseGpu, Mandriva: distroMandrivaGpu,
+};
 
 const DISTRO_SCREENS = {
   Arch: distroArchScreen1, Ubuntu: distroUbuntuScreen1,
@@ -772,6 +1102,286 @@ function distroArchScreen1(c) { _distroName = 'Arch'; return distroScreen1(c); }
 function distroUbuntuScreen1(c) { _distroName = 'Ubuntu'; return distroScreen1(c); }
 function distroSuseScreen1(c) { _distroName = 'openSUSE'; return distroScreen1(c); }
 function distroMandrivaScreen1(c) { _distroName = 'Mandriva'; return distroScreen1(c); }
+
+/* ── the distro AI monitor ───────────────────────────────────────────────
+ * The four distro boards were borrowing the classic Terminal AI screen, so
+ * every second screen dropped the conky vocabulary for bordered panels. Same
+ * subject, same characters as the rest of the family.
+ */
+function distroAiScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
+  const vramPct = m('gpu.vram_percent'), vramUsed = m('gpu.vram_used'), vramTot = m('gpu.vram_total');
+  const gUtil = m('gpu.util'), gTemp = m('gpu.temp'), gPow = m('gpu.power');
+  const gMem = m('gpu.mem_util'), gClk = m('gpu.clock_gpu'), mClk = m('gpu.clock_mem');
+  const gFan = m('gpu.fan'), gpuName = m('gpu.name');
+  const cards = asList(m('gpu.cards'));
+  const card = cards.length ? cards[0] : {};
+  const gpuProcs = asList({available: true, value: card.processes});
+
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? S.dim : running && healthy ? S.meter : S.warn;
+  const tpsNum = (tps.available && typeof tps.value === 'number') ? tps.value : null;
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : '--';
+  const modelName = m('llama.model').available
+    ? esc(String(m('llama.model').value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''))
+    : '--';
+
+  const powPct = (gPow.available && gPow.extra && gPow.extra.limit)
+    ? Math.round((bsNum(gPow.value) / bsNum(gPow.extra.limit)) * 100) : null;
+  const clkPct = (gClk.available && gClk.extra && gClk.extra.max)
+    ? Math.round((bsNum(gClk.value) / bsNum(gClk.extra.max)) * 100) : null;
+  const tempPct = distroPct(gTemp) === null ? null
+    : Math.max(0, Math.min(100, Math.round(((bsNum(gTemp.value) - 20) / 100) * 100)));
+
+  // The number you actually watch, drawn at the size the room needs.
+  const head =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${tpsNum === null ? '--' : tpsNum.toFixed(1)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">TOK/S</span>` +
+      `<span style="flex:1"></span>` +
+      `<span style="color:${stateColor};letter-spacing:0.16em">` +
+        `${status.available ? esc(String(status.value)).toUpperCase() : 'NOT DETECTED'}</span></div>`;
+
+  let serverRows;
+  if (procs.length) {
+    serverRows = '';
+    for (let i = 0; i < Math.min(2, procs.length); i++) {
+      const p = procs[i] || {};
+      serverRows += `<div style="display:flex;white-space:nowrap;color:${S.value}">` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+        `<span style="width:${gq(96)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span></div>`;
+    }
+  } else {
+    serverRows = `<div style="color:${S.dim}">no local server process</div>`;
+  }
+
+  const left =
+    head +
+    dGraph('tps', tpsNum, S, 34) +
+    dRule('MODEL', S, backend.available ? esc(String(backend.value)).toUpperCase() : '') +
+    `<div style="color:${S.value};font-size:${gq(24)};line-height:1.25;` +
+      `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${modelName}</div>` +
+    dRow('quant', quant.available ? esc(String(quant.value)) : '--', S) +
+    dRow('context', ctxText, S) +
+    dRow('slots', slots.available ? String(slots.value) : '--', S, S.accent) +
+    dRule('RESIDENCY', S, distroVal(distroPct(vramPct), '%')) +
+    dMeter('weights', distroPct(vramPct),
+           vramUsed.available && vramTot.available
+             ? `${(bsNum(vramUsed.value) / 1024).toFixed(1)} / ${(bsNum(vramTot.value) / 1024).toFixed(1)} G`
+             : '--',
+           S, 20, 88, true) +
+    dRow('free',
+         vramUsed.available && vramTot.available
+           ? `${((bsNum(vramTot.value) - bsNum(vramUsed.value)) / 1024).toFixed(1)} G` : '--', S) +
+    dRule('SERVICE', S, healthy ? 'HEALTHY' : '') +
+    dRow('engine', backend.available ? esc(String(backend.value)) : '--', S) +
+    dRow('health', health.available ? esc(String(health.value)) : '--', S,
+         healthy ? S.meter : S.warn) +
+    dRule('SERVER', S, procs.length ? procs.length + ' PROC' : 'IDLE') +
+    serverRows;
+
+  const right =
+    dRule('CARD', S, gpuName.available ? esc(String(gpuName.value)) : 'NO CARD') +
+    dGraph('aiutil', distroPct(gUtil), S, 46, 100) +
+    dMeter('compute', distroPct(gUtil), distroVal(distroPct(gUtil), '%'), S, 23, 88, true) +
+    dMeter('mem bus', distroPct(gMem), distroVal(distroPct(gMem), '%'), S, 23, 88, true) +
+    dMeter('power', powPct,
+           gPow.available
+             ? `${Math.round(bsNum(gPow.value))} / ${distroVal(gPow.extra && gPow.extra.limit)} W`
+             : '--', S, 23, 88, true) +
+    dMeter('thermal', tempPct, distroVal(distroPct(gTemp), '°C'), S, 23, 88) +
+    dMeter('fan', distroPct(gFan), gFan.available ? distroVal(distroPct(gFan), '%') : '--',
+           S, 23, 88, true) +
+    dRule('CLOCKS', S, clkPct === null ? '' : clkPct + '% OF MAX') +
+    dGraph('aicore', gClk.available ? bsNum(gClk.value) : null, S, 46) +
+    dRow('core', gClk.available
+           ? `${bsNum(gClk.value)} / ${distroVal(gClk.extra && gClk.extra.max)} MHz` : '--', S) +
+    dGraph('aimem', mClk.available ? bsNum(mClk.value) : null, S, 46) +
+    dRow('memory', mClk.available
+           ? `${bsNum(mClk.value)} / ${distroVal(mClk.extra && mClk.extra.max)} MHz` : '--', S) +
+    dRule('THERMAL', S) +
+    dGraph('aitemp', distroPct(gTemp), S, 46, 110) +
+    dRow('driver', distroVal(card.driver), S) +
+    dRow('bus', distroVal(card.bus_id), S);
+
+  // What else is resident on the card. The server's own footprint is only half
+  // the story when a browser or a second model is holding VRAM too.
+  function gpuCell(p) {
+    if (!p) return `<div style="flex:1"></div>`;
+    return `<div style="flex:1;display:flex;white-space:nowrap;min-width:0;color:${S.value}">` +
+      `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+      `<span style="width:${gq(96)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
+      `<span style="width:${gq(116)};text-align:right">${distroVal(p.vram_mib, ' MiB')}</span></div>`;
+  }
+  function gpuHead() {
+    return `<div style="flex:1;display:flex;white-space:nowrap;color:${S.label}">` +
+      `<span style="flex:1">ON THE CARD</span>` +
+      `<span style="width:${gq(96)};text-align:right">PID</span>` +
+      `<span style="width:${gq(116)};text-align:right">VRAM</span></div>`;
+  }
+  let cardTable;
+  if (gpuProcs.length) {
+    cardTable = `<div style="display:flex;gap:${gq(26)}">${gpuHead()}${gpuHead()}</div>`;
+    for (let i = 0; i < 2; i++) {
+      cardTable += `<div style="display:flex;gap:${gq(26)}">` +
+        gpuCell(gpuProcs[i]) + gpuCell(gpuProcs[i + 2]) + `</div>`;
+    }
+  } else {
+    cardTable = `<div style="color:${S.dim}">` +
+      (card.source === 'nvml' ? 'no compute processes on this card'
+                              : 'per-process VRAM not exposed by ' + distroVal(card.driver)) +
+      `</div>`;
+  }
+
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(17)};line-height:1.45;padding:${gq(12)} ${gq(16)};` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="width:${gq(430)};flex-shrink:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div></div>` +
+    dRule('GRAPHICS MEMORY', S,
+          gpuProcs.length ? gpuProcs.length + ' CLIENT' + (gpuProcs.length === 1 ? '' : 'S') : '') +
+    cardTable + `</div></div>`;
+}
+
+/* ── the distro Claude board ─────────────────────────────────────────── */
+function distroClaudeScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, whole) => whole > 0 ? Math.round((part / whole) * 100) : 0;
+  const total = nz(tokTotal), sess = nz(sTotal);
+  const msgs = nz(mAll), sessN = nz(sessions), daysN = nz(days);
+  const read = (part, whole) => `${fmtTok(part)}  ${String(share(part, whole)).padStart(3)}%`;
+
+  const left =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${fmtTok(total)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">TOKENS</span></div>` +
+    dRule('ALL TIME', S, daysN ? daysN + ' DAYS' : '') +
+    dMeter('input', share(nz(tokIn), total), read(nz(tokIn), total), S, 21, 96, true) +
+    dMeter('output', share(nz(tokOut), total), read(nz(tokOut), total), S, 21, 96, true) +
+    dMeter('cache w', share(nz(tokCW), total), read(nz(tokCW), total), S, 21, 96, true) +
+    dMeter('cache r', share(nz(tokCR), total), read(nz(tokCR), total), S, 21, 96, true) +
+    // Derived, not collected: the ratios are the reason anyone reads this board.
+    dRule('AVERAGES', S) +
+    dRow('per session', sessN ? fmtTok(Math.round(total / sessN)) : '--', S) +
+    dRow('per message', msgs ? fmtTok(Math.round(total / msgs)) : '--', S) +
+    dRow('per day', daysN ? fmtTok(Math.round(total / daysN)) : '--', S) +
+    dRule('MESSAGES', S, fmtNum(mAll)) +
+    dMeter('user', share(nz(mUser), msgs), fmtNum(mUser), S, 21, 96, true) +
+    dMeter('assistant', share(nz(mAsst), msgs), fmtNum(mAsst), S, 21, 96, true) +
+    dRow('sessions', sessN ? fmtNum(sessions) : '--', S) +
+    dRow('monthly tokens', fmtTok(nz(monTok)), S) +
+    dRow('monthly messages', fmtNum(monMsg), S);
+
+  const right =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.meter};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${fmtTok(sess)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">SESSION</span></div>` +
+    dRule('THIS SESSION', S, fmtNum(sMsgs) + ' MSGS') +
+    dMeter('input', share(nz(sIn), sess), read(nz(sIn), sess), S, 21, 96, true) +
+    dMeter('output', share(nz(sOut), sess), read(nz(sOut), sess), S, 21, 96, true) +
+    dMeter('cache w', share(nz(sCW), sess), read(nz(sCW), sess), S, 21, 96, true) +
+    dMeter('cache r', share(nz(sCR), sess), read(nz(sCR), sess), S, 21, 96, true) +
+    dRow('share of all time', total ? share(sess, total) + '%' : '--', S) +
+    // The collector keeps thirty rate samples, so the plot is thirty cells:
+    // sized to the data rather than to the column, it fills as the ring does.
+    dRule('TOKEN RATE', S, fmtNum(rate, '0') + ' /MIN') +
+    `<div style="color:${S.meter};white-space:pre;line-height:1;` +
+      `border-bottom:1px solid ${S.dim};padding-bottom:${gq(1)};margin-bottom:${gq(2)}">` +
+      distroSparkFrom(spark.available ? spark.value : [], 30) + `</div>` +
+    dRule('AGENTS', S) +
+    `<div style="display:flex;align-items:baseline;gap:${gq(12)}">` +
+      `<span style="color:${S.accent};font-size:${gq(44)};line-height:1.1">` +
+        `${agents.available ? agents.value : 0}</span>` +
+      `<span style="color:${S.label}">spawned this session</span></div>` +
+    dRow('cache read share', total ? share(nz(tokCR), total) + '%' : '--', S, S.accent) +
+    dRow('assistant / user', nz(mUser) ? (nz(mAsst) / nz(mUser)).toFixed(2) + ' : 1' : '--', S);
+
+  // A composition bar reads the split at a glance the way four separate meters
+  // cannot: one row, four colours, proportions to scale.
+  const SER = S.series || [S.accent, S.meter, S.label, S.value];
+  const legend =
+    `<div style="display:flex;gap:${gq(22)};color:${S.label};margin-top:${gq(2)}">` +
+      ['input', 'output', 'cache write', 'cache read'].map((t, i) =>
+        `<span style="color:${SER[i]}">\u25A0 ${t}</span>`).join('') + `</div>`;
+
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(17)};line-height:1.45;padding:${gq(12)} ${gq(16)};` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="flex:1;min-width:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div></div>` +
+    dRule('COMPOSITION', S, fmtTok(total) + '  /  ' + fmtTok(sess)) +
+    dStack('all time', [nz(tokIn), nz(tokOut), nz(tokCW), nz(tokCR)], SER, S, 82) +
+    dStack('session', [nz(sIn), nz(sOut), nz(sCW), nz(sCR)], SER, S, 82) +
+    legend + `</div></div>`;
+}
+
+/* A block-height plot of a series the caller already holds. distroSpark()
+   pushes onto the renderer's own ring; the Claude sparkline arrives complete
+   from the collector, so it must not be pushed anywhere. */
+function distroSparkFrom(samples, width) {
+  const arr = (samples && samples.length) ? samples : [];
+  let cap = 0;
+  for (const v of arr) if (typeof v === 'number' && v > cap) cap = v;
+  cap = cap > 0 ? cap * 1.15 : 1;
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = arr.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, arr[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return esc(out);
+}
+
+function distroArchAi(c) { _distroName = 'Arch'; return distroAiScreen(c); }
+function distroUbuntuAi(c) { _distroName = 'Ubuntu'; return distroAiScreen(c); }
+function distroSuseAi(c) { _distroName = 'openSUSE'; return distroAiScreen(c); }
+function distroMandrivaAi(c) { _distroName = 'Mandriva'; return distroAiScreen(c); }
+
+function distroArchClaude(c) { _distroName = 'Arch'; return distroClaudeScreen(c); }
+function distroUbuntuClaude(c) { _distroName = 'Ubuntu'; return distroClaudeScreen(c); }
+function distroSuseClaude(c) { _distroName = 'openSUSE'; return distroClaudeScreen(c); }
+function distroMandrivaClaude(c) { _distroName = 'Mandriva'; return distroClaudeScreen(c); }
+
+const DISTRO_AI_SCREENS = {
+  Arch: distroArchAi, Ubuntu: distroUbuntuAi,
+  openSUSE: distroSuseAi, Mandriva: distroMandrivaAi,
+};
+
+const DISTRO_CLAUDE_SCREENS = {
+  Arch: distroArchClaude, Ubuntu: distroUbuntuClaude,
+  openSUSE: distroSuseClaude, Mandriva: distroMandrivaClaude,
+};
 
 /* ═══════════════════════════════════════
    VINTAGE / SCANLINES
@@ -908,7 +1518,7 @@ function nixieDigit(value, size, showTube, opts) {
   const mesh = N.mesh || '#332820';
 
   const chars = String(value).split('');
-  let html = '<span style="display:inline-flex;gap:' + (showTube ? '3px' : '0') + '">';
+  let html = '<span style="display:inline-flex;gap:' + (showTube ? gq(3) : '0') + '">';
   for (let ci = 0; ci < chars.length; ci++) {
     const ch = chars[ci];
     const isDigit = /\d/.test(ch);
@@ -919,11 +1529,11 @@ function nixieDigit(value, size, showTube, opts) {
       : 'linear-gradient(180deg, ' + glassTint + '55 0%, transparent 20%, transparent 80%, ' + glassTint + '55 100%)';
     const tubeBorder = showTube ? '1px solid ' + glass + '55' : '1px solid ' + glass + '33';
     const tubeBorderBottom = showTube ? 'border-bottom:3px solid ' + glass + '88;' : '';
-    const tubeRadius = showTube ? 'border-radius:' + (size*0.3) + 'px ' + (size*0.3) + 'px 4px 4px;' : 'border-radius:2px;';
+    const tubeRadius = showTube ? 'border-radius:' + gq(size*0.3) + ' ' + gq(size*0.3) + ' 4px 4px;' : 'border-radius:2px;';
     const tubeBoxShadow = showTube ? 'box-shadow:inset 0 0 ' + (size*0.4) + 'px rgba(255,68,0,0.07),inset 0 0 ' + (size*0.15) + 'px rgba(255,100,34,0.1),inset 0 ' + (size*0.15) + 'px ' + (size*0.3) + 'px rgba(0,0,0,0.4),0 0 ' + (size*0.25) + 'px rgba(255,68,0,0.1);' : '';
 
     html += '<span style="position:relative;display:inline-block;' +
-      (showTube ? 'width:' + tubeW + 'px;height:' + tubeH + 'px;' : 'padding:0 1px;') +
+      (showTube ? 'width:' + gq(tubeW) + ';height:' + gq(tubeH) + ';' : 'padding:0 1px;') +
       'text-align:center;background:' + tubeBg + ';border:' + tubeBorder + ';' + tubeBorderBottom + tubeRadius + tubeBoxShadow + 'overflow:hidden">';
 
     /* Active digit with 5-layer glow */
@@ -942,13 +1552,12 @@ function nixieDigit(value, size, showTube, opts) {
                      {d: (n + 3) % 10, o: 0.20, dx: 0.022, dy: -0.010},
                      {d: (n + 7) % 10, o: 0.13, dx: -0.008, dy: -0.020}];
       for (const g of stack) {
-        html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + NIXIE +
+        html += '<span style="' + digitPos + 'font-size:' + gq(size) + ';font-family:' + NIXIE +
           ';color:#6B5140;opacity:' + g.o + ';z-index:' + (10 + stack.indexOf(g)) +
-          ';margin-left:' + (size * g.dx).toFixed(2) + 'px;margin-top:' + (size * g.dy).toFixed(2) +
-          'px;text-shadow:none;pointer-events:none">' + g.d + '</span>';
+          ';margin-left:' + gq(size * g.dx) + ';margin-top:' + gq(size * g.dy) + ';text-shadow:none;pointer-events:none">' + g.d + '</span>';
       }
     }
-    html += '<span style="' + digitPos + 'font-size:' + size + 'px;font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:' + litColor + ';text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
+    html += '<span style="' + digitPos + 'font-size:' + gq(size) + ';font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:' + litColor + ';text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
     if (opts.mesh) {
       // An IN-14 anode carries something like 25 wires across the face; at
       // size*0.075 the grid read as a screen door rather than as a mesh.
@@ -1048,8 +1657,7 @@ function magicEye(pct, label, size, opts) {
   const N = PANEL_SPEC.tubes || {};
 
   return '<div style="text-align:center">' +
-    '<div style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 3px ' + (N.label||'#AA8855') + '44;font-size:2.34cqw;font-family:' + MONO + ';letter-spacing:3px;margin-bottom:3px">' + label + '</div>' +
-    '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;margin:0 auto;filter:drop-shadow(0 0 ' + (4*s) + 'px rgba(' + P.bloom + ',0.08)) drop-shadow(0 0 ' + (10*s) + 'px rgba(' + P.bloom + ',0.06))">' +
+    '<div style="position:relative;width:' + gq(size) + ';height:' + gq(size) + ';margin:0 auto;filter:drop-shadow(0 0 ' + gq(4*s) + ' rgba(' + P.bloom + ',0.08)) drop-shadow(0 0 ' + gq(10*s) + ' rgba(' + P.bloom + ',0.06))">' +
       '<svg viewBox="0 0 420 420" width="' + size + '" height="' + size + '" style="display:block">' +
         '<defs>' +
           '<filter id="og-' + eid + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
@@ -1075,8 +1683,11 @@ function magicEye(pct, label, size, opts) {
             : '') +
         '</g>' +
       '</svg>' +
-      '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + holeSize + 'px;height:' + holeSize + 'px;border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + (5*s) + 'px ' + (10*s) + 'px rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:grid;place-items:center">' +
-        '<span style="color:' + P.ink + ';font-size:' + Math.max(11, holeSize*0.3) + 'px;font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
+      '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + gq(holeSize) + ';height:' + gq(holeSize) + ';border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + gq(5*s) + ' ' + gq(10*s) + ' rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+        '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
+        (label ? '<span style="color:#9d8a72;font-size:' + gq(Math.max(8, holeSize*0.155)) + ';' +
+          'font-family:\'IBM Plex Mono\',monospace;line-height:1;letter-spacing:0.08em;' +
+          'margin-top:' + gq(holeSize*0.06) + '">' + label + '</span>' : '') +
       '</div>' +
     '</div>' +
   '</div>';
@@ -1090,7 +1701,7 @@ function dekatron(rpm, size) {
   const dekOrange = N.dekOrange || '#FF6600';
   const dekGuide = N.dekGuide || '#552200';
   const dekInactive = '#181410';
-  let html = '<div style="width:' + size + 'px;height:' + size + 'px;position:relative;' + (stopped ? 'opacity:0.3' : 'animation:spin ' + speed.toFixed(2) + 's linear infinite') + '">';
+  let html = '<div style="width:' + gq(size) + ';height:' + gq(size) + ';position:relative;' + (stopped ? 'opacity:0.3' : 'animation:spin ' + speed.toFixed(2) + 's linear infinite') + '">';
   for (let i = 0; i < 10; i++) {
     const angle = (i / 10) * Math.PI * 2;
     const x = size / 2 + (size / 2 - 3) * Math.cos(angle) - 1.5;
@@ -1100,7 +1711,7 @@ function dekatron(rpm, size) {
     const dotColor = isActive ? dekOrange : isTrail ? dekGuide : dekInactive;
     const dotOpacity = isActive ? 1 : isTrail ? 0.4 : 0.15;
     const dotGlow = isActive ? '0 0 4px ' + dekOrange + ',0 0 10px ' + dekOrange + '66' : isTrail ? '0 0 3px ' + dekGuide : 'none';
-    html += '<div style="position:absolute;left:' + x + 'px;top:' + y + 'px;width:3px;height:3px;border-radius:50%;background:' + dotColor + ';box-shadow:' + dotGlow + ';opacity:' + dotOpacity + '"></div>';
+    html += '<div style="position:absolute;left:' + gq(x) + ';top:' + gq(y) + ';width:' + gq(3) + ';height:' + gq(3) + ';border-radius:50%;background:' + dotColor + ';box-shadow:' + dotGlow + ';opacity:' + dotOpacity + '"></div>';
   }
   html += '</div>';
   return html;
@@ -1137,19 +1748,19 @@ function tubeScreen2(c) {
   const dateStr = months[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
 
   return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:' + MONO + '">' +
-    '<div style="color:' + barDim + ';text-shadow:0 0 3px ' + barDim + '44;font-size:1.76cqw;letter-spacing:8px;margin-bottom:2.05cqw">NIXIE TUBE CHRONOMETER</div>' +
-    '<div style="display:flex;align-items:center;gap:5px">' +
-      nixieDigit(hh[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      nixieDigit(hh[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      '<span style="color:#FF8B33;font-size:11.72cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 16px #FF5A0A,0 0 32px #FF3A00AA,0 0 50px #DC140044;animation:blink 1s infinite;margin:0 3px">:</span>' +
-      nixieDigit(mm[0], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      nixieDigit(mm[1], 125, true, {neon: true, ghosts: true, mesh: true}) +
-      '<div style="width:12px"></div>' +
-      nixieDigit(ss[0], 70, true, {neon: true, ghosts: true, mesh: true}) +
-      nixieDigit(ss[1], 70, true, {neon: true, ghosts: true, mesh: true}) +
+    '<div style="color:' + barDim + ';text-shadow:0 0 3px ' + barDim + '44;font-size:2.3cqw;letter-spacing:8px;margin-bottom:2.05cqw">NIXIE TUBE CHRONOMETER</div>' +
+    '<div style="display:flex;align-items:center;gap:' + gq(5) + '">' +
+      nixieDigit(hh[0], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(hh[1], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      '<span style="color:#FF8B33;font-size:14.5cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 16px #FF5A0A,0 0 32px #FF3A00AA,0 0 50px #DC140044;animation:blink 1s infinite;margin:0 3px">:</span>' +
+      nixieDigit(mm[0], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(mm[1], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      '<div style="width:' + gq(12) + '"></div>' +
+      nixieDigit(ss[0], 88, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(ss[1], 88, true, {neon: true, ghosts: true, mesh: true}) +
     '</div>' +
-    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:4.69cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
-    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:5.27cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:6.2cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:6.8cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
     '<div style="display:flex;align-items:center;gap:1.46cqw;margin-top:2.34cqw">' +
       [dekOrange, warm, eyeStd, '#8855DD', eyeStd, warm, dekOrange].map(function(c) { return '<div style="width:0.73cqw;height:0.73cqw;border-radius:50%;background:' + c + ';box-shadow:0 0 4px ' + c + ',0 0 8px ' + c + '66,0 0 14px ' + c + '22;opacity:0.7"></div>'; }).join('') +
     '</div>' +
@@ -1204,7 +1815,6 @@ function vfdDonut(pct, label, color, size) {
   }
 
   return '<div style="text-align:center">' +
-    '<div style="color:' + p.main + ';text-shadow:0 0 4px ' + p.dim + ';font-size:2.20cqw;font-family:' + F + ';letter-spacing:3px;margin-bottom:3px">' + label + '</div>' +
     '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" style="display:block;overflow:visible">' +
       '<defs><filter id="' + fid + '-b" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="5" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
       '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + p.ghost + '" stroke-width="' + sw + '"/>' +
@@ -1337,152 +1947,6 @@ function sparkline(samples, color, w, h) {
     `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 }
 
-function claudeScreen3(c) {
-  const pri = c.primary || '#00ff41';
-  const acc = c.accent || '#ffb000';
-  const dim = c.dim || c.border || '#333';
-  const hdr = c.header || pri;
-  const crit = c.critical || '#ff3333';
-  const bg = c.panel || 'rgba(0,0,0,0.3)';
-  const font = c.font || 'monospace';
-  // Token type colors derived from theme
-  const cIn = pri, cOut = acc, cCW = hdr, cCR = crit;
-
-  const tokIn = m('claude.tokens_input');
-  const tokOut = m('claude.tokens_output');
-  const tokCW = m('claude.tokens_cache_write');
-  const tokCR = m('claude.tokens_cache_read');
-  const tokTotal = m('claude.tokens_total');
-
-  const sessIn = m('claude.session_input');
-  const sessOut = m('claude.session_output');
-  const sessCW = m('claude.session_cache_write');
-  const sessCR = m('claude.session_cache_read');
-  const sessTotal = m('claude.session_total');
-  const sessMsgs = m('claude.session_msgs');
-
-  const msgsUser = m('claude.msgs_user');
-  const msgsAsst = m('claude.msgs_assistant');
-  const msgsTotal = m('claude.msgs_total');
-  const monthlyTok = m('claude.monthly_tokens');
-  const monthlyMsg = m('claude.monthly_messages');
-  const days = m('claude.days_active');
-  const sessions = m('claude.sessions');
-  const agents = m('claude.agents_active');
-  const rate = m('claude.token_rate');
-  const spark = m('claude.sparkline');
-
-  // Token breakdown bar
-  function tokBar(input, output, cw, cr, total) {
-    if (!total || total === 0) return `<div style="height:6px;background:${dim};border-radius:3px"></div>`;
-    const t = total;
-    const pI = (input / t) * 100;
-    const pO = (output / t) * 100;
-    const pW = (cw / t) * 100;
-    const pR = (cr / t) * 100;
-    return `<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:${dim}">` +
-      `<div style="width:${pI}%;background:${cIn}" title="Input"></div>` +
-      `<div style="width:${pO}%;background:${cOut}" title="Output"></div>` +
-      `<div style="width:${pW}%;background:${cCW}" title="Cache Write"></div>` +
-      `<div style="width:${pR}%;background:${cCR}" title="Cache Read"></div>` +
-    `</div>`;
-  }
-
-  function statRow(label, val, color) {
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:1px 0">` +
-      `<span style="color:${dim};font-size:1.56cqw">${label}</span>` +
-      `<span style="color:${color || pri};font-size:1.76cqw;font-weight:600">${val}</span></div>`;
-  }
-
-  function sectionTitle(text) {
-    return `<div style="color:${hdr};font-size:1.66cqw;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;border-bottom:1px solid ${dim};padding-bottom:2px">${text}</div>`;
-  }
-
-  // Legend for token types
-  const legend = `<div style="display:flex;gap:8px;margin-top:4px;font-size:1.27cqw">` +
-    `<span style="color:${cIn}">\u25A0 Input</span>` +
-    `<span style="color:${cOut}">\u25A0 Output</span>` +
-    `<span style="color:${cCW}">\u25A0 Cache W</span>` +
-    `<span style="color:${cCR}">\u25A0 Cache R</span>` +
-  `</div>`;
-
-  const totalVal = tokTotal.available ? tokTotal.value : 0;
-  const sTotalVal = sessTotal.available ? sessTotal.value : 0;
-
-  // LEFT COLUMN — All-time
-  const left =
-    `<div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-right:10px;border-right:1px solid ${dim}22">` +
-      `<div>` +
-        sectionTitle('All-Time Tokens') +
-        `<div style="color:${pri};font-size:3.52cqw;font-weight:700;margin:2px 0">${fmtTok(totalVal)}</div>` +
-        tokBar(tokIn.value||0, tokOut.value||0, tokCW.value||0, tokCR.value||0, totalVal) +
-        legend +
-        `<div style="margin-top:6px">` +
-          statRow('Input', fmtTok(tokIn.value||0), cIn) +
-          statRow('Output', fmtTok(tokOut.value||0), cOut) +
-          statRow('Cache Write', fmtTok(tokCW.value||0), cCW) +
-          statRow('Cache Read', fmtTok(tokCR.value||0), cCR) +
-        `</div>` +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Messages') +
-        `<div style="display:flex;gap:12px;align-items:baseline">` +
-          `<span style="color:${pri};font-size:3.52cqw;font-weight:700">${fmtNum(msgsTotal)}</span>` +
-          `<span style="color:${dim};font-size:1.37cqw">total</span>` +
-        `</div>` +
-        statRow('User', fmtNum(msgsUser)) +
-        statRow('Assistant', fmtNum(msgsAsst)) +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Monthly Average') +
-        statRow('Tokens', fmtTok(monthlyTok.value||0)) +
-        statRow('Messages', fmtNum(monthlyMsg)) +
-        statRow('Active Days', days.available ? days.value : '--') +
-        statRow('Sessions', sessions.available ? sessions.value : '--') +
-      `</div>` +
-    `</div>`;
-
-  // RIGHT COLUMN — Session + Live
-  const sparkData = spark.available ? spark.value : [];
-
-  const right =
-    `<div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-left:10px">` +
-      `<div>` +
-        sectionTitle('This Session') +
-        `<div style="color:${pri};font-size:3.52cqw;font-weight:700;margin:2px 0">${fmtTok(sTotalVal)}</div>` +
-        tokBar(sessIn.value||0, sessOut.value||0, sessCW.value||0, sessCR.value||0, sTotalVal) +
-        `<div style="margin-top:6px">` +
-          statRow('Input', fmtTok(sessIn.value||0), cIn) +
-          statRow('Output', fmtTok(sessOut.value||0), cOut) +
-          statRow('Cache Write', fmtTok(sessCW.value||0), cCW) +
-          statRow('Cache Read', fmtTok(sessCR.value||0), cCR) +
-          statRow('Messages', fmtNum(sessMsgs)) +
-        `</div>` +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Token Rate') +
-        `<div style="margin:4px 0">` +
-          sparkline(sparkData, pri, 400, 50) +
-        `</div>` +
-        `<div style="color:${pri};font-size:2.34cqw;font-weight:700">` +
-          `${fmtNum(rate, '0')} <span style="color:${dim};font-size:1.37cqw">tok/min</span>` +
-        `</div>` +
-      `</div>` +
-      `<div>` +
-        sectionTitle('Agents') +
-        `<div style="display:flex;align-items:center;gap:8px">` +
-          `<span style="color:${pri};font-size:3.52cqw;font-weight:700">${agents.available ? agents.value : 0}</span>` +
-          `<span style="color:${dim};font-size:1.56cqw">spawned this session</span>` +
-        `</div>` +
-      `</div>` +
-    `</div>`;
-
-  return '<div class="screen-frame" style="font-family:' + font + '">' +
-    '<div style="display:flex;height:100%;padding:12px 16px;gap:0;box-sizing:border-box">' +
-      left + right +
-    '</div></div>';
-}
-
 /* ── Bridge Station: shared primitives, then the GPU screen ──────────────────────────────────────────────────────────
  * One screen, three densities, chosen from how many cards the collector
  * actually found. The same build has to read correctly on a single-card
@@ -1557,6 +2021,7 @@ const BS_SKIN_DS9 = {
   kDay: _T.teal || '#2A9D8F', kDate: _T.lavender || '#8888BB',
   crit: _T.alert || '#FF4444', warn: _T.thermOrange || '#DD7733',
   cPower: _T.warm || '#CCAA77', tick: _T.steel || '#9EA5BA',
+  gaugeSize: 132, gaugeSw: 14,
   therm: function (t) {
     if (t >= 90) return _T.thermOrange || '#DD7733';
     if (t >= 70) return _T.thermYellow || '#CCAA44';
@@ -1587,6 +2052,7 @@ const BS_SKIN_TNG = {
   kDay: _C.anakiwa || '#99CCFF', kDate: _C.lilac || '#CC99CC',
   crit: _C.mars || '#FF2200', warn: _C.thermOrange || '#FF9933',
   cPower: _C.neonCarrot || '#FF9933', tick: _C.tanoi || '#FFCC99',
+  gaugeSize: 132, gaugeSw: 14,
   therm: function (t) {
     if (t >= 90) return _C.thermOrange || '#FF9933';
     if (t >= 70) return _C.thermYellow || '#FFCC66';
@@ -1732,7 +2198,7 @@ const CRT_OVERLAY =
   /* glowingLine: the refresh haze sitting on the tube. The stops have to stay
      far apart -- clustered at 45/50/55% they put a hard peak across the middle
      of the screen, which reads as a line rather than as a band of light. */
-  '<div style="position:absolute;left:0;right:0;top:32%;height:300px;pointer-events:none;' +
+  '<div style="position:absolute;left:0;right:0;top:32%;height:' + gq(300) + ';pointer-events:none;' +
     'z-index:24;background:linear-gradient(0deg,transparent 0%,rgba(180,255,240,0.018) 28%,' +
     'rgba(196,255,246,0.038) 50%,rgba(180,255,240,0.018) 72%,transparent 100%)"></div>' +
   '<div style="position:absolute;inset:0;pointer-events:none;z-index:25;opacity:0.5">' +
@@ -1741,8 +2207,8 @@ const CRT_OVERLAY =
 
 /* SCANLINES: phosphor CRT. Two-stage halo on everything, scanline overlay. */
 const BS_SKIN_SCAN = {
-  key: 'scan', chrome: 'rule', font: STM, fw: '400', bg: _SC.bg || '#060810',
-  label: _SC.cyanDim || '#009977', dim: '#6E8899',
+  key: 'scan', chrome: 'rule', font: STM, fw: '700', bg: _SC.bg || '#060810',
+  label: '#7FD9C8', dim: '#8AA6B4',
   bright: _SC.cyan || '#00FFCC', text: _SC.cyan || '#00FFCC',
   soft: _SC.cyanDim || '#009977',
   track: _SC.dim || '#334455', edge: _SC.dim || '#334455', ring: _SC.dim || '#334455',
@@ -1814,7 +2280,7 @@ const BS_SKIN_SCAN = {
 
 /* TUBES: magic eyes, bargraph filaments, dekatrons, nixie digits. */
 const BS_SKIN_TUBE = {
-  key: 'tube', chrome: 'rule', font: PLEX, fw: '400', bg: _NX.bg || '#0A0806',
+  key: 'tube', chrome: 'rule', font: PLEX, fw: '700', bg: _NX.bg || '#0A0806',
   label: _NX.label || '#AA8855', dim: _NX.barDim || '#CC4400',
   bright: '#FFDDAA', text: _NX.warm || '#FF9944', soft: _NX.label || '#AA8855',
   track: _NX.interior || '#0C0A06', edge: _NX.glass || '#332818',
@@ -1848,9 +2314,9 @@ const BS_SKIN_TUBE = {
                    Math.max(16, Math.round(h) + 6)) + `</div>`;
   },
   gauge: function (pct, cap, which) {
-    return magicEye(pct, cap, 110, {rich: true, invert: true});
+    return magicEye(pct, cap, 146, {rich: true, invert: true});
   },
-  capGap: gq(6), capTop: gq(4),
+  capGap: gq(10), capTop: gq(12),
   gpuGauge: function (pct, cap, color, size, kind) {
     return magicEye(pct, cap, size, {rich: true, invert: true,
                                      phosphor: kind === 'vram' ? 'cyan' : 'green'});
@@ -1884,7 +2350,7 @@ const BS_SKIN_TUBE = {
       `<span style="color:${_NX.label || '#AA8855'};text-shadow:0 0 2px ${_NX.label || '#AA8855'}33;` +
         `font-size:${gq(17)};font-family:${PLEX};width:${gq(98)};flex-shrink:0;` +
         `white-space:nowrap">${label}</span>` +
-      tubeFilament(pct, col, false, 'cap' + label, 21) +
+      tubeFilament(pct, col, false, 'cap' + label, 30) +
       `<span style="color:#FFDDBB;text-shadow:0 0 3px ${col}88;font-size:${gq(16)};` +
         `font-family:${PLEX};width:${gq(116)};text-align:right;flex-shrink:0;` +
         `white-space:nowrap">${cap}</span></div>`;
@@ -1893,7 +2359,7 @@ const BS_SKIN_TUBE = {
     return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
       `<span style="color:${_NX.label || '#AA8855'};font-size:${gq(17)};font-family:${PLEX};` +
         `width:${gq(98)};flex-shrink:0;white-space:nowrap">${label}</span>` +
-      tubeFilament(0, _NX.barDim || '#CC4400', false, 'capNone' + label, 21) +
+      tubeFilament(0, _NX.barDim || '#CC4400', false, 'capNone' + label, 30) +
       `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(16)};font-family:${PLEX};` +
         `width:${gq(116)};text-align:right;flex-shrink:0;white-space:nowrap">NONE</span></div>`;
   },
@@ -1919,7 +2385,7 @@ const BS_SKIN_TUBE = {
 
 /* VFD: segmented bars over a ghost track, filament lines across the glass. */
 const BS_SKIN_VFD = {
-  key: 'vfd', chrome: 'rule', font: STM, fw: '400', bg: _VF.substrate || '#0A0A08',
+  key: 'vfd', chrome: 'rule', font: STM, fw: '700', bg: _VF.substrate || '#0A0A08',
   label: _VF.label || '#556655', dim: _VF.greenDim || '#008866',
   bright: _VF.greenBright || '#44FFCC', text: _VF.green || '#00DDAA',
   soft: _VF.greenDim || '#008866',
@@ -1975,7 +2441,7 @@ const BS_SKIN_VFD = {
   },
   gauge: function (pct, cap, which) {
     const name = which === 'cpu' ? 'green' : which === 'ram' ? 'blue' : 'amber';
-    return vfdDonut(pct, cap, name, 116);
+    return vfdDonut(pct, cap, name, 142);
   },
   thermRowFn: function (label, temp) {
     return vfdThermalBar((temp === null || temp === undefined) ? 20 : temp, label);
@@ -2037,14 +2503,44 @@ function bsNum(v) {
   return (typeof v === 'number' && isFinite(v)) ? v : 0;
 }
 
+
+/* Small line icons for the comms readings. Drawn rather than labelled: at a
+   metre and a half a glyph reads before a word does, and the word is still
+   there underneath it. */
+function bsIcon(kind, color, px) {
+  const c = color, w = gq(px || 20);
+  const open = `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" ` +
+    `stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ` +
+    `style="flex-shrink:0;vertical-align:-0.15em">`;
+  const paths = {
+    speed: '<path d="M12 20a8 8 0 1 1 8-8"/><path d="M12 12l5-3"/>',
+    ping:  '<path d="M2 12h4l3-7 4 14 3-7h6"/>',
+    down:  '<path d="M12 4v13"/><path d="M6 12l6 6 6-6"/>',
+    up:    '<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>' +
+           '<path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>',
+    chip:  '<rect x="7" y="7" width="10" height="10" rx="1"/>' +
+           '<path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+  };
+  return open + (paths[kind] || '') + '</svg>';
+}
+
 /* One section of the board. The rectangle and the body layout are shared;
    only the chrome that frames them changes between families. */
-function bsRegion(x, y, w, h, title, color, right, body, justify, rightColor) {
+function bsRegion(x, y, w, h, title, color, right, body, justify, rightColor, mode) {
   const S = bsS();
-  const inset = S.chrome === 'spine' ? 28 : 0;   /* clear of the spine */
-  const top = S.chrome === 'spine' ? 32 : 36;    /* clear of the tab or rule */
+  // `mode === 'centre'` drops the chrome's rail and centres the title: the
+  // chronometer is one object, not a list, so a rail down its side was
+  // pointing at nothing.
+  const bare = mode === 'centre';
+  const inset = (S.chrome === 'spine' && !bare) ? 28 : 0;   /* clear of the spine */
+  const top = (S.chrome === 'spine' && !bare) ? 32 : 36;    /* clear of the tab or rule */
   return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
-    (S.chrome === 'rule' ? _bsChromeRule(title, color, right, rightColor)
+    (bare ? `<div style="position:absolute;left:0;right:0;top:0;text-align:center;` +
+              `color:${color};font-family:${S.font};font-size:${gq(17)};` +
+              `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+              `${bsGlow(10, color)}">${title}</div>`
+     : S.chrome === 'rule' ? _bsChromeRule(title, color, right, rightColor)
      : S.chrome === 'tab' ? _bsChromeTab(title, color, right, rightColor)
                           : _bsChromeSpine(title, color, right, rightColor)) +
     `<div style="position:absolute;left:${gq(inset)};top:${gq(top)};right:0;bottom:${gq(6)};` +
@@ -2181,11 +2677,17 @@ function gpuTempColor(card) {
 /* Donut with its caption BELOW the ring. The shared donut() puts the label
    above, which overflows the top of a vertically-centred region and gets
    clipped by its overflow:hidden. */
+/* Caption inside the ring, under the reading. Hung below the dial it cost a
+   line of height and bought nothing -- the ring has a hole in the middle and
+   the name of the thing belongs in it. */
 function bsGauge(pct, caption, color, size, sw, opts) {
-  return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(4)}">` +
-    donut(pct, '', color, size, sw, bsS().font, opts) +
-    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
-      `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${caption}</div></div>`;
+  const S = bsS();
+  return `<div style="position:relative;display:inline-block;line-height:0">` +
+    donut(pct, '', color, size, sw, S.font, opts) +
+    `<div style="position:absolute;left:0;right:0;top:${gq(size * 0.705)};text-align:center;` +
+      `color:${S.label};font-family:${S.font};font-size:${gq(13)};font-weight:${S.fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:0.12em;` +
+      `pointer-events:none;white-space:nowrap">${caption}</div></div>`;
 }
 
 /* ── layout A: one card, everything ── */
@@ -2194,7 +2696,7 @@ function gpuLayoutSingle(card) {
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
   const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
-                 critColor: bsS().bright, linecap: 'butt', valSize: gq(44), labelSize: gq(13),
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(50), labelSize: gq(15),
                  labelColor: bsS().label};
 
   const head = `<div style="position:absolute;left:${gq(24)};top:${gq(16)};right:${gq(24)};` +
@@ -2213,14 +2715,14 @@ function gpuLayoutSingle(card) {
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
     : `<div style="display:flex;justify-content:center">${S.gpuGauge
         ? S.gpuGauge(bsNum(card.util), 'UTILISATION', col, 150, 'util')
-        : bsGauge(bsNum(card.util), 'UTILISATION', col, 152, 11, dOpts)}</div>`;
+        : bsGauge(bsNum(card.util), 'UTILISATION', col, 176, 17, dOpts)}</div>`;
 
   const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
     ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
       `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
     : `<div style="display:flex;justify-content:center">${S.gpuGauge
         ? S.gpuGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 150, 'vram')
-        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 152, 11, dOpts)}</div>`;
+        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 176, 17, dOpts)}</div>`;
 
   const procs = asList({available: true, value: card.processes});
   let procBody, procRight;
@@ -2233,8 +2735,8 @@ function gpuLayoutSingle(card) {
       procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${bsS().font}">` +
         `<span style="color:${bsS().bright};font-size:${gq(17)};font-weight:${bsS().fw};width:${gq(118)};overflow:hidden;` +
           `text-overflow:ellipsis;white-space:nowrap">${esc(String(pr.name || '?'))}</span>` +
-        `<span style="color:${bsS().dim};font-size:${gq(13)};width:${gq(54)}">${bsVal(pr.pid)}</span>` +
-        bsSegBar(pct, S.a2, 560, 13, 30, 3) +
+        `<span style="color:${bsS().dim};font-size:${gq(16)};width:${gq(70)}">${bsVal(pr.pid)}</span>` +
+        bsSegBar(pct, S.a2, 566, 17, 30, 3) +
         `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw};width:${gq(74)};text-align:right;` +
           `font-variant-numeric:tabular-nums">${bsVal(pr.vram_mib)}M</span></div>`;
     }
@@ -2254,26 +2756,26 @@ function gpuLayoutSingle(card) {
   }
 
   return head +
-    bsRegion(24, 62, 300, 240, 'PROCESSOR', col, '', utilBody, 'center') +
-    bsRegion(348, 62, 300, 240, 'MEMORY', S.a2, '', vramBody, 'center') +
-    bsRegion(672, 62, 328, 240, 'TELEMETRY', S.a1, '',
-      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 30) +
-      bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 16), S.cPower, 30) +
-      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 16), bsS().text, 26) +
-      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 16), bsS().text, 26),
+    bsRegion(14, 52, 320, 250, 'PROCESSOR', col, '', utilBody, 'center') +
+    bsRegion(348, 52, 320, 250, 'MEMORY', S.a2, '', vramBody, 'center') +
+    bsRegion(682, 52, 328, 250, 'TELEMETRY', S.a1, '',
+      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 46, 18) +
+      bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 20), S.cPower, 30) +
+      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 20), bsS().text, 40, 18) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 20), bsS().text, 40, 18),
       'space-around') +
-    bsRegion(24, 312, 624, 116, 'LOAD', col, '',
-      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 596, 34, 14, 12) +
+    bsRegion(14, 306, 654, 130, 'LOAD', col, '',
+      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 628, 34, 18, 15) +
       bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a2, 596, 34, 14, 12),
       'space-around') +
-    bsRegion(672, 312, 328, 116, 'COOLING', tc, '',
+    bsRegion(682, 306, 328, 130, 'COOLING', tc, '',
       `<div style="display:flex;align-items:center;gap:${gq(18)}">` +
-        fanIcon(tc, gq(54), gpuFanRpm(card)) +
+        fanIcon(tc, gq(56), gpuFanRpm(card)) +
         `<div><div style="color:${bsS().bright};font-family:${bsS().font};font-size:${gq(30)};font-weight:${bsS().fw};` +
           `font-variant-numeric:tabular-nums;${bsGlow(8, tc, '99')}">${gpuFanText(card)}</div>` +
         `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
           `text-transform:uppercase;letter-spacing:${bsS().ls}">FAN</div></div></div>`, 'center') +
-    bsRegion(24, 446, 976, 132, 'PROCESSES', S.a2, procRight, procBody, 'space-around');
+    bsRegion(14, 440, 996, 150, 'PROCESSES', S.a2, procRight, procBody, 'space-around');
 }
 
 /* ── layout B: two cards ── */
@@ -2282,28 +2784,28 @@ function gpuCardPanel(card, x, y, w, h) {
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
   const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
-                 critColor: bsS().bright, linecap: 'butt', valSize: gq(38), labelSize: gq(12)};
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(46), labelSize: gq(14)};
 
   const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
     bsMetered('VRAM', bsVal(card.vram_used) + ' ' + bsSub(`/ ${bsVal(card.vram_total)} MiB`, 15),
-               bsNum(card.vram_percent), S.a2, 330, 26, 23, 13) +
+               bsNum(card.vram_percent), S.a2, 384, 26, 28, 16) +
     bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 15),
-               gpuPowerPct(card), S.cPower, 330, 26, 23, 13) +
-    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 330, 26, 23, 13) +
+               gpuPowerPct(card), S.cPower, 384, 26, 28, 16) +
+    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 384, 26, 28, 16) +
     `</div>`;
 
   // Fixed width, not flex:1. Stretching this column ran its labels back
   // underneath the bars in the middle column.
-  const right = `<div style="width:${gq(236)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
-    bsKv('TEMP', bsVal(card.temp, '°C'), tc, 26) +
+  const right = `<div style="width:${gq(268)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
+    bsKv('TEMP', bsVal(card.temp, '°C'), tc, 34, 16) +
     bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub('MHz', 14), bsS().text, 22) +
-    `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(30), gpuFanRpm(card)) +
+    `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(40), gpuFanRpm(card)) +
       `<span style="color:${bsS().text};font-family:${bsS().font};font-size:${gq(17)};font-weight:${bsS().fw};` +
       `${bsGlow(6, tc, '99')}">${gpuFanText(card)}</span></div></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
-    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 132, 'util')
-                : donut(bsNum(card.util), '', col, 138, 10, bsS().font, dOpts)) +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 172, 'util')
+                : donut(bsNum(card.util), '', col, 178, 17, bsS().font, dOpts)) +
     stats + `<div style="flex:1"></div>` + right + `</div>`;
 
   return bsRegion(x, y, w, h, gpuName(card), col,
@@ -2316,7 +2818,7 @@ function gpuTile(card, x, y, w, h) {
   const col = gpuVendorColor(card.vendor);
   const tc = gpuTempColor(card);
   const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
-                 critColor: bsS().bright, linecap: 'butt', valSize: gq(29), labelSize: gq(11)};
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(36), labelSize: gq(13)};
   // Used keeps a decimal at every magnitude -- rounding 18.3 to 18 on a 24G
   // card throws away the only digit that moves. The total is a fixed board
   // spec, so an integer is right there.
@@ -2325,20 +2827,20 @@ function gpuTile(card, x, y, w, h) {
 
   const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
     bsMetered('VRAM', gibUsed(card.vram_used) + ' ' + bsSub(`/ ${gibTotal(card.vram_total)} G`, 12),
-               bsNum(card.vram_percent), S.a2, 214, 20, 19, 11) +
+               bsNum(card.vram_percent), S.a2, 258, 22, 24, 14) +
     bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 12),
-               gpuPowerPct(card), S.cPower, 214, 20, 19, 11) + `</div>`;
+               gpuPowerPct(card), S.cPower, 258, 22, 24, 14) + `</div>`;
 
   const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${bsS().font}">` +
-    fanIcon(tc, gq(24), gpuFanRpm(card)) +
-    `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw}">${bsVal(card.temp, '°C')}</span>` +
+    fanIcon(tc, gq(32), gpuFanRpm(card)) +
+    `<span style="color:${bsS().text};font-size:${gq(22)};font-weight:${bsS().fw}">${bsVal(card.temp, '°C')}</span>` +
     `<span style="flex:1"></span>` +
     `<span style="color:${bsS().label};font-size:${gq(11)};font-weight:${bsS().fw};text-transform:uppercase;` +
-      `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.clock_gpu)} MHz</span></div>`;
+      `letter-spacing:${bsS().ls};white-space:nowrap;font-size:${gq(15)}">${bsVal(card.clock_gpu)} MHz</span></div>`;
 
   const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
-    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 100, 'util')
-                : donut(bsNum(card.util), '', col, 104, 8, bsS().font, dOpts)) +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 126, 'util')
+                : donut(bsNum(card.util), '', col, 130, 13, bsS().font, dOpts)) +
     stack + `</div>` + footer;
 
   return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
@@ -2378,14 +2880,14 @@ function bsGpuScreen(c) {
 
   if (cards.length === 2) {
     return frame(gpuHeader(cards) +
-      gpuCardPanel(cards[0], 24, 52, 976, 254) +
-      gpuCardPanel(cards[1], 24, 324, 976, 254));
+      gpuCardPanel(cards[0], 14, 44, 996, 268) +
+      gpuCardPanel(cards[1], 14, 322, 996, 268));
   }
 
-  const pos = [[24, 52], [516, 52], [24, 322], [516, 322]];
+  const pos = [[14, 44], [518, 44], [14, 320], [518, 320]];
   let body = gpuHeader(cards);
   for (let i = 0; i < Math.min(4, cards.length); i++) {
-    body += gpuTile(cards[i], pos[i][0], pos[i][1], 484, 248);
+    body += gpuTile(cards[i], pos[i][0], pos[i][1], 492, 268);
   }
   // Beyond four the grid has no room; say what is not shown rather than
   // silently truncating the list.
@@ -2424,8 +2926,8 @@ function bsThermRow(label, temp, w) {
     `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
       `text-transform:uppercase;letter-spacing:${bsS().ls};width:${gq(34)};flex-shrink:0">${label}</span>` +
     bsSegBar(pct, c, w, 16, 14, 4) +
-    `<span style="color:${c};font-family:${bsS().font};font-size:${gq(18)};font-weight:${bsS().fw};` +
-      `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+    `<span style="color:${c};font-family:${bsS().font};font-size:${gq(24)};font-weight:${bsS().fw};` +
+      `width:${gq(62)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
       `${bsGlow(8, c, '99')}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
 }
 
@@ -2435,10 +2937,10 @@ function bsThermRow(label, temp, w) {
 function bsFanGroup(label, color, rpms) {
   if (!rpms.length) return '';
   let icons = '';
-  for (const r of rpms) icons += fanIcon(color, gq(26), r);
+  for (const r of rpms) icons += fanIcon(color, gq(46), r);
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(6)}">` +
     `<div style="display:flex;gap:${gq(9)}">${icons}</div>` +
-    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(15)};font-weight:${bsS().fw};` +
       `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</div></div>`;
 }
 
@@ -2465,11 +2967,11 @@ function bsCapacityBar(label, cap, pct, color, w) {
   return `<div style="width:${gq(w)}">` +
     `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
       `margin-bottom:${gq(5)}">` +
-      `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+      `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(15)};font-weight:${bsS().fw};` +
         `text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</span>` +
-      `<span style="color:${bsS().soft};font-family:${bsS().font};font-size:${gq(14)};font-weight:${bsS().fw};` +
+      `<span style="color:${bsS().soft};font-family:${bsS().font};font-size:${gq(18)};font-weight:${bsS().fw};` +
         `font-variant-numeric:tabular-nums">${cap}</span></div>` +
-    bsSegBar(pct, color, w, bsS().seg ? 11 : 15, 26, 3) + `</div>`;
+    bsSegBar(pct, color, w, bsS().seg ? 14 : 18, 26, 3) + `</div>`;
 }
 
 /* Gold segments its thermal track; Teal and Coral keep the continuous bar
@@ -2483,12 +2985,12 @@ function bsThermRowSolid(label, temp, w) {
   const r = S.r >= 999 ? '999px' : S.r + 'px';
   return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
     `<span style="color:${S.label};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
-      `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(38)};flex-shrink:0">${label}</span>` +
-    `<div style="width:${gq(w)};height:${gq(18)};background:${S.track};border-radius:${r};` +
+      `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(46)};flex-shrink:0">${label}</span>` +
+    `<div style="width:${gq(w)};height:${gq(30)};background:${S.track};border-radius:${r};` +
       `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;background:${c};` +
       `border-radius:${r};transition:width 0.8s ease${flash}"></div></div>` +
-    `<span style="color:${c};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
-      `width:${gq(52)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+    `<span style="color:${c};font-family:${S.font};font-size:${gq(24)};font-weight:${S.fw};` +
+      `width:${gq(62)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
       `${bsGlow(8, c)}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
 }
 
@@ -2529,16 +3031,17 @@ function bsScreen1(c) {
 
   const dOpts = {anticlockwise: true, ticks: S.key === 'gold', bgRing: S.ring,
                  valColor: S.bright, critColor: S.crit, linecap: 'butt',
-                 fontWeight: S.fw, valSize: gq(30), labelSize: gq(12)};
+                 fontWeight: S.fw, valSize: gq(34), labelSize: gq(14)};
 
   // Each family draws its own instrument: the Panel donut, the Scanlines
   // phosphor ring, the Tubes magic eye, the VFD segmented dial.
   const gauge = S.gauge || function (pct, cap, which) {
     const col = which === 'cpu' ? S.dCpu : which === 'ram' ? S.dRam : S.dVram;
-    return bsGauge(pct, cap, col, S.gaugeSize || 104, S.gaugeSw || 9, dOpts);
+    return bsGauge(pct, cap, col, S.gaugeSize || 124, S.gaugeSw || 14, dOpts);
   };
   const capBar = S.capBar || function (label, cap, pct, which) {
-    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, 428);
+    const w = S.chrome === 'spine' ? 442 : 470;
+    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, w);
   };
   const capNone = S.capNone || function (label) {
     return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};` +
@@ -2551,10 +3054,10 @@ function bsScreen1(c) {
     `<div style="display:flex;justify-content:space-around;align-items:center">` +
       gauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', 'cpu') +
       gauge(bsNum(ram.available ? ram.value : 0), 'RAM', 'ram') +
-      gauge(bsNum(vram.available ? vram.value : 0), 'GPU VRAM', 'vram') +
+      gauge(bsNum(vram.available ? vram.value : 0), 'VRAM', 'vram') +
     `</div>` +
-    `<div style="display:flex;flex-direction:column;gap:${S.capGap || 11};` +
-      `margin-top:${S.capTop || gq(14)}">` +
+    `<div style="display:flex;flex-direction:column;gap:${S.capGap || gq(9)};` +
+      `margin-top:${S.capTop || gq(8)}">` +
       capBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
              bsNum(rootPct.available ? rootPct.value : 0), 'primary') +
       (home.available
@@ -2573,8 +3076,9 @@ function bsScreen1(c) {
 
   // The scale has to start and stop exactly where the bars do, or the tick
   // labels point at temperatures the bars never reach.
-  const labW = S.seg ? 34 : 38, gap = 11, scaleW = S.seg ? 300 : 340;
   const bodyW = 486 - (S.chrome === 'spine' ? 28 : 0);
+  const labW = S.seg ? 40 : 46, gap = 11, readW = 62;
+  const scaleW = bodyW - labW - readW - gap * 2;
   let panelScale = `<div style="display:flex;justify-content:space-between;` +
     `margin-left:${gq(labW + gap)};margin-right:${gq(bodyW - labW - gap - scaleW)}">`;
   for (const t of [20, 50, 70, 90, 110, 120]) {
@@ -2599,36 +3103,54 @@ function bsScreen1(c) {
   const speedStr = speed.available
     ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GbE' : speed.value + ' Mb')
     : '--';
+  // Up on the header row rather than stacked above the grid: it is an
+  // identity, not a reading, and it was costing the grid a third of its height.
+  // One line, so it cannot hang off the header into the row beneath it --
+  // the two-line version landed square on PING.
+  // Which radio is live comes from the interface name -- wl* is wireless,
+  // anything else is wired. Both icons stay on screen; the dim one is the
+  // link you are not using, which is a reading in itself.
+  const ifaceName = iface.available ? String(iface.value) : '';
+  const onWifi = /^(wl|wlan|wlp)/i.test(ifaceName);
   const identity =
-    `<div style="display:flex;justify-content:flex-end;align-items:center;gap:${gq(12)}">` +
-      bsWiredIcon(linkUp ? S.cLink : S.dim, linkUp) +
-      `<div style="text-align:right">` +
-        `<div style="color:${S.bright};font-family:${S.font};font-size:${gq(21)};font-weight:${S.fw};` +
-          `line-height:1.05;${bsGlow(8, S.bright)}">` +
-          `${iface.available ? esc(String(iface.value)) : '--'}</div>` +
-        `<div style="color:${linkUp ? S.cLink : S.dim};font-family:${S.font};font-size:${gq(11)};` +
-          `font-weight:${S.fw};margin-top:${gq(2)};text-transform:uppercase;letter-spacing:${S.ls}">` +
-          `${linkUp ? 'LINK ACTIVE' : 'NO LINK'}</div></div>` +
-      `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(1)};` +
-        `margin-left:${gq(4)}">` + bsWifiIcon(S.dim, false) +
-        `<span style="color:${S.dim};font-family:${S.font};font-size:${gq(9)};font-weight:${S.fw};` +
-        `text-transform:uppercase;letter-spacing:${S.ls}">OFF</span></div></div>`;
+    `<div style="display:flex;align-items:center;gap:${gq(9)};white-space:nowrap">` +
+      bsWiredIcon(linkUp && !onWifi ? S.cLink : S.dim, linkUp && !onWifi) +
+      bsWifiIcon(linkUp && onWifi ? S.cLink : S.dim, linkUp && onWifi) +
+      `<span style="color:${S.bright};font-family:${S.font};font-size:${gq(19)};` +
+        `font-weight:${S.fw};${bsGlow(7, S.bright)}">` +
+        `${ifaceName ? esc(ifaceName) : '--'}</span>` +
+      `<span style="color:${linkUp ? S.cLink : S.dim};font-family:${S.font};` +
+        `font-size:${gq(13)};font-weight:${S.fw};text-transform:uppercase;` +
+        `letter-spacing:${S.ls}">${linkUp ? 'LINK' : 'NO LINK'}</span>` +
+    `</div>`;
 
-  // The unit rides its own number: same colour, smaller. Recolouring it while
-  // it still inherits the number's text-shadow gives a dim glyph a bright
-  // halo, which reads as blur rather than as a quieter label.
+  // A label hard-left and its value hard-right leaves the middle of every cell
+  // empty, and there are six of them. Stacked instead -- caption over reading
+  // -- the pair reads as one object and the number can be three times the size.
   const unit = (d) => S.unitLit
-    ? `<span style="font-size:${gq(13)}">${esc(String(d.unit))}</span>`
-    : `<span style="font-size:${gq(13)};color:${S.dim};text-shadow:none">${esc(String(d.unit))}</span>`;
-  const comms = identity +
-    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(22)};` +
-      `row-gap:${gq(18)}">` +
-      bsKv('LINK', speedStr, S.cLink, 22) +
-      bsKv('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', S.cPing, 22) +
-      bsKv('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 22) +
-      bsKv('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 22) +
-      bsKv('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 18) +
-      bsKv('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 15) +
+    ? `<span style="font-size:${gq(15)}">${esc(String(d.unit))}</span>`
+    : `<span style="font-size:${gq(15)};color:${S.dim};text-shadow:none">${esc(String(d.unit))}</span>`;
+
+  const tile = (label, value, color, valPx, icon) =>
+    `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
+        (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
+      `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
+        `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
+        `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+        `${bsGlow(9, color)}">${value}</span></div>`;
+
+  const comms =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(24)};` +
+      `row-gap:${gq(26)}">` +
+      tile('LINK', speedStr, S.cLink, 40, 'speed') +
+      tile('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', S.cPing, 40, 'ping') +
+      tile('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 40, 'down') +
+      tile('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 40, 'up') +
+      tile('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 33, 'globe') +
+      tile('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 21, 'chip') +
     `</div>`;
 
   // ── CHRONOMETER
@@ -2645,23 +3167,23 @@ function bsScreen1(c) {
     `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;` +
       `height:100%;gap:${gq(2)}">` +
       `<div style="display:flex;align-items:baseline;gap:${gq(8)}">` +
-        `<span style="color:${S.kHour};font-family:${S.font};font-size:${gq(72)};font-weight:${S.fw};` +
+        `<span style="color:${S.kHour};font-family:${S.font};font-size:${gq(138)};font-weight:${S.fw};` +
           `line-height:1;font-variant-numeric:tabular-nums;` +
           `${bsGlow(26, S.kHour, '66')}">${hh}:${mmn}</span>` +
-        `<span style="color:${S.kSec};font-family:${S.font};font-size:${gq(32)};font-weight:${S.fw};` +
+        `<span style="color:${S.kSec};font-family:${S.font};font-size:${gq(58)};font-weight:${S.fw};` +
           `font-variant-numeric:tabular-nums;${bsGlow(14, S.kSec)}">${ss}</span></div>` +
-      `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(19)};font-weight:${S.fw};` +
+      `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(30)};font-weight:${S.fw};` +
         `letter-spacing:0.3em;margin-top:${gq(12)};text-transform:uppercase;` +
         `${bsGlow(10, S.kDay)}">${dayName}</div>` +
-      `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
+      `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(23)};font-weight:${S.fw};` +
         `letter-spacing:${S.ls};text-transform:uppercase">${dateStr}</div></div>`;
 
   return bsFrame(
-    bsRegion(16, 18, 486, 272, 'CORE', S.a1,
+    bsRegion(14, 10, 486, 288, 'CHRONOMETER', S.a1, '', chrono, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'CORE', S.a1,
              host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
-    bsRegion(522, 18, 486, 272, 'CHRONOMETER', S.a1, '', chrono, 'center') +
-    bsRegion(16, 312, 486, 272, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
-    bsRegion(522, 312, 486, 272, 'COMMS', S.a2, '', comms, 'space-evenly'));
+    bsRegion(14, 302, 486, 288, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
+    bsRegion(524, 302, 486, 288, 'COMMS', S.a2, identity, comms, 'space-around'));
 }
 
 /* Gold labels each fan group and colours it; Teal and Coral keep the compact
@@ -2689,12 +3211,284 @@ function bsFanRow() {
     bsFanGroup('GPU', S.dVram, gpuFans) + `</div>`;
 }
 
+
+/* ── Bridge Station: screen 2, the NPU ───────────────────────────────────
+ * The model readout was displaced from screen 1 when the chronometer took its
+ * quadrant, and has had nowhere to live since. It gets its own board in the
+ * same four-region vocabulary, so every family renders it in its own chrome.
+ *
+ * Everything here is honest about absence: a box with no local model running
+ * says so rather than drawing an empty gauge.
+ */
+/* A captioned readout: the label small and quiet above, the number as large
+   as the region allows. Shared by every Bridge Station screen so a caption is
+   the same caption everywhere -- it was copied per screen until screen 3
+   needed a third one. */
+function bsBig(label, value, color, valPx, icon) {
+  const S = bsS();
+  return `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
+    `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
+      (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
+    `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
+      `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
+      `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+      `${bsGlow(9, color)}">${value}</span></div>`;
+}
+
+function bsNpuScreen(c) {
+  const S = bsS();
+
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const model = m('llama.model'), quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
+  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total'), vramPct = m('gpu.vram_percent');
+  const gpuName = m('gpu.name'), gpuPow = m('gpu.power'), gpuTemp = m('gpu.temp');
+  const cards = asList(m('gpu.cards'));
+  const cardShort = cards.length && cards[0].short_name ? esc(String(cards[0].short_name))
+                  : gpuName.available ? esc(String(gpuName.value)) : '--';
+
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? S.dim : running && healthy ? S.cLink : S.warn;
+  const stateText = !status.available ? 'NOT DETECTED'
+                  : esc(String(status.value)).toUpperCase();
+
+  const big = bsBig;
+
+  // ── MODEL: what is loaded
+  const modelName = model.available
+    ? esc(String(model.value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''))
+    : '--';
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : '--';
+  const modelBody =
+    `<div style="color:${S.bright};font-family:${S.font};font-size:${gq(34)};` +
+      `font-weight:${S.fw};line-height:1.1;${bsGlow(10, S.bright)}">${modelName}</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(20)}">` +
+      big('QUANT', quant.available ? esc(String(quant.value)) : '--', S.a4 || S.cLink, 34) +
+      big('CONTEXT', ctxText, S.cIp, 34) +
+      big('SLOTS', slots.available ? String(bsNum(slots.value)) : '--', S.cLink, 34) +
+      big('ENGINE', backend.available ? esc(String(backend.value)) : '--', S.soft, 28) +
+    `</div>`;
+
+  // ── THROUGHPUT: the number you actually watch
+  const tpsVal = tps.available && typeof tps.value === 'number'
+    ? tps.value.toFixed(1) : null;
+  const tpsBody =
+    `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<span style="color:${tpsVal === null ? S.dim : S.cLink};font-family:${S.font};` +
+        `font-size:${gq(96)};font-weight:${S.fw};line-height:1;` +
+        `font-variant-numeric:tabular-nums;${bsGlow(26, tpsVal === null ? S.dim : S.cLink, '66')}">` +
+        `${tpsVal === null ? '--' : tpsVal}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(22)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:0.28em;` +
+        `margin-top:${gq(6)}">TOKENS / SEC</span>` +
+      `<span style="color:${S.soft};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `margin-top:${gq(10)}">` +
+        `${slots.available ? bsNum(slots.value) + ' ACTIVE SLOT' + (bsNum(slots.value) === 1 ? '' : 'S') : 'SLOTS --'}` +
+      `</span></div>`;
+
+  // ── WEIGHTS: what the model is costing the card
+  const gib = (mib) => (bsNum(mib) / 1024).toFixed(1);
+  const weightsBody =
+    bsCapacityBar('VRAM IN USE',
+      vramUsed.available && vramTotal.available
+        ? `${gib(vramUsed.value)} / ${gib(vramTotal.value)} G` : '--',
+      bsNum(vramPct.available ? vramPct.value : 0), S.a2,
+      S.chrome === 'spine' ? 442 : 470) +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(14)};margin-top:${gq(16)}">` +
+      big('CARD', cardShort, S.cIp, 26) +
+      big('DRAW', gpuPow.available ? Math.round(bsNum(gpuPow.value)) + ' W' : '--', S.cPower, 30) +
+    `</div>`;
+
+  // ── SERVICE: is it up, and what is it
+  const serviceBody =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(18)}">` +
+      big('STATE', stateText, stateColor, 34) +
+      big('HEALTH', health.available ? esc(String(health.value)).toUpperCase() : '--',
+          healthy ? S.cLink : S.warn, 34) +
+      big('CARD TEMP', gpuTemp.available ? Math.round(bsNum(gpuTemp.value)) + '°C' : '--',
+          gpuTemp.available ? S.therm(gpuTemp.value) : S.dim, 34) +
+      big('SERVER PID', procs.length ? bsVal(procs[0].pid) : '--',
+          procs.length ? S.cIp : S.dim, 34) +
+    `</div>` +
+    (procs.length ? '' :
+      `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls}">` +
+        `NO LOCAL SERVER PROCESS</div>`);
+
+  return bsFrame(
+    bsRegion(14, 10, 486, 288, 'THROUGHPUT', S.a1, '', tpsBody, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'MODEL', S.a1,
+             backend.available ? esc(String(backend.value)).toUpperCase() : '',
+             modelBody, 'space-between') +
+    bsRegion(14, 302, 486, 288, 'WEIGHTS', S.a3, '', weightsBody, 'space-between') +
+    bsRegion(524, 302, 486, 288, 'SERVICE', S.a2, stateText, serviceBody, 'space-between', stateColor));
+}
+
+function sfTosNpuScreen(c) { bsSkin(BS_SKIN_TOS); return bsNpuScreen(c); }
+function sfDs9NpuScreen(c) { bsSkin(BS_SKIN_DS9); return bsNpuScreen(c); }
+function sfTngNpuScreen(c) { bsSkin(BS_SKIN_TNG); return bsNpuScreen(c); }
+function scanNpuScreen(c) { bsSkin(BS_SKIN_SCAN); return bsNpuScreen(c); }
+function tubeNpuScreen(c) { bsSkin(BS_SKIN_TUBE); return bsNpuScreen(c); }
+function vfdNpuScreen(c) { bsSkin(BS_SKIN_VFD); return bsNpuScreen(c); }
+
 function sfTosScreen1(c) { bsSkin(BS_SKIN_TOS); return bsScreen1(c); }
 function sfDs9Screen1(c) { bsSkin(BS_SKIN_DS9); return bsScreen1(c); }
 function sfTngScreen1(c) { bsSkin(BS_SKIN_TNG); return bsScreen1(c); }
 function scanScreen1(c) { bsSkin(BS_SKIN_SCAN); return bsScreen1(c); }
 function tubeScreen1(c) { bsSkin(BS_SKIN_TUBE); return bsScreen1(c); }
 function vfdScreen1(c) { bsSkin(BS_SKIN_VFD); return bsScreen1(c); }
+
+/* ── Screen 3 in the Bridge Station skins ────────────────────────────────
+ * Claude usage used to be one generic renderer for all sixteen themes: it
+ * took the palette and nothing else, so every rotation dropped its family's
+ * chrome for a plain two-column web layout on the third screen. Here it is on
+ * the same four-region board as System Stats and the NPU panel, which means
+ * TOS gets its spine, DS9 and TNG their tabs, and the Vintage skins their
+ * rules, glass and overlays -- for free.
+ */
+
+/* A history plot in the skin's own ink. viewBox coordinates are the 1024px
+   authoring grid; the element itself is sized in cqw, so it scales with the
+   frame the way every other instrument on these boards does. */
+function bsSpark(samples, color, w, h) {
+  const S = bsS();
+  const halo = S.glow ? `filter:drop-shadow(0 0 ${gq(5)} ${color})` : '';
+  const arr = (samples && samples.length >= 2) ? samples : null;
+  if (!arr) {
+    return `<svg width="${gq(w)}" height="${gq(h)}" viewBox="0 0 ${w} ${h}" ` +
+      `preserveAspectRatio="none" style="${halo}">` +
+      `<line x1="0" y1="${h - 1}" x2="${w}" y2="${h - 1}" stroke="${color}" ` +
+      `stroke-width="1.5" opacity="0.25"/></svg>`;
+  }
+  let max = 1;
+  for (const v of arr) if (typeof v === 'number' && v > max) max = v;
+  const pts = arr.map((v, i) => {
+    const x = (i / (arr.length - 1)) * w;
+    const y = h - (Math.max(0, bsNum(v)) / max) * (h - 3);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg width="${gq(w)}" height="${gq(h)}" viewBox="0 0 ${w} ${h}" ` +
+    `preserveAspectRatio="none" style="${halo}">` +
+    `<polygon points="${pts} ${w},${h} 0,${h}" fill="${color}" opacity="0.16"/>` +
+    `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" ` +
+    `stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function bsClaudeScreen(c) {
+  const S = bsS();
+  const bodyW = S.chrome === 'spine' ? 442 : 470;
+
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, whole) => whole > 0 ? (part / whole) * 100 : 0;
+  const total = nz(tokTotal), sess = nz(sTotal);
+
+  /* Input / output / cache-write / cache-read take the skin's four accents,
+     so the same reading is the same colour in every family. */
+  const cIn = S.a1, cOut = S.a2, cCW = S.a3, cCR = S.a4 || S.cLink;
+
+  // ── USAGE: the all-time total, and the scale it was accumulated over
+  const usageBody =
+    `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<span style="color:${total ? S.cLink : S.dim};font-family:${S.font};font-size:${gq(92)};` +
+        `font-weight:${S.fw};line-height:1;font-variant-numeric:tabular-nums;` +
+        `${bsGlow(26, total ? S.cLink : S.dim, '66')}">${fmtTok(total)}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(22)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:0.28em;` +
+        `margin-top:${gq(6)}">TOKENS ALL TIME</span>` +
+      `<span style="color:${S.soft};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `margin-top:${gq(10)}">` +
+        `${sessions.available ? bsNum(sessions.value) : '--'} SESSIONS` +
+        ` &middot; ${days.available ? bsNum(days.value) : '--'} DAYS` +
+      `</span></div>`;
+
+  // ── BREAKDOWN: where those tokens went
+  const breakdownBody =
+    bsMetered('INPUT', fmtTok(nz(tokIn)), share(nz(tokIn), total), cIn, bodyW, 26, 26, 15) +
+    bsMetered('OUTPUT', fmtTok(nz(tokOut)), share(nz(tokOut), total), cOut, bodyW, 26, 26, 15) +
+    bsMetered('CACHE WRITE', fmtTok(nz(tokCW)), share(nz(tokCW), total), cCW, bodyW, 26, 26, 15) +
+    bsMetered('CACHE READ', fmtTok(nz(tokCR)), share(nz(tokCR), total), cCR, bodyW, 26, 26, 15);
+
+  // ── SESSION: the same shape, scoped to the conversation in front of you
+  const sessionBody =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(12)}">` +
+      bsBig('SESSION TOKENS', fmtTok(sess), S.cIp, 40) +
+      bsBig('MESSAGES', fmtNum(sMsgs), S.bright, 40) +
+    `</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(12)};margin-top:${gq(12)}">` +
+      bsBig('IN', fmtTok(nz(sIn)), cIn, 28) +
+      bsBig('OUT', fmtTok(nz(sOut)), cOut, 28) +
+      bsBig('CACHE W', fmtTok(nz(sCW)), cCW, 28) +
+      bsBig('CACHE R', fmtTok(nz(sCR)), cCR, 28) +
+    `</div>`;
+
+  // ── ACTIVITY: the live rate, plotted, and the long-run averages
+  const activityBody =
+    `<div style="display:flex;align-items:flex-end;gap:${gq(14)}">` +
+      `<span style="color:${S.cPing};font-family:${S.font};font-size:${gq(52)};` +
+        `font-weight:${S.fw};line-height:1;font-variant-numeric:tabular-nums;` +
+        `${bsGlow(16, S.cPing)}">${fmtNum(rate, '0')}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `padding-bottom:${gq(6)}">TOK / MIN</span></div>` +
+    `<div style="margin-top:${gq(6)}">` +
+      bsSpark(spark.available ? spark.value : null, S.cPing, bodyW, 50) + `</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(10)};margin-top:${gq(10)}">` +
+      bsBig('AGENTS', String(agents.available ? bsNum(agents.value) : 0), S.cLink, 34, 'chip') +
+      bsBig('MESSAGES', fmtNum(mAll), S.bright, 34) +
+      bsBig('TOKENS / MO', fmtTok(nz(monTok)), S.soft, 28) +
+      bsBig('MSGS / MO', fmtNum(monMsg), S.soft, 28) +
+    `</div>`;
+
+  const ratio = (mAsst.available && mUser.available && bsNum(mUser.value) > 0)
+    ? (bsNum(mAsst.value) / bsNum(mUser.value)).toFixed(1) + ':1'
+    : '';
+
+  return bsFrame(
+    bsRegion(14, 10, 486, 288, 'USAGE', S.a1, '', usageBody, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'BREAKDOWN', S.a1, fmtTok(total), breakdownBody, 'space-evenly') +
+    bsRegion(14, 302, 486, 288, 'SESSION', S.a3, ratio ? 'A/U ' + ratio : '',
+             sessionBody, 'space-evenly') +
+    bsRegion(524, 302, 486, 288, 'ACTIVITY', S.a2,
+             agents.available && bsNum(agents.value) > 0 ? 'ACTIVE' : '',
+             activityBody, 'space-evenly',
+             agents.available && bsNum(agents.value) > 0 ? S.cLink : null));
+}
+
+function sfTosClaudeScreen(c) { bsSkin(BS_SKIN_TOS); return bsClaudeScreen(c); }
+function sfDs9ClaudeScreen(c) { bsSkin(BS_SKIN_DS9); return bsClaudeScreen(c); }
+function sfTngClaudeScreen(c) { bsSkin(BS_SKIN_TNG); return bsClaudeScreen(c); }
+function scanClaudeScreen(c) { bsSkin(BS_SKIN_SCAN); return bsClaudeScreen(c); }
+function tubeClaudeScreen(c) { bsSkin(BS_SKIN_TUBE); return bsClaudeScreen(c); }
+function vfdClaudeScreen(c) { bsSkin(BS_SKIN_VFD); return bsClaudeScreen(c); }
 
 
 /* ── site render shim (replaces display_app.js poll loop) ── */
@@ -2704,22 +3498,50 @@ function m(key){ if(!metrics||!metrics[key]) return {value:null,available:false,
 function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc(suffix? d.value+suffix : String(d.value)); }
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
   return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
-function getScreen1Fn(){
-  var isSciFi=activeFamily==='Sci-Fi', isVintage=activeFamily==='Vintage';
-  if(isSciFi && activeVariant==='DS9') return sfDs9Screen1;
-  if(isSciFi && activeVariant==='TNG') return sfTngScreen1;
-  if(isSciFi) return sfTosScreen1;
-  if(isVintage && activeVariant==='Tubes') return tubeScreen1;
-  if(isVintage && activeVariant==='VFD') return vfdScreen1;
-  if(isVintage) return scanScreen1;
-  return terminalScreen1;
+
+/* Mirrors getScreenRegistry() in display_app.js. The site used to render only
+   screen 1, which quietly made four fifths of the product invisible to anyone
+   who had not installed it. */
+function siteScreens(family, variant){
+  var fns, second;
+  if (family === 'Sci-Fi') {
+    second = 'NPU';
+    fns = variant === 'DS9' ? [sfDs9Screen1, sfDs9NpuScreen, sfDs9ClaudeScreen, sfDs9GpuScreen, sfDs9Screen2]
+        : variant === 'TNG' ? [sfTngScreen1, sfTngNpuScreen, sfTngClaudeScreen, sfTngGpuScreen, sfTngScreen2]
+                            : [sfTosScreen1, sfTosNpuScreen, sfTosClaudeScreen, sfTosGpuScreen, sfTosScreen2];
+  } else if (family === 'Vintage') {
+    second = 'NPU';
+    fns = variant === 'Tubes' ? [tubeScreen1, tubeNpuScreen, tubeClaudeScreen, tubeGpuScreen, tubeScreen2]
+        : variant === 'VFD'   ? [vfdScreen1, vfdNpuScreen, vfdClaudeScreen, vfdGpuScreen, vfdScreen2]
+                              : [scanScreen1, scanNpuScreen, scanClaudeScreen, scanGpuScreen, scanScreen2];
+  } else if (DISTRO_SCREENS[variant]) {
+    second = 'AI Monitor';
+    fns = [DISTRO_SCREENS[variant], DISTRO_AI_SCREENS[variant], DISTRO_CLAUDE_SCREENS[variant],
+           DISTRO_GPU_SCREENS[variant], null];
+  } else {
+    second = 'AI Monitor';
+    fns = [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen, null];
+  }
+  var out = [
+    {name: 'System', fn: fns[0]},
+    {name: second, fn: fns[1]},
+    {name: 'Claude', fn: fns[2]},
+    {name: 'GPU', fn: fns[3]},
+  ];
+  if (fns[4]) out.push({name: 'Clock', fn: fns[4]});
+  return out;
 }
-/* Render theme's primary (System Stats) screen into element id `elId`. */
-function renderThemeInto(elId, family, variant){
+window.SITE_SCREENS = siteScreens;
+
+/* Render one screen of a theme into element `elId`. `screenIdx` defaults to the
+   System Stats board; out-of-range indices clamp rather than blank the device. */
+function renderThemeInto(elId, family, variant, screenIdx){
   var colors=((window.SITE_THEMES.families[family]||{})[variant])||null;
   if(!colors) return;  // bad/unknown theme: leave global state + current render intact.
   activeFamily=family; activeVariant=variant; themeColors=colors;
-  document.getElementById(elId).innerHTML = getScreen1Fn()(themeColors);
+  var screens = siteScreens(family, variant);
+  var i = Math.max(0, Math.min(screens.length - 1, screenIdx|0));
+  document.getElementById(elId).innerHTML = screens[i].fn(themeColors);
 }
 window.renderThemeInto = renderThemeInto;
 window.SITE_THEME_LIST = (function(){ var o=window.SITE_THEMES.families, a=[];

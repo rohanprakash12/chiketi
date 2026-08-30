@@ -44,9 +44,12 @@
     });
   }
 
-  // default face: Panel/Gold (override with ?t=Family/Variant for verification).
-  // An invalid/malformed ?t= must NOT blank the device — validate, else fall back.
-  var def = ['Panel', 'Gold'];
+  // Default face (override with ?t=Family/Variant for verification). Validated
+  // like ?t= is: this default was left as the retired Panel/Gold through the
+  // Sci-Fi rename, renderThemeInto() rightly refused it, and the hero device
+  // shipped blank. A default that is not a real theme now falls back to the
+  // first one in the frozen list rather than to nothing.
+  var def = ['Sci-Fi', 'TOS'];
   var q = (location.search.match(/[?&]t=([^&]+)/) || [])[1];
   if (q) {
     // A malformed escape (?t=%) makes decodeURIComponent throw a URIError, which
@@ -58,6 +61,9 @@
       var parts = decoded.split('/');
       if (parts.length === 2 && isKnownTheme(parts[0], parts[1])) def = parts;
     }
+  }
+  if (!isKnownTheme(def[0], def[1]) && window.SITE_THEME_LIST.length) {
+    def = [window.SITE_THEME_LIST[0].family, window.SITE_THEME_LIST[0].variant];
   }
   setTheme(def[0], def[1]);
 })();
@@ -107,17 +113,46 @@
     host.appendChild(wrap);
   });
 
-  function setGallery(f, v) {
-    renderThemeInto('gallery-display', f, v);
+  // The gallery used to show screen 1 and nothing else, which made four fifths
+  // of the product invisible to anyone who had not installed it. The screen
+  // tabs are rebuilt per theme because the families do not agree on how many
+  // screens they have: the distro boards draw the time on screen 1, so they
+  // have no separate clock to offer.
+  var tabHost = document.querySelector('.screen-tabs');
+  var curF = null, curV = null, curI = 0;
+
+  function buildTabs(f, v) {
+    if (!tabHost || !window.SITE_SCREENS) return;
+    var screens = window.SITE_SCREENS(f, v);
+    if (curI >= screens.length) curI = 0;
+    tabHost.innerHTML = '';
+    screens.forEach(function (sc, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'screen-tab' + (i === curI ? ' active' : '');
+      b.textContent = sc.name;
+      b.setAttribute('aria-pressed', i === curI ? 'true' : 'false');
+      b.addEventListener('click', function () { setGallery(f, v, i); });
+      tabHost.appendChild(b);
+    });
+  }
+
+  function setGallery(f, v, i) {
+    curF = f; curV = v;
+    if (typeof i === 'number') curI = i;
+    var screens = window.SITE_SCREENS ? window.SITE_SCREENS(f, v) : [0];
+    if (curI >= screens.length) curI = 0;
+    renderThemeInto('gallery-display', f, v, curI);
     host.querySelectorAll('.swatch').forEach(function (s) {
       var on = s.dataset.f === f && s.dataset.v === v;
       s.classList.toggle('active', on);
       s.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
+    buildTabs(f, v);
   }
 
   // default the gallery to a DIFFERENT face than the hero, for variety at rest.
-  setGallery('Vintage', 'Tubes');
+  setGallery('Vintage', 'Tubes', 0);
 })();
 
 /* ── install: real tabs (keyboard-accessible) + copy buttons ── */

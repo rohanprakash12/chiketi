@@ -4,13 +4,15 @@ A real-time system monitoring dashboard designed for dedicated small displays. R
 
 Built for the GeeekPi 7" (1024x600) but works on any HDMI display.
 
-**Website:** https://rohanprakash12.github.io/chiketi/ — live, interactive theme gallery (try all 12 themes in your browser).
+**Version:** 0.1.0 — the first tagged release. See [CHANGELOG.md](CHANGELOG.md).
+**Website:** https://rohanprakash12.github.io/chiketi/ — live, interactive gallery: all 16 themes, all five screens, rendered in your browser by the product's own renderers.
 **Companion product:** [chiketi-appliance](https://github.com/rohanprakash12/chiketi-appliance) — monitor *remote* servers over SSH from a dedicated Raspberry Pi.
 
 ## Features
 
-- **16 themed dashboards** across 3 theme families — Sci-Fi (TOS/DS9/TNG), Terminal (six classic palettes plus four distro boards), and Vintage (tubes/VFD/scanlines)
-- **3 rotating screens** — System stats, a theme-specific second screen (GPU/AI monitor on Terminal themes, a clock on Sci-Fi/Vintage), and Claude Code usage
+- **16 themed dashboards** across 3 theme families — Sci-Fi (TOS/DS9/TNG), Terminal (six classic palettes plus four distro boards), and Vintage (Scanlines/Tubes/VFD)
+- **5 rotating screens** — System stats, an AI/NPU panel, Claude Code usage, a GPU board and a clock. Every screen is drawn in its own family's chrome; none of them borrows another family's renderer
+- **Sized for a small panel read from a distance** — the layouts were tuned against measured overflow, edge-ink and space-coverage checks on a 10" screen, not by eye
 - **Remote control panel** — Switch themes, toggle screens, adjust rotation from your phone at `http://<host>:7777`
 - **Display on/off toggle** — Turn the dashboard on/off from the control panel, restoring the console when off
 - **Live metrics** — CPU, memory, disk, network, GPU (NVIDIA), fan speeds, local LLM server (llama.cpp / Ollama / vLLM), Claude Code token usage
@@ -104,7 +106,7 @@ chiketi --token s3cret   # then open http://<host>:7777/?token=s3cret
 The dashboard launches Chromium in kiosk mode on the detected display and starts the control panel server on port 7777.
 
 **Control panel:** Open `http://<host-ip>:7777` on your phone or laptop to:
-- Browse and switch between all 12 themes
+- Browse and switch between all 16 themes
 - Preview screens live
 - Toggle individual screens on/off with custom rotation durations
 - Turn the dashboard display on/off
@@ -121,21 +123,31 @@ The dashboard launches Chromium in kiosk mode on the detected display and starts
 
 ### Terminal
 
-Six color variants: **hacker** (green), **cyan**, **amber**, **phosphor**, **red_alert**, **blue**
+Six classic palettes — **hacker** (green), **cyan**, **amber**, **phosphor**, **red_alert**, **blue** — drawn as bordered `──[ PANEL ]` blocks with character meters.
+
+Four distro boards — **Arch**, **Ubuntu**, **openSUSE**, **Mandriva** — modelled on the conky configs each distro is known by: a dense monospace grid, block-height history graphs, character meters, and the time drawn large in block characters. Each carries its own palette.
 
 ### Vintage
 
 | Theme | Style |
 |-------|-------|
-| Scanlines | CRT scanline overlay, retro green |
-| Tubes | Warm amber nixie tube aesthetic |
-| VFD | Vacuum fluorescent display glow |
+| Scanlines | A phosphor CRT: anisotropic beam smear, shadow-mask triads, Gaussian scanline weighting, refresh haze and overscan |
+| Tubes | Nixie digits with stacked cathodes, magic-eye gauges, bargraph filaments, dekatron fans |
+| VFD | Segmented bars over a ghost track, filament lines across the glass |
 
 ## Screens
 
-1. **System Stats** — CPU usage/temp, memory, disk, network throughput, fan speeds
-2. **Theme-specific** — Terminal themes show a **GPU/AI Monitor** (GPU utilization, VRAM, power, clocks, CUDA processes); Sci-Fi and Vintage themes show a **Clock**
-3. **Claude Code** — Token usage by type, messages, monthly averages, session stats, live token rate sparkline
+Five screens rotate. Each is enabled, disabled and timed individually from the
+control panel, so a machine with no GPU or no local model simply switches those
+screens off.
+
+| # | Screen | What it shows |
+|---|--------|----------------|
+| 1 | **System Stats** | CPU / RAM / VRAM gauges, thermals with fans, capacity bars, network identity and throughput. Sci-Fi and Vintage also carry the chronometer here. |
+| 2 | **NPU / AI Monitor** | The local LLM server: throughput in tok/s, model, quant, context, slots, VRAM residency, service health. |
+| 3 | **Claude Code usage** | Tokens by type (input / output / cache write / cache read), messages, session totals, monthly averages, live token-rate plot, agents spawned. |
+| 4 | **GPU** | Adaptive to card count — one card in full, or a grid of tiles for a multi-card rig. Utilisation, VRAM, power, clocks, temperature, per-process VRAM. |
+| 5 | **Clock** | A full-screen chronometer in the family's own idiom: nixie digits on Tubes, phosphor glow on Scanlines, LCARS numerals on Sci-Fi. Sci-Fi and Vintage only — the Terminal distro boards draw the time on screen 1. |
 
 ## Architecture
 
@@ -230,10 +242,19 @@ Headless test suite (no display/GPU/network needed — collectors and the HTTP
 server are exercised with mocks and an ephemeral-port server):
 
 ```bash
-pytest -q                        # 400+ tests
-node tests/js/render_harness.js  # every renderer against hostile payloads
+pytest -q                        # 572 tests
+node tests/js/render_harness.js  # every renderer, every fixture, every theme
 ./scripts/check_js.sh            # syntax-check the inlined UI JavaScript
 ```
+
+The renderer harness is more than a smoke test. It renders every
+(fixture × theme × screen) combination and fails on: an exception, an
+`undefined`/`NaN` reaching the HTML, an unescaped metric (detected by
+tokenizing, not by matching a payload — `nixieDigit` wraps every character in
+its own span, so a naive substring check misses real leaks), a GPU screen that
+does not explain an empty or truncated card list, layout sized in absolute `px`
+(which does not scale between the 1024px kiosk and the ~350px control-panel
+preview), and any metric key the renderers read that no fixture supplies.
 
 CI runs all three on Python 3.11–3.13, plus an sdist/wheel build, on every push
 and PR (`.github/workflows/ci.yml`).
@@ -246,7 +267,7 @@ chiketi/
 │   ├── __main__.py            # CLI entry point
 │   ├── app.py                 # MetricEngine thread + DisplayManager + run()
 │   ├── server.py              # HTTP server + API routes (serves assets/ui)
-│   ├── themes.py              # 12 themes across 3 families
+│   ├── themes.py              # 16 themes across 3 families
 │   ├── panel_spec.py          # shared design tokens (web_spec)
 │   ├── config.py              # timing constants
 │   ├── state.py               # versioned settings persistence (atomic writes)
@@ -270,9 +291,11 @@ chiketi/
 ### The website
 
 `docs/` is published via GitHub Pages. The site reuses the product's real
-renderers (`chiketi/assets/ui/`) to render all 12 themes live in the browser
-from a frozen data snapshot. Regenerate that snapshot after changing themes or
-the dashboard renderers:
+renderers (`chiketi/assets/ui/`) to render all 16 themes — and all five
+screens — live in the browser from a frozen data snapshot. The snapshot's
+metrics are taken from `tests/js/fixtures.js`, the same map a harness assertion
+keeps complete, so the site cannot quietly start rendering a screen's empty
+state. Regenerate after changing themes or the dashboard renderers:
 
 ```bash
 python scripts/gen_site_assets.py

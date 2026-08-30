@@ -13,6 +13,13 @@ function mval(value, unit, extra) {
 const FULL = {
   'sys.hostname': mval('chiketi-pi'),
   'sys.uptime': mval('3d 4h 12m', '', { seconds: 274320 }),
+  'sys.kernel': mval('6.11.0-19-generic'),
+  'sys.top_procs': mval([
+    { name: 'llama-server', pid: 4412, cpu: 68.4, mem: 22.1 },
+    { name: 'chromium', pid: 2201, cpu: 12.9, mem: 6.4 },
+    { name: 'python3', pid: 41207, cpu: 8.1, mem: 3.2 },
+    { name: 'Xorg', pid: 1180, cpu: 3.4, mem: 1.1 },
+  ], '', { total: 284 }),
   'cpu.usage': mval(42.5, '%'),
   'cpu.per_core': mval([10, 20, 30, 40, 50, 60, 70, 80], '%'),
   'cpu.temp': mval(61, '°C'),
@@ -35,7 +42,9 @@ const FULL = {
   'disk.home_percent': mval(33.3, '%'),
   'net.ip': mval('192.168.16.66'),
   'net.mac': mval('AA:BB:CC:DD:EE:FF'),
+  'net.iface': mval('eno1'),
   'net.speed': mval(1000, 'Mbps'),
+  'net.ping': mval(11.4, 'ms'),
   'net.dl': mval(12.4, 'MB/s', { raw_bytes_per_sec: 12400000 }),
   'net.ul': mval(1.1, 'MB/s', { raw_bytes_per_sec: 1100000 }),
   'gpu.name': mval('NVIDIA GeForce RTX 4090'),

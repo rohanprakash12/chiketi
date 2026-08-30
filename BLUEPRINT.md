@@ -1,10 +1,11 @@
 # Chiketi — Architecture Blueprint
 
-> **Note (2026-06):** Chiketi was originally prototyped with pygame (pixel
-> rendering). It has since been re-architected as an **HTTP server that renders
-> the dashboards as HTML/CSS/JS in a Chromium kiosk**. This document describes
-> the current architecture. The pygame design is retired; git history retains it
-> if needed.
+> **v0.1.0.** This document describes the architecture as tagged.
+>
+> Chiketi was originally prototyped with pygame (pixel rendering). It has since
+> been re-architected as an **HTTP server that renders the dashboards as
+> HTML/CSS/JS in a Chromium kiosk**. The pygame design is retired; git history
+> retains it if needed.
 
 ## What Is This
 
@@ -41,12 +42,12 @@ chiketi/
 │   ├── server.py                # HTTP server: API routes + serves assets/ui
 │   ├── config.py                # timing constants
 │   ├── state.py                 # versioned settings persistence (atomic writes)
-│   ├── themes.py                # 12 themes / 3 families + active-theme state
+│   ├── themes.py                # 16 themes / 3 families + active-theme state
 │   ├── panel_spec.py            # shared design tokens (web_spec())
 │   ├── collectors/
 │   │   ├── base.py              # MetricCollector ABC + MetricValue dataclass
 │   │   ├── registry.py          # platform-aware collector list
-│   │   ├── system.py            # hostname + uptime
+│   │   ├── system.py            # hostname, uptime, kernel, top processes
 │   │   ├── cpu.py               # usage, per-core, temp, fans
 │   │   ├── memory.py            # RAM + swap
 │   │   ├── disk.py              # / and /home
@@ -63,7 +64,7 @@ chiketi/
 │       │   ├── control.css      # control-panel styles
 │       │   ├── control_app.js   # control-panel logic
 │       │   ├── screen_functions.js  # the dashboard renderers (shared)
-│       │   ├── shared_helpers.js     # shared render helpers (tBar/lPanel/…)
+│       │   ├── shared_helpers.js     # esc, Terminal panels, capacity formatting
 │       │   └── fonts.css        # @font-face for the bundled fonts
 │       └── fonts/               # bundled display fonts
 ├── docs/                        # GitHub Pages website (separate from the app)
@@ -73,7 +74,7 @@ chiketi/
 │   ├── check_js.sh              # node --check for the inlined UI JavaScript
 │   ├── run.sh                   # launch helper
 │   └── chiketi.desktop          # reference autostart entry (installer generates its own)
-└── tests/                       # pytest suite (400+ tests) + tests/js/ renderer harness
+└── tests/                       # pytest suite (572 tests) + tests/js/ renderer harness
 ```
 
 ## Dependencies
@@ -138,7 +139,7 @@ page it serves, substituting a few dynamic values:
 **Theming is client-side.** The CSS carries only layout (sizes in `cqw`
 container units); all colors come from inline styles the renderers build from
 the active theme palette fetched via `/api/themes`. This is why the same
-renderers produce all 12 themes — and why the website (below) can reuse them
+renderers produce all 16 themes — and why the website (below) can reuse them
 with a frozen palette snapshot.
 
 ## Collector Design
@@ -158,36 +159,87 @@ Every collector subclasses `MetricCollector` and returns
 
 | Collector | Keys (selected) | Notes |
 |-----------|------------------|-------|
-| SystemCollector | `sys.hostname`, `sys.uptime` | uptime "Xd Xh Xm" |
+| SystemCollector | `sys.hostname`, `sys.uptime`, `sys.kernel`, `sys.top_procs` | uptime "Xd Xh Xm"; top processes cached 3s |
 | CpuCollector | `cpu.usage`, `cpu.per_core`, `cpu.temp`, `cpu.fan(s_*)`, `cpu.mb_temp` | temp/fans via sensors |
 | MemoryCollector | `mem.ram_*`, `mem.swap_*` | GiB |
 | DiskCollector | `disk.root_*`, `disk.home_*` | auto TiB/GiB |
-| NetworkCollector | `net.dl`, `net.ul`, `net.ip`, `net.mac`, `net.speed` | delta-based throughput |
-| GpuNvidiaCollector | `gpu.name/temp/fan/power/vram_*/util/clock_*/processes` | pynvml, lazy NVML init |
-| LlmCollector | `llama.status/health/model/quant/context/backend` | llama.cpp/Ollama/vLLM autodetect |
+| NetworkCollector | `net.dl`, `net.ul`, `net.ip`, `net.mac`, `net.iface`, `net.speed`, `net.ping` | delta-based throughput |
+| GpuNvidiaCollector | `gpu.name/temp/fan/power/vram_*/util/mem_util/clock_*/processes`, `gpu.cards`, `gpu.count` | pynvml, lazy NVML init; `gpu.cards` is the per-card list the GPU screen adapts to |
+| LlmCollector | `llama.status/health/model/quant/context/backend/tok_per_sec/active_slots/processes` | llama.cpp/Ollama/vLLM autodetect |
 | ClaudeCollector | `claude.tokens_*`, `claude.session_*`, `claude.sparkline`, … | parses local Claude Code JSONL |
 
 ## Screens
 
-Three rotating screens, rendered per theme family in `screen_functions.js`:
+Five screens, each rendered per theme family in `screen_functions.js`. The
+control panel enables, disables and times each one individually.
 
-1. **System Stats** — CPU/RAM/disk donuts or bars, thermals, network, host info.
-2. **Theme-specific** — Terminal themes render a **GPU / AI Monitor** (GPU
-   utilization, VRAM, power, clocks; local-LLM status); Sci-Fi and Vintage
-   themes render a **Clock**.
-3. **Claude Code Usage** — token usage by type, messages, session stats, live
-   token-rate sparkline.
+1. **System Stats** — CPU/RAM/VRAM gauges, thermals with fans, capacity bars,
+   network identity and throughput. Sci-Fi and Vintage also carry the
+   chronometer in the top-left region.
+2. **NPU / AI Monitor** — the local LLM server: throughput, model, quant,
+   context, slots, VRAM residency, service health.
+3. **Claude Code usage** — tokens by type, messages, session totals, monthly
+   averages, a live token-rate plot, agents spawned.
+4. **GPU** — adaptive to card count: one card in full, two side by side,
+   three or more as compact tiles. Zero cards render an honest empty state.
+5. **Clock** — a full-screen chronometer. Sci-Fi and Vintage only; the
+   Terminal distro boards draw the time in block characters on screen 1.
 
-The Sci-Fi family lays these out as titled color panels with donuts; Terminal as
-monospace ASCII-bar panels; Vintage with CRT/VFD/nixie styling.
+**Every family draws all of its own screens.** This is load-bearing, and it was
+not true before v0.1: screen 4 fell through to the Sci-Fi TOS board for the six
+Terminal palettes, screen 3 was a single generic renderer shared by all sixteen
+themes, and the distro boards borrowed the classic Terminal AI screen. The
+registry in `display_app.js` / `control_app.js` now names five renderers per
+family with no fallback, and the renderer harness asserts against the screen's
+*slot* rather than its function name — matching on the name is exactly how the
+four distro GPU boards went untested.
+
+### The skin system
+
+Sci-Fi and Vintage share one layout ("Bridge Station") and differ only by skin.
+A skin is a table of chrome kind, fonts, palette roles and instrument hooks:
+
+- **chrome** — `spine` (TOS: a glowing rail down the region's left edge),
+  `tab` (DS9/TNG: a header tab with a rule running out of it), `rule`
+  (Vintage: a hairline under the title).
+- **palette roles** — `a1`–`a4`, `cLink`, `cPing`, `cRecv`, `cSend`, `cIp`,
+  `cMac`, `cPower`, `therm(t)`, … so a reading is the same colour everywhere.
+- **instrument hooks** — `gauge`, `gpuGauge`, `capBar`, `thermRowFn`,
+  `fanRowFn`, `clockFn`, `barFn`, `glowFn`, `overlay`, `defs`. Tubes swaps in
+  magic eyes and nixie digits; VFD swaps in segmented bars; Scanlines adds a
+  CRT overlay stack and a two-stage halo.
+
+One layout change therefore lands in six themes at once, and a family keeps its
+own vocabulary without a second copy of the layout.
+
+### Sizing
+
+`.screen-frame` is 1024px wide on the kiosk and roughly 350px in the control
+panel's live preview. Everything is authored against the 1024px grid and
+emitted in container units — `gq(px)` returns `cqw` — so both scale. **Absolute
+`px` for layout does not scale**, and the harness fails any renderer that emits
+it, which is how a distro board once shipped 1010×480 of content into a 352×206
+preview.
+
+Character grids need a further allowance: Chromium snaps a monospace advance to
+whole pixels, so a row that just fits at 1024px runs about 7% wide at 352px.
+The conky-style boards size their block graphs with that headroom.
 
 ## Themes
 
-12 themes across 3 families (`chiketi/themes.py`):
+16 themes across 3 families (`chiketi/themes.py`):
 
-- **Sci-Fi** — TOS, DS9, TNG (spine, chevron and pill region chrome)
-- **Terminal** — hacker, cyan, amber, phosphor, red_alert, blue (monospace, ASCII bars)
-- **Vintage** — Scanlines, Tubes, VFD (CRT glow / nixie / vacuum-fluorescent)
+- **Sci-Fi** — TOS (gold, Chakra Petch, spine chrome), DS9 (teal, Rajdhani,
+  chamfered tab), TNG (coral, Antonio, pill tab)
+- **Terminal** — six classic palettes (hacker, cyan, amber, phosphor,
+  red_alert, blue) drawn as bordered panels with character meters, plus four
+  distro boards (Arch, Ubuntu, openSUSE, Mandriva) in the conky idiom each
+  distro ships: dense monospace, block-height history, block-character clock
+- **Vintage** — Scanlines (a phosphor CRT), Tubes (nixie + magic eye), VFD
+  (vacuum-fluorescent segments)
+
+The Sci-Fi family was called `Panel` (Gold/Teal/Coral) before v0.1;
+`state.py` migrates saved settings through `_THEME_RENAMES`.
 
 Each theme exposes a palette (`primary`, `accent`, `background`, `panel`,
 `border`, `header`, `dim`, `critical`) served via `/api/themes`.
@@ -227,14 +279,31 @@ Each theme exposes a palette (`primary`, `accent`, `background`, `panel`,
 
 ## Testing
 
-A headless `pytest` suite (400+ tests) covers the pure helpers, theme
+A headless `pytest` suite (572 tests) covers the pure helpers, theme
 management, `panel_spec`, config, settings persistence, the collectors (with
 `psutil`/NVML/HTTP mocked), and the HTTP server routes (via an ephemeral-port
-server). Alongside it, `node tests/js/render_harness.js` runs every dashboard
-renderer against hostile metric payloads, and `scripts/check_js.sh`
-syntax-checks the UI JavaScript that `server.py` inlines. No display, GPU, or
-network is required. CI runs all three on Python 3.11–3.13, plus a build, on
-every push/PR.
+server).
+
+`node tests/js/render_harness.js` renders every (fixture × theme × screen)
+combination and fails on:
+
+- an exception, or `undefined` / `NaN` / `[object Object]` in the output;
+- an unescaped metric — detected by tokenizing the HTML and flagging any `<`
+  that does not open a well-formed tag, or a tag name absent from that
+  renderer's clean render. The obvious check (does the output contain `<img`?)
+  is defeated by any renderer that transforms a value character by character:
+  `nixieDigit` wraps every character in its own span, and two real leaks hid
+  behind exactly that for a whole phase;
+- a GPU screen that does not explain an empty card list, or truncates a
+  multi-card rig without saying so;
+- layout sized in absolute `px`, which does not scale to the control-panel
+  preview;
+- a metric key the renderers read that the `FULL` fixture does not define —
+  otherwise that code path is only ever rendered in its unavailable state.
+
+`scripts/check_js.sh` syntax-checks the UI JavaScript that `server.py` inlines.
+No display, GPU, or network is required. CI runs all three on Python 3.11–3.13,
+plus a build, on every push/PR.
 
 ## The Website (docs/)
 
@@ -242,7 +311,10 @@ every push/PR.
 not part of the running app. It reuses the product's real renderers
 (`assets/ui/screen_functions.js` + `shared_helpers.js`) with a **frozen data
 snapshot** generated by `scripts/gen_site_assets.py`, so the hero and gallery
-render all 12 dashboards live in the browser with no server. Regenerate after
+render all 16 dashboards — and each theme's five screens — live in the browser
+with no server. The snapshot's metrics come from `tests/js/fixtures.js`, the
+one map a harness assertion keeps complete: a hand-maintained second copy is
+how the site ends up quietly rendering a screen's empty state. Regenerate after
 changing themes, `panel_spec`, or the renderers:
 
 ```bash

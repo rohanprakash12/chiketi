@@ -144,6 +144,32 @@ function layoutPxHits(html) {
   return [...out];
 }
 
+/* ── FULL must actually be full ──────────────────────────────────────────
+ * Every assertion below runs against fixtures, so a metric key the renderers
+ * read but no fixture supplies is a screen that is only ever tested in its
+ * empty state. Four keys were in exactly that position (sys.kernel,
+ * sys.top_procs, net.iface, net.ping): the distro boards drew a process table
+ * that no test had ever seen carry a process. Read the keys out of the
+ * renderer source and require FULL to define them. */
+(function () {
+  const src = fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8');
+  const re = /\bm\('([a-z]+\.[a-z_]+)'\)/g;
+  const missing = [];
+  const seen = new Set();
+  let mm;
+  while ((mm = re.exec(src))) {
+    if (seen.has(mm[1])) continue;
+    seen.add(mm[1]);
+    if (!(mm[1] in FIX.FULL)) missing.push(mm[1]);
+  }
+  if (missing.length) {
+    console.error('HARNESS GAP: screen_functions.js reads metric keys that the '
+      + 'FULL fixture does not define, so those code paths are only ever '
+      + 'rendered unavailable: ' + missing.sort().join(', '));
+    process.exit(1);
+  }
+})();
+
 /* Leak detection by tokenizing, not by pattern-matching a payload.
    
    The obvious check -- does the output contain "<img"? -- is defeated by any
