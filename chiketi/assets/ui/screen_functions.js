@@ -1075,8 +1075,8 @@ function distroAiScreen(c) {
   const head =
     `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
       (tpsNum === null
-        ? `<span style="color:${S.dim};font-size:${gq(40)};line-height:1.5;` +
-            `letter-spacing:0.12em">NOT GENERATING</span>`
+        ? `<span style="color:${S.dim};font-size:${gq(58)};line-height:1;` +
+            `letter-spacing:0.12em;white-space:nowrap">IDLE</span>`
         : `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
             `font-variant-numeric:tabular-nums">${tpsNum.toFixed(1)}</span>` +
           `<span style="color:${S.label};letter-spacing:0.2em">TOK/S</span>`) +
