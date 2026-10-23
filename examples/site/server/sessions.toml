@@ -1,0 +1,3 @@
+# Copied to the server's ~/.config/chiketi/sessions.toml: where the session feed answers.
+url = "http://192.0.2.40:8766/api/sessions"
+poll_seconds = 2

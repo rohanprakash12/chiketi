@@ -1,0 +1,54 @@
+# An example chiketi site: every value here is made up (documentation addresses).
+# Copy this folder somewhere private, edit it, then run `chiketi-site check --site DIR`.
+
+[site]
+# A name for this deployment; it appears in the server's unit description.
+name = "example"
+
+[server]
+# How displays and browsers reach the chiketi server (its control port is always 7777).
+address = "192.0.2.10"
+# How chiketi-site reaches it (ssh target; key login, passwordless sudo).
+ssh = "admin@192.0.2.10"
+# The account chiketi runs as. Its home defaults to /home/<user> (set `home` to change it).
+user = "admin"
+# Where chiketi is installed (a venv and the source of the deployed version).
+install_dir = "/opt/chiketi"
+
+[[display]]
+# The device id in /display?device=... (1-32 of a-z 0-9 -).
+id = "kiosk-1"
+# "browser": its own machine runs a kiosk browser (cage + Chromium on tty1).
+kind = "browser"
+# How chiketi-site reaches the kiosk machine.
+ssh = "admin@192.0.2.20"
+# The account the kiosk session runs as.
+user = "admin"
+
+[[display]]
+id = "wide-1"
+# "picture": rendered on the server by companions/lcd-snap, for a screen without a browser.
+kind = "picture"
+# The screen's size in pixels.
+width = 1920
+height = 462
+# Machines allowed to fetch the picture ("server" means [server].address).
+readers = ["192.0.2.30"]
+# The machine the screen is plugged into, and where its pusher reads its settings.
+pusher_ssh = "admin@192.0.2.30"
+pusher_config = "~/.config/chiketi-pusher/config.toml"
+
+[session_feed]
+# The machine where Claude Code / Codex sessions run.
+ssh = "admin@192.0.2.40"
+user = "admin"
+# The chiketi checkout on that machine (the feed runs from it).
+chiketi_path = "/home/admin/src/chiketi"
+# Optional: port (default 8766), and requires_mount if the checkout is on a network mount.
+port = 8766
+# Who may read the feed: usually only the server.
+readers = ["server"]
+
+[homelab]
+# Linux hosts to install the read-only Home Lab probe on (`chiketi-site deploy probe`).
+probe_hosts = ["admin@192.0.2.21"]

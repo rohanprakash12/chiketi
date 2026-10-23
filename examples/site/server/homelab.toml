@@ -1,0 +1,35 @@
+# Copied to the server's ~/.config/chiketi/homelab.toml: what the Home Lab screen watches.
+poll_seconds = 30
+# The server's own key for the probe (it stays on the server; never put it in a site).
+ssh_key = "~/.ssh/chiketi_homelab"
+
+[thresholds]
+disk_warn_c = 55
+disk_crit_c = 60
+
+# A Linux host with the probe installed (chiketi-site deploy probe).
+[[host]]
+name = "nas"
+kind = "linux"
+address = "192.0.2.21"
+user = "admin"
+
+# An Unraid server (install the probe on it by hand: chiketi-site does Linux hosts).
+[[host]]
+name = "array"
+kind = "unraid"
+address = "192.0.2.22"
+user = "root"
+
+# The router: reachability, DNS and the way out.
+[[host]]
+name = "router"
+kind = "gateway"
+address = "192.0.2.1"
+
+# An HTTP service. Its token lives only on the server, in token_file (mode 600).
+[[host]]
+name = "home-assistant"
+kind = "http"
+url = "http://192.0.2.23:8123/api/"
+token_file = "~/.config/chiketi/ha_token"

@@ -97,6 +97,9 @@ configured by environment variables, so no deployment details live here.
 
 ## Deploying
 
-`chiketi --no-kiosk` on the server (systemd). Deploy a committed version (e.g.
-`git archive` into a venv), not a live checkout, so a branch switch never changes
-what is running. `/display` is the only frameable page (kiosk wrapper pages iframe it).
+Use `chiketi-site` (`chiketi/sites/`) with a site folder (`examples/site/` is the
+format; a real one lives in a private repo). It deploys a committed version (`git
+archive` into a venv), never a live checkout, and generates every file it installs
+from `chiketi/sites/templates/`. Never hand-edit generated files on machines: change
+the template or the site and redeploy (`--dry-run` first). `/display` is the only
+frameable page (kiosk wrapper pages iframe it).

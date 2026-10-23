@@ -264,8 +264,8 @@ All settings can also be changed at runtime via the control panel.
 
 ## Running as a hub for several displays
 
-One chiketi can feed every screen in the house. Run it on an always-on machine with
-`chiketi --no-kiosk` (a systemd unit is the usual way), then:
+One chiketi can feed every screen in the house. It runs as `chiketi --no-kiosk` on an
+always-on machine, and the displays are browsers (or picture-fed screens) pointed at it.
 
 - **Displays.** Any browser that opens `http://<server>:7777/display` registers.
   A kiosk pins its name in the address, `/display?device=<id>` (1–32 of `a-z 0-9 -`);
@@ -278,21 +278,62 @@ One chiketi can feed every screen in the house. Run it on an always-on machine w
   panel between *House defaults* and one display: theme, auto-rotate and seconds
   per screen are per display; which screens are on is shared. Rename or forget a
   display there; a forgotten one returns to its pairing code.
-- **Kiosk wrapper.** A kiosk browser can open a small local page that frames
-  `/display` and shows "server unreachable" if the server stops answering
-  (`/display` is the only page that may be framed). Open displays reload by
-  themselves when the server runs newer code, so a deploy needs no visit.
-- **Screens without a browser.** `companions/lcd-snap` keeps a headless Chromium on
-  `/display?device=<id>&feed=picture` at the screen's size and serves the picture;
-  the program driving the screen fetches it. See its README.
-- **Claude Sessions.** Run `companions/session-feed` where your Claude Code / Codex
-  sessions run and point `sessions.toml` at it.
-- **Home Lab.** Put `homelab.toml` on the server, give it its own SSH key, and run
-  `HUB=user@server scripts/install-probe.sh user@host` for each Linux host. The
-  host's `authorized_keys` forces the key to run only the read-only probe.
+- Open displays reload by themselves when the server runs newer code, so a deploy
+  needs no visit.
 
-Keep your own addresses, configs and deploy scripts in a private repository next to
-this one, not here.
+### Deploying with a site folder
+
+Everything about *your* deployment (addresses, logins, which displays exist) lives in a
+**site**: a folder of config files kept somewhere private, never in this repository.
+`examples/site/` is a complete example with made-up values; copy it and edit it.
+
+```
+site/
+├── site.toml          # where the server, displays, session feed and probe hosts are
+├── server/            # copied as-is to the server's ~/.config/chiketi/
+│   ├── sessions.toml
+│   └── homelab.toml
+└── NOTES.md           # optional
+```
+
+`chiketi-site` (installed with chiketi) generates every file chiketi puts on a machine
+from the site and chiketi's own templates, so nothing on a machine is hand-edited:
+
+```bash
+chiketi-site check --site DIR                      # validate; touches nothing
+chiketi-site render kiosk-page --display ID --site DIR   # print a generated file
+chiketi-site deploy server  --site DIR [--ref REF]  # git archive → venv, unit, configs, restart, health
+chiketi-site deploy display ID --site DIR           # kiosk page/launcher/unit, or lcd-snap + pusher config
+chiketi-site deploy feed    --site DIR              # session feed unit and allowlist
+chiketi-site deploy probe [HOST…] --site DIR        # Home Lab probe on Linux hosts
+```
+
+Every `deploy` takes `--dry-run` (shows a diff against each machine's current copy and
+writes nothing). A replaced file is kept as `<file>.bak-YYYYMMDD`; nothing is deleted.
+Machines are reached with your own `ssh` (key login, passwordless `sudo`).
+`CHIKETI_SITE=DIR` saves typing `--site`. Secrets never go in a site: `check` refuses
+keys that look like them and says where they belong on the machine.
+
+What stays manual:
+- the kiosk machine's OS, browser and `cage` compositor;
+- for a picture display, lcd-snap's Chrome headless shell and venv in `/opt/lcd-snap/`
+  (see `companions/lcd-snap/README.md`), and the small program that pushes the pictures
+  to the screen's hardware (it reads the generated `pusher.toml`: `url`, `width`,
+  `height`, `stale_seconds`);
+- approving each new display in the control panel;
+- the probe on hosts that are not ordinary Linux (e.g. Unraid).
+
+The parts, for reference:
+- **Kiosk wrapper.** A kiosk opens a small local page that frames `/display` and shows
+  "server unreachable" if the server stops answering (`/display` is the only page that
+  may be framed).
+- **Screens without a browser.** `companions/lcd-snap` keeps a headless Chromium on
+  `/display?device=<id>&feed=picture` at the screen's size and serves the picture on
+  port 7778; the screen's pusher fetches it.
+- **Claude Sessions.** `companions/session-feed` runs where your Claude Code / Codex
+  sessions run; `sessions.toml` points the server at it.
+- **Home Lab.** `homelab.toml` on the server, its own SSH key there, and the read-only
+  probe on each host; the host's `authorized_keys` forces that key to run only the probe.
 
 ## Development
 
@@ -348,6 +389,7 @@ chiketi/
 │   ├── config.py              # timing constants
 │   ├── state.py               # versioned settings persistence (atomic writes)
 │   ├── devices.py             # registered displays: pairing codes, capabilities, settings
+│   ├── sites/                 # chiketi-site: site model, templates, deploy over ssh
 │   ├── collectors/            # system, cpu, memory, disk, network, gpu_nvidia,
 │   │                          #   llm (llama.cpp/Ollama/vLLM), claude, sessions,
 │   │                          #   homelab/ (probe parser, rules, checks, poller)
@@ -363,6 +405,7 @@ chiketi/
 ├── companions/                # small services that run next to chiketi
 │   ├── session-feed/          # Claude Code / Codex session feed + hook
 │   └── lcd-snap/              # renders /display as pictures for a browserless LCD
+├── examples/site/             # example site (made-up values) for chiketi-site
 ├── specs/, plans/             # design specs and implementation plans
 ├── scripts/
 │   ├── install.sh             # one-line installer (optional autostart)
