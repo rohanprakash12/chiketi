@@ -137,6 +137,7 @@ def deploy_feed(site, runner, dry_run) -> int:
 
 
 def deploy_probe(site, hosts, dry_run, repo=REPO) -> int:
+    repo = Path(repo)
     hosts = list(hosts) or list(site.probe_hosts)
     for h in hosts:
         print(f"probe: {h}")

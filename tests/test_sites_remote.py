@@ -12,10 +12,17 @@ class FakeRunner:
         self.files = dict(files or {})       # (host, path) -> content
         self.calls = []
         self.down = set()
+        self.no_sudo = False
 
     def run(self, argv, input=None):
         self.calls.append((argv, input))
         host, cmd = argv[-2], argv[-1]
+        if self.no_sudo and cmd.startswith("sudo "):
+            # like a real shell: `sudo test ... || exit 3` turns sudo's own failure into exit 3
+            # (unless the whole check runs inside one `sudo sh -c '...'`)
+            first = cmd.split(";")[0]
+            code = 3 if "|| exit 3" in first and not cmd.startswith("sudo sh -c ") else 1
+            return subprocess.CompletedProcess(argv, code, "", "sudo: a password is required")
         if host in self.down:
             return subprocess.CompletedProcess(argv, 255, "", "ssh: connect to host: No route to host")
         if "cat " in cmd:
@@ -103,3 +110,11 @@ def test_write_is_atomic():
     apply([F], r, dry_run=False, today="20261023")
     w = next(a[-1] for a, _ in r.calls if "install " in a[-1])
     assert ".chiketi-new" in w and "&& sudo mv -f " in w
+
+
+def test_sudo_failure_is_not_a_missing_file():
+    import pytest
+    r = FakeRunner({(F.host, F.path): "old\n"})
+    r.no_sudo = True
+    with pytest.raises(RuntimeError, match="cannot read"):
+        apply([F], r, dry_run=True, today="20261023")

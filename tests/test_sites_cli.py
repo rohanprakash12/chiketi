@@ -90,3 +90,11 @@ def test_restart_unit_is_validated(tmp_path, capsys):
 
 def test_probe_hosts_from_the_command_line_are_validated(tmp_path):
     assert main(["deploy", "--dry-run", "--site", str(make(tmp_path)), "probe", "--", "-oProxyCommand=x"]) == 2
+
+
+def test_deploy_probe_runs_the_installer(tmp_path, monkeypatch):
+    from chiketi.sites import deploy
+    ran = []
+    monkeypatch.setattr(deploy.subprocess, "run", lambda argv, **kw: ran.append((argv, kw["env"]["HUB"])))
+    assert main(["deploy", "probe", "--site", str(make(tmp_path))], runner=Recorder()) == 0
+    assert ran and ran[0][0][0].endswith("scripts/install-probe.sh") and ran[0][1] == "admin@192.0.2.10"

@@ -6,6 +6,7 @@ server's ~/.config/chiketi/. A site holds config only -- no code, no secrets.
 
 from __future__ import annotations
 
+import posixpath
 import re
 import tomllib
 from dataclasses import dataclass
@@ -19,7 +20,8 @@ SECRET_KEY = re.compile(r"(token|password|passwd|secret|key)$", re.I)
 SECRET_HELP = ("secrets never go in a site; keep them only on the machine that uses them "
                "(e.g. a Home Assistant token in the server's ~/.config/chiketi/ha_token, mode 600)")
 SERVER_FILES = {"sessions.toml", "homelab.toml"}
-SECRET_PATH_KEYS = {"ssh_key", "token_file"}   # these name where a secret is, not the secret
+# Where homelab.toml names a secret's file (not the secret): top-level ssh_key, host[N].token_file.
+SECRET_PATH_KEYS = {("homelab.toml", "ssh_key"), ("homelab.toml", "host[].token_file")}
 TOP = {"site": "table", "server": "table", "display": "list", "session_feed": "table", "homelab": "table"}
 SCHEMA = {
     "site": {"name": (str, True)},
@@ -143,15 +145,19 @@ def _secret_keys(where: str, value, path: str, problems: list[str]) -> None:
             _secret_keys(where, v, f"{path}[{i}]", problems)
     elif isinstance(value, dict):
         for k, v in value.items():
-            if SECRET_KEY.search(k) and k not in SECRET_PATH_KEYS:
-                problems.append(f"{where}: {path}{'.' if path else ''}{k} looks like a secret; {SECRET_HELP}")
-            _secret_keys(where, v, f"{path}{'.' if path else ''}{k}", problems)
+            full = f"{path}{'.' if path else ''}{k}"
+            if SECRET_KEY.search(k):
+                generic = (where.removeprefix("server/"), re.sub(r"\[\d+\]", "[]", full))
+                is_path = isinstance(v, str) and "\n" not in v and not v.startswith("-----")
+                if generic not in SECRET_PATH_KEYS or not is_path:
+                    problems.append(f"{where}: {full} looks like a secret; {SECRET_HELP}")
+            _secret_keys(where, v, full, problems)
 
 
 def _same_login(where: str, t: dict, problems: list[str]) -> None:
     """Files for the account are written over this ssh login, so it must be that account."""
     ssh, user = t.get("ssh"), t.get("user")
-    if ssh and user and "@" in ssh and ssh.split("@", 1)[0] != user:
+    if ssh and user and ("@" not in ssh or ssh.split("@", 1)[0] != user):
         problems.append(f"{where}.ssh: must log in as {user} (the account that owns its files)")
 
 
@@ -242,7 +248,8 @@ def load_site(root) -> Site:
                         readers=tuple(ft.get("readers", ["server"])),
                         requires_mount=ft.get("requires_mount"))
     inst = srv.get("install_dir", "/opt/chiketi")
-    if not inst.startswith("/") or inst.rstrip("/") == "" or ".." in inst.split("/"):
+    norm = posixpath.normpath(inst) if inst.startswith("/") else ""
+    if not norm or norm in ("/", "//") or ".." in inst.split("/"):
         problems.append(f"server.install_dir: {inst!r} must be an absolute path below / (e.g. /opt/chiketi)")
     _same_login("server", srv, problems)
     for i, d in enumerate(displays):
@@ -258,5 +265,5 @@ def load_site(root) -> Site:
         root=root, name=site_t["name"],
         server=Server(address=srv["address"], ssh=srv["ssh"], user=srv["user"],
                       home=srv.get("home", f"/home/{srv['user']}"),
-                      install_dir=srv.get("install_dir", "/opt/chiketi")),
+                      install_dir=posixpath.normpath(srv.get("install_dir", "/opt/chiketi"))),
         displays=tuple(displays), feed=feed, probe_hosts=tuple(hl.get("probe_hosts", [])))

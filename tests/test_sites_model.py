@@ -171,3 +171,22 @@ def test_only_one_picture_display(tmp_path):
     extra = '\n[[display]]\nid = "wide-2"\nkind = "picture"\nwidth = 800\nheight = 480\n'
     p = problems(tmp_path, site=SITE.replace("[session_feed]", extra + "\n[session_feed]"))
     assert "only one picture display" in p
+
+
+def test_install_dir_that_normalises_to_root_rejected(tmp_path):
+    for bad in ('"/./"', '"//"', '"/opt/.."'):
+        site = SITE.replace('user = "admin"\n\n[[display]]', f'user = "admin"\ninstall_dir = {bad}\n\n[[display]]', 1)
+        assert "server.install_dir" in problems(tmp_path, site=site), bad
+
+
+def test_ssh_login_must_name_the_user(tmp_path):
+    p = problems(tmp_path, site=SITE.replace('ssh = "admin@192.0.2.10"', 'ssh = "192.0.2.10"'))
+    assert "server.ssh: must log in as admin" in p
+
+
+def test_secret_path_exceptions_only_where_documented(tmp_path):
+    p = problems(tmp_path, sessions=SESSIONS + 'ssh_key = "EXAMPLE"\n')
+    assert "server/sessions.toml: ssh_key looks like a secret" in p
+    p = problems(tmp_path, homelab=HOMELAB.replace('ssh_key = "~/.ssh/chiketi_homelab"',
+                                                   'ssh_key = "-----BEGIN OPENSSH PRIVATE KEY-----"'))
+    assert "server/homelab.toml: ssh_key" in p

@@ -34,7 +34,9 @@ def apply(files: list[FileOut], runner, dry_run: bool, today: str) -> list[tuple
         sudo = "sudo " if f.sudo else ""
         # exit 3 = no such file; any other failure (host down, no sudo) stops the deploy,
         # so an unreadable file is never treated as missing and overwritten without a backup
-        cur = _ssh(runner, f.host, f"{sudo}test -e {rp} || exit 3; {sudo}cat {rp}")
+        check = f"test -e {rp} || exit 3; cat {rp}"
+        # under sudo the whole check runs as root, so sudo's own failure (exit 1) stays distinct
+        cur = _ssh(runner, f.host, f"sudo sh -c {shlex.quote(check)}" if f.sudo else check)
         if cur.returncode not in (0, 3):
             raise RuntimeError(f"{f.host}:{f.path}: cannot read: {cur.stderr.strip() or f'exit {cur.returncode}'}")
         exists = cur.returncode == 0
