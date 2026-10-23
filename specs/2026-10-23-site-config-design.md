@@ -1,7 +1,7 @@
 # Sites: every deployment detail in config, none in the software — design spec
 
 - **Date:** 2026-10-23
-- **Status:** Draft, for the owner's review.
+- **Status:** Approved by the owner 2026-10-23.
 - **Topic:** Separate chiketi (software) from a *site* (one deployment's configuration).
   Move the deployment tooling that today lives as hand-edited scripts in a private
   repository into chiketi, as generic commands driven by a site folder.
@@ -81,7 +81,7 @@ name = "example"
 [server]
 address = "192.0.2.10"        # how displays and browsers reach it
 ssh = "admin@192.0.2.10"      # how the tooling reaches it
-port = 7777
+user = "admin"                # the account chiketi runs as (control port is always 7777)
 install_dir = "/opt/chiketi"
 
 [[display]]
@@ -101,6 +101,8 @@ pusher_config = "~/.config/chiketi-pusher/config.toml" # where the pusher reads 
 
 [session_feed]
 ssh = "admin@192.0.2.40"
+user = "admin"
+chiketi_path = "/home/admin/src/chiketi"   # the chiketi checkout on that machine
 port = 8766
 readers = ["server"]          # "server" means [server].address; IPs allowed too
 
@@ -138,7 +140,7 @@ like the Home Lab poller. No new runtime dependency.
 
 ## Templates
 
-Templates live in `chiketi/site/templates/` and are filled from `site.toml` with Python's
+Templates live in `chiketi/sites/templates/` and are filled from `site.toml` with Python's
 `string.Template` (no new dependency). They are the generic versions of the files the
 private repository holds today:
 
