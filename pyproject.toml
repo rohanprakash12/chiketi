@@ -51,7 +51,7 @@ version = {attr = "chiketi.__version__"}
 find = {include = ["chiketi", "chiketi.*"]}
 
 [tool.setuptools.package-data]
-chiketi = ["assets/**/*"]
+chiketi = ["assets/**/*", "sites/templates/*.tmpl"]
 
 # Tests are a development concern: run them from the repo, not from a release
 # artifact. Without this (plus the `prune tests` in MANIFEST.in) setuptools

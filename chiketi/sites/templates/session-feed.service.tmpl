@@ -1,0 +1,19 @@
+[Unit]
+Description=chiketi session feed (Claude Code / Codex sessions)
+After=network-online.target local-fs.target
+${requires_mount_line}Wants=network-online.target
+
+[Service]
+Type=simple
+User=${user}
+EnvironmentFile=/etc/chiketi/session-feed.env
+ExecStart=/usr/bin/python3 ${chiketi_path}/companions/session-feed/feed.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

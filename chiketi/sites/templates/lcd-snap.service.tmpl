@@ -1,0 +1,19 @@
+[Unit]
+Description=chiketi pictures for display ${display_id} (${width}x${height})
+After=chiketi.service network-online.target
+Wants=network-online.target
+
+[Service]
+User=${user}
+Environment=HOME=${home}
+Environment=LCD_URL=${url}
+Environment=LCD_ALLOW=${allow}
+Environment=LCD_W=${width}
+Environment=LCD_H=${height}
+ExecStart=/opt/lcd-snap/venv/bin/python /opt/lcd-snap/lcd_snap.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

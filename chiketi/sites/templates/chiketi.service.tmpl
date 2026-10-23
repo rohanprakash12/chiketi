@@ -1,0 +1,19 @@
+[Unit]
+Description=chiketi dashboard server (site ${site})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=${user}
+EnvironmentFile=-/etc/chiketi/env
+ExecStart=${install_dir}/venv/bin/chiketi --no-kiosk --bind 0.0.0.0
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=${home}/.config/chiketi ${home}/.local/state/chiketi
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
