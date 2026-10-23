@@ -82,6 +82,31 @@ function asList(d) {
   return (d && d.available && Array.isArray(d.value)) ? d.value : [];
 }
 
+/* ── Frame model ─────────────────────────────────────────────────────────
+ * The frame is always 1024 units wide; its height follows the real screen
+ * (683 on a 3:2 Surface Go, 576 at 16:9). display_app.js / control_app.js set
+ * it from the screen being drawn; the harness sets it per run.
+ *
+ * Layout classes are the extension point for screens of other shapes:
+ * 'landscape' (aspect 1.33-1.78) and 'strip' (3:1 and wider). A screen with
+ * no layout for the shape falls back to the landscape one, clamped and
+ * centred -- never cropped. */
+let FRAME_H = 600;
+const LANDSCAPE_MIN_H = 576, LANDSCAPE_MAX_H = 770;
+function setFrameH(h) {
+  const n = Number(h);
+  FRAME_H = (isFinite(n) && n >= 100 && n <= 4000) ? Math.round(n) : 600;
+}
+/* 'strip': bar displays of 3:1 and wider, e.g. a 1920x462 LCD (246 units). */
+const STRIP_MAX_H = 341;
+function layoutClass() {
+  if (FRAME_H >= LANDSCAPE_MIN_H && FRAME_H <= LANDSCAPE_MAX_H) return 'landscape';
+  return FRAME_H <= STRIP_MAX_H ? 'strip' : 'other';
+}
+/* Read access for code outside this file's scope (the harness evals it). */
+function frameH() { return FRAME_H; }
+function fluidH() { return Math.max(LANDSCAPE_MIN_H, Math.min(LANDSCAPE_MAX_H, FRAME_H)); }
+
 
 /* Display name for whichever LLM backend is live. llm.py reports
    'llama.cpp' | 'ollama' | 'vllm' in llama.backend; an Ollama or vLLM user
@@ -541,7 +566,7 @@ function sfTosScreen2(c) {
   const dayName = days[now.getDay()];
   const dateStr = `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 
-  return `<div class="screen-frame"><div style="background:#000;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Chakra Petch',sans-serif">` +
+  return `<div class="screen-frame fluid"><div style="background:#000;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Chakra Petch',sans-serif">` +
     `<div style="color:${GOLD};font-size:2.05cqw;text-transform:uppercase;letter-spacing:1.17cqw;margin-bottom:0.88cqw">United Federation of Planets</div>` +
     `<div style="border:2px solid ${GOLD};padding:2.05cqw 7.32cqw;position:relative">` +
       `<div style="position:absolute;top:-1.32cqw;left:3.52cqw;background:#000;padding:0 1.46cqw;color:${AMBER};font-size:1.76cqw;letter-spacing:0.29cqw">SHIP CHRONOMETER</div>` +
@@ -574,7 +599,7 @@ function sfTngScreen2(c) {
   const tn = T.tanoi || '#FFCC99';
   const li = T.lilac || '#CC99CC';
 
-  return `<div class="screen-frame"><div style="background:#000;width:100%;height:100%;display:flex;font-family:${FONT}">` +
+  return `<div class="screen-frame fluid"><div style="background:#000;width:100%;height:100%;display:flex;font-family:${FONT}">` +
     `<div style="width:7.32cqw;flex-shrink:0;display:flex;flex-direction:column">` +
       `<div style="height:4.10cqw;background:${ank};border-bottom-left-radius:2.93cqw"></div>` +
       `<div style="flex:1;display:flex;flex-direction:column;gap:0.44cqw;padding-top:0.88cqw">` +
@@ -615,7 +640,7 @@ function sfDs9Screen2(c) {
   const pl = D.pale || '#AAAACC';
   const lv = D.lavender || '#8888BB';
 
-  return `<div class="screen-frame"><div style="background:${bg};width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:${FONT}">` +
+  return `<div class="screen-frame fluid"><div style="background:${bg};width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:${FONT}">` +
     `<div style="display:flex;width:80%;align-items:center;gap:0;margin-bottom:1.17cqw">` +
       `<div style="flex:1;height:0.29cqw;background:${tl};opacity:0.4"></div>` +
       `<svg width="2.05cqw" height="2.05cqw" viewBox="0 0 14 14"><polygon points="0,14 14,0 14,14" fill="${tl}" opacity="0.6"/></svg>` +
@@ -2093,6 +2118,37 @@ function _bsChromeRule(title, color, right, rightColor) {
       `white-space:nowrap">${right}</span>` : '') + `</div>`;
 }
 
+/* ── Others / Claude ─────────────────────────────────────────────────────
+ * The palette first drawn for the 9.3" status LCD and the Go's first page:
+ * a dark slate board, soft mint/amber/coral/sky readings, plain sans type,
+ * rounded corners and no glow. Calm enough to sit in a living room. */
+const CLAUDE_PAL = {
+  bg: '#10171f', panel: '#151e28', ink: '#f0f5f8', muted: '#9eafbf', line: '#2c3947',
+  green: '#72e4b6', amber: '#ffca75', red: '#ff887f', blue: '#8cc8ff', lilac: '#c3b5ff',
+};
+const BS_SKIN_CLAUDE = {
+  key: 'claude', chrome: 'rule', font: "'DejaVu Sans', 'Inter', system-ui, sans-serif", fw: '700',
+  bg: CLAUDE_PAL.bg,
+  label: CLAUDE_PAL.muted, dim: '#7d8d9c', bright: CLAUDE_PAL.ink, text: CLAUDE_PAL.ink,
+  soft: '#c9d4dd', track: CLAUDE_PAL.line, edge: CLAUDE_PAL.line, ring: CLAUDE_PAL.line,
+  r: 6, ls: '0.12em', seg: false, glow: false,
+  a1: CLAUDE_PAL.lilac, a2: CLAUDE_PAL.blue, a3: CLAUDE_PAL.amber, a4: CLAUDE_PAL.green,
+  dCpu: CLAUDE_PAL.amber, dRam: CLAUDE_PAL.blue, dVram: CLAUDE_PAL.green,
+  cPrimary: CLAUDE_PAL.blue, cSecondary: CLAUDE_PAL.green,
+  cLink: CLAUDE_PAL.green, cPing: CLAUDE_PAL.amber, cRecv: CLAUDE_PAL.blue, cSend: CLAUDE_PAL.green,
+  cIp: CLAUDE_PAL.ink, cMac: '#c9d4dd',
+  kHour: CLAUDE_PAL.ink, kSec: CLAUDE_PAL.muted, kDay: CLAUDE_PAL.green, kDate: CLAUDE_PAL.muted,
+  crit: CLAUDE_PAL.red, warn: CLAUDE_PAL.amber, cPower: CLAUDE_PAL.amber, tick: CLAUDE_PAL.muted,
+  gaugeSize: 132, gaugeSw: 14,
+  therm: function (t) {
+    if (t >= 90) return CLAUDE_PAL.red;
+    if (t >= 70) return CLAUDE_PAL.amber;
+    if (t >= 50) return CLAUDE_PAL.green;
+    return CLAUDE_PAL.blue;
+  },
+  vNvidia: CLAUDE_PAL.green, vAmd: CLAUDE_PAL.red, vIntel: CLAUDE_PAL.blue,
+};
+
 /* ── Vintage skins ───────────────────────────────────────────────────────
  * Every instrument below is the one the family already had: scanDonut,
  * magicEye, vfdDonut, scanThermBar, bargraphBar, vfdThermalBar, dekatron,
@@ -3018,7 +3074,9 @@ function bsThermRowSolid(label, temp, w) {
 /* The glass. Scanlines rakes its raster over the whole board and VFD lays
    filament lines and a grid across it, so the overlay belongs to the frame
    rather than to any one region. */
-function bsFrame(body) {
+/* `fluid`: true fills any landscape shape; 'strip' also has a bar-display
+   layout. A fluid screen without one is letterboxed on a strip. */
+function bsFrame(body, fluid) {
   const S = bsS();
   // A skin may put the board behind glass: its own filter on the content, its
   // own overlay stack in front. Scanlines uses both; the rest use neither.
@@ -3028,7 +3086,7 @@ function bsFrame(body) {
       (S.contentTransform ? `transform:${S.contentTransform};` : '') +
       `">${body}</div>`
     : body;
-  return `<div class="screen-frame">${S.defs || ''}` +
+  return `<div class="screen-frame${fluid ? ' fluid' : ''}${fluid === 'strip' ? ' strip' : ''}">${S.defs || ''}` +
     `<div style="position:relative;width:100%;height:100%;background:${S.bg};` +
       `font-family:${S.font};overflow:hidden;${S.frameCss || ''}">` +
       inner + (S.overlay || '') + `</div></div>`;
@@ -3506,14 +3564,677 @@ function scanClaudeScreen(c) { bsSkin(BS_SKIN_SCAN); return bsClaudeScreen(c); }
 function tubeClaudeScreen(c) { bsSkin(BS_SKIN_TUBE); return bsClaudeScreen(c); }
 function vfdClaudeScreen(c) { bsSkin(BS_SKIN_VFD); return bsClaudeScreen(c); }
 
+/* ── Claude Sessions ─────────────────────────────────────────────────────
+ * Live Claude Code sessions from the session feed. One row per session:
+ * lamp, name, project, state, how long in that state. Sessions waiting on
+ * you come first, tinted and pulsing; idle ones sink to the bottom. Fluid:
+ * as many rows as the screen's height holds, then "+N MORE". */
+const SESS_ORDER = { waiting: 0, busy: 1, shell: 2, idle: 3 };
+const SESS_LABEL = { waiting: 'NEEDS INPUT', busy: 'WORKING', shell: 'RUNNING SHELL', idle: 'IDLE' };
+
+function sessColor(state) {
+  const S = bsS();
+  if (state === 'waiting') return S.warn;
+  if (state === 'busy') return S.cLink;
+  if (state === 'shell') return S.a2;
+  return S.dim;
+}
+
+function sessAge(since) {
+  const n = Number(since);
+  if (since === null || since === undefined || !isFinite(n) || n <= 0) return '--';
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - n));
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
+}
+
+function sessData() {
+  const st = m('sessions.status');
+  const status = st.available ? String(st.value) : 'unconfigured';
+  const lm = m('sessions.list');
+  const list = (lm.available && Array.isArray(lm.value))
+    ? lm.value.filter(function (s) { return s && typeof s === 'object'; }) : [];
+  const sorted = list.slice().sort(function (a, b) {
+    const oa = SESS_ORDER[a.state] !== undefined ? SESS_ORDER[a.state] : 3;
+    const ob = SESS_ORDER[b.state] !== undefined ? SESS_ORDER[b.state] : 3;
+    if (oa !== ob) return oa - ob;
+    // Waiting: longest-waiting first. Everything else: most recent first.
+    const d = (Number(a.since) || 0) - (Number(b.since) || 0);
+    return oa === 0 ? d : -d;
+  });
+  return { status: status, list: sorted };
+}
+
+function sessSummary(list) {
+  const n = { waiting: 0, busy: 0, shell: 0, idle: 0 };
+  list.forEach(function (s) { n[SESS_ORDER[s.state] !== undefined ? s.state : 'idle']++; });
+  const parts = [];
+  if (n.waiting) parts.push(n.waiting + ' NEED' + (n.waiting === 1 ? 'S' : '') + ' INPUT');
+  if (n.busy + n.shell) parts.push((n.busy + n.shell) + ' WORKING');
+  if (n.idle) parts.push(n.idle + ' IDLE');
+  return parts.join(' · ');
+}
+
+/* Column layout shared by the heading row and every session row, in
+   1024-unit widths; `null` is the flexible session-name column. */
+const SESS_COLS = [
+  { key: 'name', label: 'SESSION', w: null },
+  { key: 'project', label: 'PROJECT', w: 140 },
+  { key: 'state', label: 'STATUS', w: 165 },
+  { key: 'tokens', label: 'TOTAL<br>TOKENS', w: 95, align: 'right' },
+  { key: 'agents', label: 'AGENTS', w: 70, align: 'right' },
+  { key: 'time', label: 'TIME', w: 90, align: 'right' },
+];
+const SESS_LAMP = 18, SESS_GAP = 16;   // the mark is drawn 1.5x the lamp slot
+
+function sessCell(col, inner, extra) {
+  return `<div style="${col.w === null ? 'flex:1;min-width:0' : `width:${gq(col.w)};flex-shrink:0`};` +
+    `text-align:${col.align || 'left'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${extra || ''}">` +
+    inner + `</div>`;
+}
+
+function bsSessionHeadings(h, px) {
+  const S = bsS();
+  return `<div style="display:flex;align-items:center;gap:${gq(SESS_GAP)};padding:0 ${gq(16)};height:${gq(h || 34)};` +
+      `flex-shrink:0;color:${S.label};font-size:${gq(px || 11.5)};letter-spacing:${S.ls};line-height:1.3">` +
+    `<span style="width:${gq(SESS_LAMP * 1.5)};flex-shrink:0"></span>` +
+    SESS_COLS.map(function (c) { return sessCell(c, c.label); }).join('') + `</div>`;
+}
+
+function bsSessionRow(s, rowH, typeK) {
+  const S = bsS();
+  const k = typeK || rowH / 64;   // type grows with the row
+  const state = SESS_ORDER[s.state] !== undefined ? s.state : 'idle';
+  const col = sessColor(state);
+  const waiting = state === 'waiting';
+  const msg = waiting && s.message
+    ? `<div style="color:${col};font-size:${gq(14 * k)};white-space:nowrap;overflow:hidden;` +
+        `text-overflow:ellipsis;opacity:0.9">${esc(String(s.message))}</div>` : '';
+  const tokens = typeof s.tokens === 'number' && isFinite(s.tokens) ? fmtTok(s.tokens) : '--';
+  const agents = typeof s.agents === 'number' && isFinite(s.agents) ? s.agents : null;
+  const round = S.r >= 999 ? '999px' : gq(S.r * 2);
+  const C = {};
+  SESS_COLS.forEach(function (c) { C[c.key] = c; });
+  return `<div style="display:flex;align-items:center;gap:${gq(SESS_GAP)};height:${gq(rowH)};flex-shrink:0;` +
+      `padding:0 ${gq(16)};border-radius:${round};` +
+      (waiting ? `background:${col}26;` : `border-bottom:${gq(1)} solid ${S.edge};`) + `">` +
+    `<span style="display:flex;${waiting ? 'animation:hlPulse 2s ease-in-out infinite;' : ''}` +
+      `${state === 'idle' ? '' : `filter:drop-shadow(0 0 ${gq(5)} ${col}aa)`}">` +
+      toolMark(s.tool === 'codex' ? 'codex' : 'claude', col, SESS_LAMP * 1.5, state === 'idle') + `</span>` +
+    sessCell(C.name, `<div style="color:${state === 'idle' ? S.label : S.bright};font-size:${gq(26 * k)};` +
+        `font-weight:${S.fw};overflow:hidden;text-overflow:ellipsis">${esc(String(s.name || ''))}</div>${msg}`) +
+    sessCell(C.project, esc(String(s.project || '')), `color:${S.label};font-size:${gq(18 * k)}`) +
+    sessCell(C.state, SESS_LABEL[state], `color:${col};letter-spacing:0.12em;font-size:${gq(14 * k)};${bsGlow(8, col)}`) +
+    sessCell(C.tokens, tokens, `color:${S.soft};font-size:${gq(19 * k)};font-variant-numeric:tabular-nums`) +
+    sessCell(C.agents, agents ? String(agents) : '--',
+             `color:${agents ? S.a2 : S.dim};font-size:${gq(19 * k)};font-variant-numeric:tabular-nums;` +
+             (agents ? bsGlow(8, S.a2) : '')) +
+    sessCell(C.time, sessAge(s.since), `color:${waiting ? col : S.soft};font-size:${gq(19 * k)}`) + `</div>`;
+}
+
+/* The status line across the top of the screen: amber while anything waits
+   on you (or the feed is down), green while something is working, a quiet
+   rule when all is idle. Readable from across the room before any text is. */
+function sessStatusColor(d) {
+  const S = bsS();
+  if (d.status === 'offline') return S.warn;
+  if (d.list.some(function (s) { return s.state === 'waiting'; })) return S.warn;
+  if (d.list.some(function (s) { return s.state === 'busy' || s.state === 'shell'; })) return S.cLink;
+  return S.edge;
+}
+
+/* ── Screen tabs ─────────────────────────────────────────────────────────
+ * One tab per screen, built or planned, so the board says what it covers.
+ * A built screen's icon is in its own colour; a planned one stays grey until
+ * it exists. The showing screen's tab is lit; a tab whose area needs you
+ * fades in and out, so trouble shows from whichever screen is up. */
+/* The tab icons: small lit objects rather than line glyphs -- a console, a
+   positronic core, a habitat, a sunrise over a planet, a warp core. Drawn
+   on a 48-unit grid in one colour: a body filled with that colour fading
+   to dark, bright edges, and white-hot highlights where the light is. */
+/* Tool marks. Claude's: a twelve-ray starburst of uneven, tapered rays.
+   Codex's: a terminal prompt inside a rounded cloud. Both in one colour so a
+   row's mark can carry its status. */
+const CLAUDE_STAR = (function () {
+  const L = [21, 15.5, 19, 14, 21, 16.5, 18.5, 14.5, 20.5, 15.5, 19.5, 14];
+  let d = '';
+  for (let i = 0; i < 12; i++) {
+    const a = (i * 30 + (i % 3) * 4 - 90) * Math.PI / 180, w = 0.17;
+    const p = function (r, da) {
+      return (24 + r * Math.cos(a + da)).toFixed(2) + ' ' + (24 + r * Math.sin(a + da)).toFixed(2);
+    };
+    d += 'M' + p(2.5, -w * 3) + 'L' + p(L[i], -0.02) + 'L' + p(L[i], 0.02) + 'L' + p(2.5, w * 3) + 'Z';
+  }
+  return d;
+})();
+const CODEX_CLOUD = 'M14 38h20a10 10 0 0 0 1.6-19.9A12 12 0 0 0 12.8 16 9 9 0 0 0 14 38z';
+
+function toolMark(tool, c, px, hollow) {
+  const size = `width:${gq(px)};height:${gq(px)};flex-shrink:0`;
+  if (tool === 'codex') {
+    return `<svg viewBox="0 0 48 48" style="${size}"><path d="${CODEX_CLOUD}" ` +
+      `fill="${hollow ? 'none' : c}" fill-opacity="${hollow ? 0 : 0.25}" stroke="${c}" stroke-width="3.2" stroke-linejoin="round"/>` +
+      `<path d="M17 23l4.5 3.5-4.5 3.5M24.5 31h7" fill="none" stroke="${hollow ? c : '#fff'}" stroke-width="3" ` +
+      `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  return `<svg viewBox="0 0 48 48" style="${size}"><path d="${CLAUDE_STAR}" fill="${hollow ? 'none' : c}" ` +
+    `stroke="${c}" stroke-width="${hollow ? 2.4 : 1.2}" stroke-linejoin="round"/>` +
+    (hollow ? '' : `<circle cx="24" cy="24" r="3.4" fill="${c}"/>`) + `</svg>`;
+}
+
+function bsTabIcon(key, c, px) {
+  const id = 'ti-' + key + '-' + String(c).replace(/[^0-9a-zA-Z]/g, '');
+  const body = `url(#${id}b)`, glow = `url(#${id}g)`;
+  const defs = `<defs>` +
+    `<linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1">` +
+      `<stop offset="0" stop-color="${c}" stop-opacity="0.55"/><stop offset="1" stop-color="${c}" stop-opacity="0.08"/>` +
+    `</linearGradient>` +
+    `<radialGradient id="${id}g"><stop offset="0" stop-color="#fff"/><stop offset="0.35" stop-color="${c}"/>` +
+      `<stop offset="1" stop-color="${c}" stop-opacity="0"/></radialGradient></defs>`;
+  const st = `stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
+  const art = {
+    // Command console: angled screen, a lit prompt and cursor, readout lines.
+    // Claude: the starburst, white-hot at the centre.
+    sessions:
+      `<circle cx="24" cy="24" r="12" fill="${glow}" opacity="0.6"/>` +
+      `<path d="${CLAUDE_STAR}" fill="${c}" stroke="${c}" stroke-width="1" stroke-linejoin="round"/>` +
+      `<circle cx="24" cy="24" r="4" fill="#fff"/>`,
+    console:
+      `<path d="M6 9h36a3 3 0 0 1 3 3v20a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V12a3 3 0 0 1 3-3z" fill="${body}" ${st}/>` +
+      `<path d="M10 17l6 4.5-6 4.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<rect x="19" y="24.5" width="10" height="3" rx="1" fill="#fff"/>` +
+      `<rect x="21" y="15" width="17" height="2" rx="1" fill="${c}" opacity="0.7"/>` +
+      `<rect x="21" y="19.5" width="11" height="2" rx="1" fill="${c}" opacity="0.45"/>` +
+      `<path d="M19 35l-2.5 5h15L29 35" fill="${c}" opacity="0.5"/><path d="M12 41h24" ${st}/>`,
+    // Positronic core: a white-hot centre inside two crossed orbits.
+    harness:
+      `<circle cx="24" cy="24" r="13" fill="${glow}" opacity="0.55"/>` +
+      `<ellipse cx="24" cy="24" rx="20" ry="7.5" transform="rotate(30 24 24)" fill="none" ${st} opacity="0.9"/>` +
+      `<ellipse cx="24" cy="24" rx="20" ry="7.5" transform="rotate(-30 24 24)" fill="none" ${st} opacity="0.9"/>` +
+      `<ellipse cx="24" cy="24" rx="20" ry="7.5" transform="rotate(90 24 24)" fill="none" ${st} opacity="0.45"/>` +
+      `<circle cx="24" cy="24" r="5" fill="#fff"/>` +
+      `<circle cx="40.5" cy="14.5" r="2.4" fill="${c}"/><circle cx="7.5" cy="14.5" r="2.4" fill="${c}"/>` +
+      `<circle cx="24" cy="44" r="2.4" fill="${c}"/>`,
+    // Habitat: a peaked roof with a second chevron over it, lit window and door.
+    home:
+      `<path d="M4 23L24 6l20 17" fill="none" ${st} stroke-width="2.4"/>` +
+      `<path d="M12 12.5L24 3l12 9.5" fill="none" stroke="${c}" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>` +
+      `<path d="M9 21.5L24 9l15 12.5V42H9z" fill="${body}" ${st}/>` +
+      `<rect x="13.5" y="25" width="8" height="7" rx="1" fill="#fff"/>` +
+      `<path d="M13.5 28.5h8M17.5 25v7" stroke="${c}" stroke-width="1.2"/>` +
+      `<path d="M27 42V31a3.5 3.5 0 0 1 7 0v11" fill="${c}"/>` +
+      `<path d="M4 42h40" ${st}/>`,
+    // Sunrise over a planet's horizon, with rays and the planet's limb lit.
+    myday:
+      `<circle cx="24" cy="27" r="11" fill="${glow}"/>` +
+      `<circle cx="24" cy="27" r="6" fill="#fff"/>` +
+      `<path d="M24 7v5M10 13l3.5 3.5M38 13l-3.5 3.5M4 27h5M39 27h5" ${st}/>` +
+      `<path d="M2 45c6-9 14-12 22-12s16 3 22 12z" fill="${body}" ${st}/>` +
+      `<path d="M8 41c5-4.5 10-6 16-6s11 1.5 16 6" fill="none" stroke="#fff" stroke-width="1.4" opacity="0.6"/>`,
+    // Warp core: a column of lit coils with a white-hot reaction chamber.
+    lab:
+      `<rect x="16" y="3" width="16" height="42" rx="4" fill="${body}" ${st}/>` +
+      `<rect x="19" y="8" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<rect x="19" y="14" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<circle cx="24" cy="24" r="8" fill="${glow}"/><circle cx="24" cy="24" r="3.5" fill="#fff"/>` +
+      `<rect x="19" y="31" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<rect x="19" y="37" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<path d="M11 10v28M37 10v28" ${st} opacity="0.6"/><path d="M11 24h5M32 24h5" ${st}/>`,
+  }[key] || '';
+  return `<svg viewBox="0 0 48 48" style="width:${gq(px)};height:${gq(px)};overflow:visible">${defs}${art}</svg>`;
+}
+
+function bsTabList() {
+  const S = bsS();
+  // `built` flips to true as each screen ships; `screen` is the registry id
+  // a tap on the tab jumps to.
+  return [
+    // Claude's own coral, in every theme: the tab is the Claude mark.
+    { key: 'sessions', label: 'SESSIONS', color: '#D97757', built: true, screen: 'screen7' },
+    { key: 'harness', label: 'AI HARNESS', color: S.a2, built: false },
+    { key: 'home', label: 'HOME', color: S.a4, built: false },
+    { key: 'myday', label: 'MY DAY', color: S.a3, built: false },
+    { key: 'lab', label: 'HOME LAB', color: S.dRam, built: hlConfigured(), screen: 'screen6' },
+  ];
+}
+
+/* Which areas need attention, as the colour their tab should take:
+   amber for a warning, red for Home Lab's red alert, nothing when calm. */
+function bsTabAttention() {
+  const S = bsS();
+  const d = sessData();
+  const lab = hlConfigured() ? hlData().mode : null;
+  return {
+    sessions: (d.status === 'offline' || d.list.some(function (s) { return s.state === 'waiting'; })) ? S.warn : null,
+    lab: lab === 'crit' ? S.crit : (lab === 'warn' || lab === 'stale') ? S.warn : null,
+  };
+}
+
+function bsTabs(active, vertical) {
+  if (vertical) return bsTabsColumn(active);
+  const S = bsS();
+  const alert = bsTabAttention();
+  return `<div style="display:flex;align-items:flex-end;gap:${gq(10)}">` +
+    bsTabList().map(function (t) {
+      const on = t.key === active;
+      const col = t.built ? (alert[t.key] || t.color) : S.dim;
+      const glow = t.built ? `filter:drop-shadow(0 0 ${gq(on ? 7 : 4)} ${col}${on ? 'cc' : '88'});` : '';
+      const pulse = t.built && alert[t.key] ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+      return `<div${t.screen ? ` data-screen="${t.screen}"` : ''} style="width:${gq(78)};display:flex;flex-direction:column;align-items:center;gap:${gq(5)};` +
+          `padding:${gq(6)} 0 ${gq(5)};opacity:${t.built ? (on ? 1 : 0.8) : 0.35};` +
+          (on ? `background:linear-gradient(to top, ${col}30, ${col}00);` : '') + `` +
+          `border-bottom:${gq(3)} solid ${on ? col : 'transparent'};${on ? `box-shadow:0 ${gq(4)} ${gq(10)} -${gq(4)} ${col}aa;` : ''}">` +
+        `<div style="display:flex;${glow}${pulse}">${bsTabIcon(t.key, col, 40)}</div>` +
+        `<div style="color:${col};font-size:${gq(9.5)};letter-spacing:${S.ls};white-space:nowrap;${pulse}">${t.label}</div>` +
+        `</div>`;
+    }).join('') + `</div>`;
+}
+
+/* The strip's tabs: a column of icons down the far left, no labels (there
+   is no height for them). The showing screen's tab is lit from the left. */
+function bsTabsColumn(active) {
+  const S = bsS();
+  const alert = bsTabAttention();
+  return `<div style="display:flex;flex-direction:column;justify-content:space-evenly;height:100%">` +
+    bsTabList().map(function (t) {
+      const on = t.key === active;
+      const col = t.built ? (alert[t.key] || t.color) : S.dim;
+      const glow = t.built ? `filter:drop-shadow(0 0 ${gq(on ? 5 : 3)} ${col}${on ? 'cc' : '88'});` : '';
+      const pulse = t.built && alert[t.key] ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+      return `<div${t.screen ? ` data-screen="${t.screen}"` : ''} style="display:flex;align-items:center;` +
+          `justify-content:center;height:${gq(40)};opacity:${t.built ? (on ? 1 : 0.8) : 0.35};` +
+          `border-left:${gq(3)} solid ${on ? col : 'transparent'};` +
+          (on ? `background:linear-gradient(to right, ${col}30, ${col}00);` : '') + `">` +
+        `<div style="display:flex;${glow}${pulse}">${bsTabIcon(t.key, col, 30)}</div>` +
+        `</div>`;
+    }).join('') + `</div>`;
+}
+
+/* The header every full-size screen shares: the tabs, then date and clock. */
+function sessHeader(d, status) { return bsHeader('sessions'); }
+
+function bsHeader(active) {
+  const S = bsS();
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST',
+                  'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+  return `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(6)};height:${gq(96)};` +
+      `display:flex;align-items:flex-end;border-bottom:${gq(2)} solid ${S.edge}">` +
+    `<div style="flex:1"></div>` + bsTabs(active) +
+    `<div style="flex:1;display:flex;justify-content:flex-end;align-items:center;gap:${gq(18)};` +
+        `align-self:center;white-space:nowrap">` +
+      `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:${gq(5)};color:${S.kDate};` +
+        `font-size:${gq(14)};letter-spacing:${S.ls}"><span>${days[now.getDay()]}</span>` +
+        `<span>${months[now.getMonth()]} ${now.getDate()}</span></div>` +
+      `<span style="color:${S.kHour};font-size:${gq(54)};font-weight:${S.fw};font-variant-numeric:tabular-nums;` +
+        `line-height:1;${bsGlow(14, S.kHour)}">${hh}:${mm}</span></div></div>`;
+}
+
+function sessFooter(d) {
+  const S = bsS();
+  const chk = m('sessions.checked_at');
+  const host = chk.available && chk.extra && chk.extra.host ? String(chk.extra.host) : '';
+  let text = '', col = S.dim;
+  if (d.status === 'offline') {
+    const t = chk.available ? Number(chk.value) : NaN;
+    const at = isFinite(t) && t > 0
+      ? new Date(t * 1000).toTimeString().slice(0, 5) : 'NEVER';
+    text = 'SESSION FEED OFFLINE · LAST UPDATE ' + at; col = S.warn;
+  } else if (d.status === 'ok') {
+    text = 'FEED LIVE' + (host ? ' · ' + esc(host) : '');
+  }
+  return `<div style="position:absolute;left:${gq(28)};right:${gq(28)};bottom:${gq(10)};height:${gq(22)};` +
+    `color:${col};font-size:${gq(13)};letter-spacing:${S.ls};text-transform:uppercase;white-space:nowrap;` +
+    `overflow:hidden;${col === S.warn ? bsGlow(8, col) : ''}">${text}</div>`;
+}
+
+function bsSessionsScreen(c) {
+  if (layoutClass() === 'strip') return bsSessionsStrip(c);
+  const S = bsS();
+  const d = sessData();
+  const H = fluidH();
+  const status = sessStatusColor(d);
+  const ROW = 64, GAP = 8, TOP = 118, FOOT = 40;
+  const bodyH = H - TOP - FOOT;
+  const rowsH = bodyH - 34;   // under the column headings
+  const fit = Math.max(1, Math.floor((rowsH + GAP) / (ROW + GAP)));
+  const shown = d.list.length > fit ? d.list.slice(0, fit - 1) : d.list;
+  // A short list grows its rows (up to 1.25x) so names read from across a room.
+  const rowH = d.list.length > fit ? ROW
+    : Math.min(80, Math.max(ROW, Math.floor((rowsH * 0.8 + GAP) / Math.max(1, shown.length) - GAP)));
+  const more = d.list.length - shown.length;
+  const note = function (text, color, size) {
+    return `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:${color};` +
+      `font-size:${gq(size)};letter-spacing:${S.ls};text-transform:uppercase;${bsGlow(14, color)}">${text}</div>`;
+  };
+  let body;
+  if (d.status === 'unconfigured') {
+    body = note('SESSION FEED NOT CONFIGURED', S.dim, 34);
+  } else if (d.status === 'pending') {
+    body = note('CONNECTING TO SESSION FEED', S.dim, 34);
+  } else if (d.list.length === 0) {
+    body = d.status === 'offline' ? note('SESSION FEED OFFLINE', S.warn, 40) : note('NO ACTIVE SESSIONS', S.dim, 40);
+  } else {
+    body = bsSessionHeadings() + `<div style="display:flex;flex-direction:column;gap:${gq(GAP)};` +
+        (d.status === 'offline' ? 'opacity:0.45;' : '') + `">` +
+      shown.map(function (s) { return bsSessionRow(s, rowH); }).join('') + `</div>` +
+      (more > 0 ? `<div style="color:${S.label};font-size:${gq(17)};letter-spacing:${S.ls};` +
+        `padding:${gq(10)} ${gq(16)} 0 ${gq(52)}">+${more} MORE</div>` : '');
+  }
+  const inner = `<div style="position:absolute;left:0;right:0;top:50%;height:${gq(H)};transform:translateY(-50%)">` +
+    `<div style="position:absolute;left:0;right:0;top:0;height:${gq(6)};background:${status};` +
+      (status === S.edge ? '' : `box-shadow:0 0 ${gq(14)} ${status}88;`) + `"></div>` +
+    sessHeader(d, status) +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(TOP)};height:${gq(bodyH)};` +
+      `overflow:hidden">${body}</div>` +
+    sessFooter(d) + `</div>`;
+  return bsFrame(inner, true);
+}
+
+/* Sessions on a bar display (1920x462 is 1024 x 246 units). Same colour
+   bar, columns, clock and footer as the full screen; the tabs move to a
+   column on the far left, and the clock shares the top line with the
+   headings' space. */
+function bsSessionsStrip(c) {
+  const S = bsS();
+  const d = sessData();
+  const H = frameH();
+  const status = sessStatusColor(d);
+  const TOP = STRIP.TOP, HEAD = 22, FOOT = STRIP.FOOT, GAP = 4;
+  const rowsH = H - TOP - HEAD - FOOT - 6;
+  const ROW = 34;
+  const fit = Math.max(1, Math.floor((rowsH + GAP) / (ROW + GAP)));
+  const shown = d.list.slice(0, fit);
+  const more = d.list.length - shown.length;
+  const rowH = Math.min(56, Math.floor((rowsH + GAP) / Math.max(1, shown.length) - GAP));
+  const counts = (d.status === 'ok' || d.status === 'offline') && d.list.length ? sessSummary(d.list) : '';
+  const sumCol = status === S.edge ? S.label : status;
+  let body;
+  const note = function (text, color) {
+    return `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:${color};` +
+      `font-size:${gq(24)};letter-spacing:${S.ls};${bsGlow(10, color)}">${text}</div>`;
+  };
+  if (d.status === 'unconfigured') body = note('SESSION FEED NOT CONFIGURED', S.dim);
+  else if (d.status === 'pending') body = note('CONNECTING TO SESSION FEED', S.dim);
+  else if (d.list.length === 0) {
+    body = d.status === 'offline' ? note('SESSION FEED OFFLINE', S.warn) : note('NO ACTIVE SESSIONS', S.dim);
+  } else {
+    body = bsSessionHeadings(HEAD, 9.5) + `<div style="display:flex;flex-direction:column;gap:${gq(GAP)};` +
+        (d.status === 'offline' ? 'opacity:0.45;' : '') + `">` +
+      shown.map(function (s) { return bsSessionRow(s, rowH, Math.min(0.85, rowH / 46)); }).join('') + `</div>`;
+  }
+  const chk = m('sessions.checked_at');
+  const host = chk.available && chk.extra && chk.extra.host ? esc(String(chk.extra.host)) : '';
+  const foot = d.status === 'offline' ? 'SESSION FEED OFFLINE' : d.status === 'ok' ? 'FEED LIVE' + (host ? ' · ' + host : '') : '';
+  return bsStripFrame({ active: 'sessions', status: status, lead: counts, leadColor: sumCol, body: body,
+                        foot: foot, footColor: d.status === 'offline' ? S.warn : S.dim, more: more });
+}
+
+/* The bar-display frame every strip screen shares (1024 x ~246 units): the
+   status line on top, the tabs in a column on the far left, a top line with
+   the screen's lead text and the date and clock, the body, and a footer. */
+const STRIP = { TABS: 64, X: 78, TOP: 46, FOOT: 18 };
+function bsStripFrame(o) {
+  const S = bsS();
+  const H = frameH(), X = STRIP.X, TOP = STRIP.TOP, FOOT = STRIP.FOOT;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const inner =
+    `<div style="position:absolute;left:0;right:0;top:0;height:${gq(4)};background:${o.status};` +
+      (o.status === S.edge ? '' : `box-shadow:0 0 ${gq(10)} ${o.status}88;`) + `"></div>` +
+    `<div style="position:absolute;left:0;top:${gq(4)};bottom:0;width:${gq(STRIP.TABS)};` +
+      `border-right:${gq(1.5)} solid ${S.edge}">${bsTabs(o.active, true)}</div>` +
+    `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(4)};height:${gq(TOP - 4)};display:flex;` +
+        `align-items:center;gap:${gq(16)};border-bottom:${gq(1.5)} solid ${S.edge}">` +
+      `<div style="color:${o.leadColor};font-size:${gq(o.leadSize || 13)};letter-spacing:${S.ls};white-space:nowrap;` +
+        `${bsGlow(8, o.leadColor)}${o.leadPulse ? ';animation:hlPulse 2s ease-in-out infinite' : ''}">${o.lead}</div>` +
+      `<div style="margin-left:auto;color:${S.kDate};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap">` +
+        `${days[now.getDay()]} · ${months[now.getMonth()]} ${now.getDate()}</div>` +
+      `<div style="color:${S.kHour};font-size:${gq(32)};font-weight:${S.fw};line-height:1;` +
+        `font-variant-numeric:tabular-nums;${bsGlow(10, S.kHour)}">${hh}:${mm}</div></div>` +
+    `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(TOP + 2)};height:${gq(H - TOP - FOOT - 4)};` +
+      `overflow:hidden">${o.body}</div>` +
+    `<div style="position:absolute;left:${gq(X + 16)};right:${gq(32)};bottom:${gq(4)};height:${gq(FOOT - 4)};` +
+        `display:flex;font-size:${gq(9.5)};letter-spacing:${S.ls};white-space:nowrap;text-transform:uppercase;` +
+        `color:${o.footColor}">` +
+      `<span>${o.foot}</span>` +
+      (o.more > 0 ? `<span style="margin-left:auto;color:${S.label}">+${o.more} MORE</span>` : '') + `</div>`;
+  return bsFrame(inner, 'strip');
+}
+
+function sfTosSessions(c) { bsSkin(BS_SKIN_TOS); return bsSessionsScreen(c); }
+function sfTngSessions(c) { bsSkin(BS_SKIN_TNG); return bsSessionsScreen(c); }
+function sfDs9Sessions(c) { bsSkin(BS_SKIN_DS9); return bsSessionsScreen(c); }
+
+
+/* Others / Claude wrappers. The clock is the 9.3" display's: big plain
+   digits, the date beneath, nothing else. Fluid like the Sci-Fi clock. */
+function claudeScreen1(c) { bsSkin(BS_SKIN_CLAUDE); return bsScreen1(c); }
+function claudeNpuScreen(c) { bsSkin(BS_SKIN_CLAUDE); return bsNpuScreen(c); }
+function claudeClaudeScreen(c) { bsSkin(BS_SKIN_CLAUDE); return bsClaudeScreen(c); }
+function claudeGpuScreen(c) { bsSkin(BS_SKIN_CLAUDE); return bsGpuScreen(c); }
+function claudeSessions(c) { bsSkin(BS_SKIN_CLAUDE); return bsSessionsScreen(c); }
+function claudeClockScreen(c) {
+  bsSkin(BS_SKIN_CLAUDE);
+  const S = bsS(), P = CLAUDE_PAL;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const date = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  return bsFrame(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;` +
+      `justify-content:center;gap:${gq(18)};border-top:${gq(6)} solid ${P.line}">` +
+    `<div style="color:${P.ink};font-size:${gq(250)};font-weight:700;line-height:1;` +
+      `font-variant-numeric:tabular-nums;letter-spacing:-0.02em">${hh}:${mm}</div>` +
+    `<div style="color:${P.muted};font-size:${gq(44)};letter-spacing:0.04em">${esc(date)}</div></div>`, true);
+}
+
+
+/* ── Home Lab ────────────────────────────────────────────────────────────
+ * Management by exception: when everything is healthy the screen says so and
+ * nothing else; when something needs attention it says what, where and since
+ * when, worst first. No CPU or memory numbers that do not need attention.
+ * Same chrome as Sessions: status line, tabs, date and clock, footer. */
+function hlConfigured() {
+  const st = m('homelab.status');
+  return st.available && st.value !== 'unconfigured';
+}
+
+function hlData() {
+  const st = m('homelab.status');
+  const status = st.available ? String(st.value) : 'unconfigured';
+  const hm = m('homelab.hosts'), im = m('homelab.issues'), ck = m('homelab.checked_at');
+  const isObj = function (x) { return x && typeof x === 'object'; };
+  const hosts = (hm.available && Array.isArray(hm.value)) ? hm.value.filter(isObj) : [];
+  const issues = (im.available && Array.isArray(im.value)) ? im.value.filter(isObj) : [];
+  const checkedAt = (ck.available && typeof ck.value === 'number' && isFinite(ck.value)) ? ck.value : null;
+  const poll = Number(ck.extra && ck.extra.poll_seconds) || 30;
+  let mode = { ok: 'nominal', warn: 'warn', crit: 'crit', pending: 'pending' }[status] || 'unconfigured';
+  const live = mode === 'nominal' || mode === 'warn' || mode === 'crit';
+  // A stalled poller must never look healthy.
+  if (live && checkedAt === null) mode = 'pending';
+  else if (live && Date.now() / 1000 - checkedAt > 3 * poll) mode = 'stale';
+  return { mode: mode, hosts: hosts, issues: issues, checkedAt: checkedAt };
+}
+
+function hlAgo(epoch) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - epoch));
+  if (s < 60) return s + ' S AGO';
+  if (s < 3600) return Math.floor(s / 60) + ' MIN AGO';
+  return Math.floor(s / 3600) + ' H AGO';
+}
+
+function hlClock(epoch) {
+  const n = Number(epoch);
+  if (!isFinite(n) || n <= 0) return '--:--';
+  const d = new Date(n * 1000);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function hlStateColor(state) {
+  const S = bsS();
+  if (state === 'crit') return S.crit;
+  if (state === 'warn') return S.warn;
+  if (state === 'ok') return S.cLink;
+  return S.dim;
+}
+
+const HL_BANNER = {
+  nominal: 'ALL SYSTEMS NOMINAL', warn: 'YELLOW ALERT', crit: 'RED ALERT', stale: 'TELEMETRY STALE',
+  pending: 'ACQUIRING TELEMETRY', unconfigured: 'HOME LAB NOT CONFIGURED',
+};
+function hlModeColor(mode) {
+  const S = bsS();
+  return mode === 'nominal' ? S.cLink : mode === 'crit' ? S.crit
+    : (mode === 'warn' || mode === 'stale') ? S.warn : S.dim;
+}
+
+/* The status line's colour: green when nominal, amber or red when not, a
+   quiet rule while there is nothing to say yet. */
+function hlStatusColor(mode) {
+  const S = bsS();
+  return (mode === 'pending' || mode === 'unconfigured') ? S.edge : hlModeColor(mode);
+}
+
+function bsAlertBanner(mode, size) {
+  const S = bsS();
+  const text = HL_BANNER[mode] || HL_BANNER.unconfigured, col = hlModeColor(mode);
+  // Fit the line to ~940 units: tracking adds ~0.85em per character.
+  const px = Math.min(size, Math.floor(940 / (text.length * 0.85)));
+  const pulse = mode === 'crit' ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+  return `<div style="text-align:center;color:${col};font-weight:${S.fw};font-size:${gq(px)};line-height:1.1;` +
+    `letter-spacing:${S.ls};white-space:nowrap;${bsGlow(16, col)};${pulse}">${text}</div>`;
+}
+
+/* One pill per host: the name and a lamp. The lamp is the only colour. */
+function bsHostStrip(hosts, k) {
+  const S = bsS();
+  k = k || 1;
+  const round = S.r >= 999 ? '999px' : gq(S.r * 2);
+  const pills = hosts.slice(0, 12).map(function (h) {
+    const col = hlStateColor(h.state);
+    const pulse = h.state === 'crit' ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+    return `<div style="display:flex;align-items:center;gap:${gq(9 * k)};padding:${gq(6 * k)} ${gq(16 * k)};` +
+        `border:${gq(2)} solid ${col}${h.state === 'ok' ? '88' : ''};border-radius:${round}">` +
+      `<span style="width:${gq(14 * k)};height:${gq(14 * k)};border-radius:50%;background:${col};flex-shrink:0;` +
+        `box-shadow:0 0 ${gq(8 * k)} ${col}aa;${pulse}"></span>` +
+      `<span style="color:${S.label};font-size:${gq(18 * k)};letter-spacing:${S.ls};` +
+        `text-transform:uppercase;white-space:nowrap">${esc(String(h.name))}</span></div>`;
+  }).join('');
+  return `<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:${gq(12 * k)} ${gq(14 * k)}">${pills}</div>`;
+}
+
+/* A severity bar, the host, what is wrong, detail, and since when. `k`
+   scales it down for the strip, where it is one line. */
+function bsIssueCard(i, k) {
+  const S = bsS();
+  k = k || 1;
+  const col = i.severity === 'crit' ? S.crit : S.warn;
+  const oneLine = k < 1;
+  return `<div style="display:flex;align-items:stretch;gap:${gq(14 * k)};min-height:${gq(50 * k)};flex-shrink:0">` +
+    `<div style="width:${gq(10 * k)};background:${col};box-shadow:0 0 ${gq(8)} ${col}88;` +
+      `border-radius:${S.r >= 999 ? '999px' : '0'};flex-shrink:0"></div>` +
+    `<div style="flex:1;min-width:0;display:flex;flex-direction:${oneLine ? 'row' : 'column'};` +
+        `justify-content:${oneLine ? 'flex-start' : 'center'};align-items:${oneLine ? 'center' : 'stretch'};` +
+        `gap:${oneLine ? gq(18) : '0'}">` +
+      `<div style="display:flex;align-items:baseline;gap:${gq(12 * k)};min-width:0">` +
+        `<span style="color:${col};font-size:${gq(17 * k)};letter-spacing:${S.ls};text-transform:uppercase;` +
+          `white-space:nowrap;flex-shrink:0">${esc(String(i.host || ''))}</span>` +
+        `<span style="color:${S.bright};font-size:${gq(24 * k)};white-space:nowrap;overflow:hidden;` +
+          `text-overflow:ellipsis">${esc(String(i.title || ''))}</span></div>` +
+      `<div style="color:${S.dim};font-size:${gq(16 * k)};white-space:nowrap;overflow:hidden;min-width:0;` +
+        `text-overflow:ellipsis">${esc(String(i.detail || ''))}</div></div>` +
+    `<div style="color:${S.label};font-size:${gq(16 * k)};letter-spacing:${S.ls};white-space:nowrap;` +
+      `align-self:center">SINCE ${hlClock(i.since)}</div></div>`;
+}
+
+function hlFooter(d) {
+  const S = bsS();
+  if (d.mode === 'stale') return { text: 'NO FRESH CHECK FOR ' + hlAgo(d.checkedAt).replace(' AGO', ''), color: S.warn };
+  if (d.checkedAt === null) return { text: '', color: S.dim };
+  return { text: 'CHECKED ' + hlAgo(d.checkedAt) + ' · ' + d.hosts.length + ' HOSTS', color: S.dim };
+}
+
+function bsHomelabScreen(c) {
+  if (layoutClass() === 'strip') return bsHomelabStrip(c);
+  const S = bsS();
+  const d = hlData();
+  const H = fluidH();
+  const status = hlStatusColor(d.mode);
+  const TOP = 118, FOOT = 40;
+  const bodyH = H - TOP - FOOT;
+  const calm = d.issues.length === 0;
+  // Below a compact banner (~70) and the host strip (~2 rows, ~100): cards of ~62.
+  const fit = Math.max(1, Math.min(6, Math.floor((bodyH - 190) / 62)));
+  const shown = d.issues.length > fit ? d.issues.slice(0, fit - 1) : d.issues;
+  const more = d.issues.length - shown.length;
+  const cards = calm ? '' :
+    `<div style="display:flex;flex-direction:column;gap:${gq(12)}">` +
+      shown.map(function (i) { return bsIssueCard(i); }).join('') +
+      (more > 0 ? `<div style="color:${S.label};font-size:${gq(16)};letter-spacing:${S.ls};` +
+        `text-align:right">+${more} MORE</div>` : '') + `</div>`;
+  const body = `<div style="height:100%;display:flex;flex-direction:column;` +
+      `justify-content:${calm ? 'center' : 'flex-start'};gap:${gq(calm ? 48 : 22)}">` +
+    bsAlertBanner(d.mode, calm ? 96 : 60) + bsHostStrip(d.hosts) + cards + `</div>`;
+  const foot = hlFooter(d);
+  const inner = `<div style="position:absolute;left:0;right:0;top:50%;height:${gq(H)};transform:translateY(-50%)">` +
+    `<div style="position:absolute;left:0;right:0;top:0;height:${gq(6)};background:${status};` +
+      (status === S.edge ? '' : `box-shadow:0 0 ${gq(14)} ${status}88;`) + `"></div>` +
+    bsHeader('lab') +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(TOP)};height:${gq(bodyH)};` +
+      `overflow:hidden">${body}</div>` +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};bottom:${gq(10)};height:${gq(22)};` +
+      `color:${foot.color};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap;overflow:hidden">` +
+      `${foot.text}</div></div>`;
+  return bsFrame(inner, true);
+}
+
+/* Home Lab on a bar display: the banner is the top line's lead, then the
+   host lights in one row and up to three one-line issues. */
+function bsHomelabStrip(c) {
+  const S = bsS();
+  const d = hlData();
+  const H = frameH();
+  const rowsH = H - STRIP.TOP - STRIP.FOOT - 6;
+  const calm = d.issues.length === 0;
+  const fit = calm ? 0 : Math.max(1, Math.floor((rowsH - 34) / 36));
+  const shown = d.issues.slice(0, fit);
+  const more = d.issues.length - shown.length;
+  const col = hlModeColor(d.mode);
+  const body = `<div style="height:100%;display:flex;flex-direction:column;` +
+      `justify-content:${calm ? 'center' : 'flex-start'};gap:${gq(calm ? 0 : 8)};padding-top:${gq(calm ? 0 : 4)}">` +
+    bsHostStrip(d.hosts, calm ? 0.95 : 0.58) +
+    (calm ? '' : `<div style="display:flex;flex-direction:column;gap:${gq(5)}">` +
+      shown.map(function (i) { return bsIssueCard(i, 0.62); }).join('') + `</div>`) + `</div>`;
+  const foot = hlFooter(d);
+  return bsStripFrame({ active: 'lab', status: hlStatusColor(d.mode), lead: HL_BANNER[d.mode] || HL_BANNER.unconfigured,
+                        leadColor: col, leadSize: 20, leadPulse: d.mode === 'crit', body: body,
+                        foot: foot.text, footColor: foot.color, more: more });
+}
+
+function sfTosHomelab(c) { bsSkin(BS_SKIN_TOS); return bsHomelabScreen(c); }
+function sfTngHomelab(c) { bsSkin(BS_SKIN_TNG); return bsHomelabScreen(c); }
+function sfDs9Homelab(c) { bsSkin(BS_SKIN_DS9); return bsHomelabScreen(c); }
+function claudeHomelab(c) { bsSkin(BS_SKIN_CLAUDE); return bsHomelabScreen(c); }
+
 
 /* ── site render shim (replaces display_app.js poll loop) ── */
 var metrics = window.SITE_METRICS;
 var activeFamily = null, activeVariant = null, themeColors = null;
-function m(key){ if(!metrics||!metrics[key]) return {value:null,available:false,unit:'',extra:{}}; return metrics[key]; }
-function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc(suffix? d.value+suffix : String(d.value)); }
+function m(key){ if(!metrics||!metrics[key]) return {value:null,available:false,unit:'',extra:{}};
+  return metrics[key]; }
+function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A';
+  return esc(suffix? d.value+suffix : String(d.value)); }
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
-  return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
+  return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'')
+    .replace(/_/g,' ').replace(/-$/,'')); }
 
 /* Mirrors getScreenRegistry() in display_app.js. The site used to render only
    screen 1, which quietly made four fifths of the product invisible to anyone

@@ -160,8 +160,13 @@
   /* ── 4-col grid inside NPU panel ── */
   .l-4col { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.78cqw; }
 
+  .screen-frame.fluid { height: var(--frame-h, 600px); }
+  @keyframes hlPulse { 0%,100%{opacity:1} 50%{opacity:0.75} }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.12} }
   @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
   @keyframes nixieFlicker { 0%{opacity:1} 5%{opacity:0.98} 10%{opacity:1} 15%{opacity:0.96} 17%{opacity:1} 50%{opacity:1} 52%{opacity:0.97} 54%{opacity:1} 80%{opacity:1} 82%{opacity:0.95} 83%{opacity:1} 90%{opacity:0.98} 100%{opacity:1} }
   @keyframes nixieMicroFlicker { 0%,100%{filter:brightness(1)} 25%{filter:brightness(0.97)} 50%{filter:brightness(1.02)} 75%{filter:brightness(0.98)} }
   @keyframes spinFan { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+/* Touch kiosks: swipes change screens, so the browser must not pan or zoom. */
+html, body { touch-action: none; }
