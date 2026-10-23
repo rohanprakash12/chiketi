@@ -124,6 +124,9 @@ def _check_table(where: str, table: dict, schema: dict, problems: list[str]) -> 
             if "\n" in value or "\r" in value:
                 problems.append(f"{where}.{key}: must be one line")
                 continue
+            if not value:
+                problems.append(f"{where}.{key}: must not be empty")
+                continue
             if not SAFE.match(value):
                 problems.append(f"{where}.{key}: unexpected characters in {value!r}")
                 continue
@@ -146,9 +149,10 @@ def _secret_keys(where: str, value, path: str, problems: list[str]) -> None:
     elif isinstance(value, dict):
         for k, v in value.items():
             full = f"{path}{'.' if path else ''}{k}"
-            if SECRET_KEY.search(k):
-                generic = (where.removeprefix("server/"), re.sub(r"\[\d+\]", "[]", full))
-                is_path = isinstance(v, str) and "\n" not in v and not v.startswith("-----")
+            generic = (where.removeprefix("server/"), re.sub(r"\[\d+\]", "[]", full))
+            if SECRET_KEY.search(k) or generic in SECRET_PATH_KEYS:
+                is_path = (isinstance(v, str) and "\n" not in v and "\r" not in v
+                           and not v.lstrip().startswith("-----"))
                 if generic not in SECRET_PATH_KEYS or not is_path:
                     problems.append(f"{where}: {full} looks like a secret; {SECRET_HELP}")
             _secret_keys(where, v, full, problems)

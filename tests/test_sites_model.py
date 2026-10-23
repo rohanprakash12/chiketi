@@ -190,3 +190,17 @@ def test_secret_path_exceptions_only_where_documented(tmp_path):
     p = problems(tmp_path, homelab=HOMELAB.replace('ssh_key = "~/.ssh/chiketi_homelab"',
                                                    'ssh_key = "-----BEGIN OPENSSH PRIVATE KEY-----"'))
     assert "server/homelab.toml: ssh_key" in p
+
+
+def test_empty_required_values_rejected(tmp_path):
+    p = problems(tmp_path, site=SITE.replace('user = "admin"', 'user = ""', 1))
+    assert "server.user: must not be empty" in p
+    kiosk = 'ssh = "admin@192.0.2.20"\nuser = '
+    p = problems(tmp_path, site=SITE.replace(kiosk + '"admin"', kiosk + '""'))
+    assert "display[0].user: must not be empty" in p
+
+
+def test_token_file_value_checked(tmp_path):
+    hl = HOMELAB + ('[[host]]\nname = "ha"\nkind = "http"\nurl = "http://192.0.2.23/"\n'
+                    'token_file = """-----BEGIN PRIVATE KEY-----\nabc\n"""\n')
+    assert "server/homelab.toml: host[1].token_file looks like a secret" in problems(tmp_path, homelab=hl)
