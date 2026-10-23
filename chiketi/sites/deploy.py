@@ -33,18 +33,43 @@ def _ssh(runner, host, cmd):
     return r
 
 
+def check_repo(repo) -> None:
+    """Deploys copy chiketi from a git checkout (never a live tree): make sure there is one."""
+    if not (Path(repo) / ".git").exists():
+        raise RepoError(f"{repo} is not a chiketi source checkout; deploy needs one "
+                        "(git clone the repository and run chiketi-site from it, or pass --repo DIR)")
+
+
+class RepoError(Exception):
+    pass
+
+
+def _sha(repo, ref) -> str:
+    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                       capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        raise RuntimeError(f"{ref!r} is not a commit in {repo}")
+    return r.stdout.strip()
+
+
+def _ensure_dirs(site, runner) -> None:
+    # The unit's ReadWritePaths must exist before systemd will start it.
+    _ssh(runner, site.server.ssh, "mkdir -p ~/.config/chiketi ~/.local/state/chiketi")
+
+
 def _restart(runner, host, unit):
     _ssh(runner, host, f"sudo systemctl daemon-reload && sudo systemctl enable {unit} && sudo systemctl restart {unit}")
 
 
 def deploy_server(site, runner, dry_run, ref="HEAD", repo=REPO) -> int:
     files = files_for(site, "server")
+    srv, inst = site.server, site.server.install_dir
+    sha = _sha(repo, ref)
     if dry_run:
+        running = runner.run(SSH + [srv.ssh, f"cat {inst}/DEPLOYED"]).stdout.strip() or "unknown"
+        print(f"software: would install {sha} into {inst} and restart chiketi (running: {running})")
         _report(apply(files, runner, True, _today()))
         return 0
-    srv, inst = site.server, site.server.install_dir
-    sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", ref], capture_output=True,
-                         text=True, check=True).stdout.strip()
     with tempfile.TemporaryDirectory() as tmp:
         tgz = os.path.join(tmp, "chiketi.tgz")
         subprocess.run(["git", "-C", str(repo), "archive", "--format=tar.gz", "-o", tgz, ref], check=True)
@@ -58,6 +83,7 @@ def deploy_server(site, runner, dry_run, ref="HEAD", repo=REPO) -> int:
         f"sudo {inst}/venv/bin/pip install -q --upgrade {inst}/src.new && "
         f"sudo rm -rf {inst}/src && sudo mv {inst}/src.new {inst}/src && "
         f"echo {sha} | sudo tee {inst}/DEPLOYED >/dev/null && rm -f /tmp/chiketi.tgz"))
+    _ensure_dirs(site, runner)
     _report(apply(files, runner, False, _today()))
     _restart(runner, srv.ssh, "chiketi")
     url = f"http://{srv.address}:{CONTROL_PORT}/api/health"
@@ -73,11 +99,11 @@ def deploy_server(site, runner, dry_run, ref="HEAD", repo=REPO) -> int:
     return 1
 
 
-def deploy_display(site, runner, display_id, dry_run, restart_unit=None) -> int:
+def deploy_display(site, runner, display_id, dry_run, restart_unit=None, repo=REPO) -> int:
     d = site.display(display_id)
     files = files_for(site, "display", d.id)
     if d.kind == "picture":
-        comp = REPO / "companions" / "lcd-snap"
+        comp = Path(repo) / "companions" / "lcd-snap"
         files[1:1] = [
             FileOut(site.server.ssh, "/opt/lcd-snap/lcd_snap.py", (comp / "lcd_snap.py").read_text()),
             FileOut(site.server.ssh, "/etc/apparmor.d/lcd-snap-chrome",

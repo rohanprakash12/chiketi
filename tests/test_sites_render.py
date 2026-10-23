@@ -76,3 +76,18 @@ def test_newline_values_refused(site):
     bad = replace(site, server=replace(site.server, user="a\nb"))
     with pytest.raises(ValueError):
         render_part(bad, "server-unit")
+
+
+def test_kiosk_page_health_check_works_from_file_url(site):
+    # Opened from file://, a cross-origin XHR fails CORS even when the server answers;
+    # an opaque no-cors fetch resolves on any answer.
+    page = render_part(site, "kiosk-page", "kiosk-1").content
+    assert "mode: 'no-cors'" in page and "XMLHttpRequest" not in page
+
+
+def test_kiosk_page_hostile_display_id_escaped(site):
+    from dataclasses import replace
+    bad = replace(site, displays=(replace(site.displays[0], id="</script><script>alert(1)</script>"),)
+                  + site.displays[1:])
+    page = render_part(bad, "kiosk-page", "</script><script>alert(1)</script>").content
+    assert page.count("<script>") == 1 and page.count("</script>") == 1

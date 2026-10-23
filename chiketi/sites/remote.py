@@ -32,7 +32,11 @@ def apply(files: list[FileOut], runner, dry_run: bool, today: str) -> list[tuple
     for f in files:
         rp = remote_path(f.path)
         sudo = "sudo " if f.sudo else ""
-        cur = _ssh(runner, f.host, f"{sudo}cat {rp}")
+        # exit 3 = no such file; any other failure (host down, no sudo) stops the deploy,
+        # so an unreadable file is never treated as missing and overwritten without a backup
+        cur = _ssh(runner, f.host, f"{sudo}test -e {rp} || exit 3; {sudo}cat {rp}")
+        if cur.returncode not in (0, 3):
+            raise RuntimeError(f"{f.host}:{f.path}: cannot read: {cur.stderr.strip() or f'exit {cur.returncode}'}")
         exists = cur.returncode == 0
         if exists and cur.stdout == f.content:
             results.append((f, "unchanged"))
@@ -45,10 +49,12 @@ def apply(files: list[FileOut], runner, dry_run: bool, today: str) -> list[tuple
             continue
         if exists:
             bak = remote_path(f"{f.path}.bak-{today}")
-            r = _ssh(runner, f.host, f"[ -e {bak} ] || {sudo}cp -p {rp} {bak}")
+            r = _ssh(runner, f.host, f"{sudo}test -e {bak} || {sudo}cp -p {rp} {bak}")
             if r.returncode != 0:
                 raise RuntimeError(f"{f.host}:{f.path}: backup failed: {r.stderr.strip()}")
-        r = _ssh(runner, f.host, f"{sudo}install -D -m {f.mode} /dev/stdin {rp}", input=f.content)
+        tmp = remote_path(f"{f.path}.chiketi-new")
+        r = _ssh(runner, f.host, f"{sudo}install -D -m {f.mode} /dev/stdin {tmp} && {sudo}mv -f {tmp} {rp}",
+                 input=f.content)
         if r.returncode != 0:
             raise RuntimeError(f"{f.host}:{f.path}: write failed: {r.stderr.strip()}")
         results.append((f, "changed" if exists else "created"))

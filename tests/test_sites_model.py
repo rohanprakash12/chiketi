@@ -140,3 +140,34 @@ def test_missing_site_toml(tmp_path):
     with pytest.raises(SiteError) as e:
         load_site(tmp_path)
     assert "site.toml" in str(e.value)
+
+
+def test_install_dir_must_be_absolute_and_not_root(tmp_path):
+    for bad in ('""', '"opt/chiketi"', '"/"', '"/opt/../etc"', '"~/chiketi"'):
+        site = SITE.replace('user = "admin"\n\n[[display]]', f'user = "admin"\ninstall_dir = {bad}\n\n[[display]]', 1)
+        assert "server.install_dir" in problems(tmp_path, site=site), bad
+
+
+def test_ssh_login_must_be_the_service_user(tmp_path):
+    p = problems(tmp_path, site=SITE.replace('ssh = "admin@192.0.2.10"', 'ssh = "root@192.0.2.10"'))
+    assert "server.ssh: must log in as admin" in p
+    p = problems(tmp_path, site=SITE.replace('ssh = "admin@192.0.2.20"', 'ssh = "root@192.0.2.20"'))
+    assert "display[0].ssh: must log in as admin" in p
+
+
+def test_secret_keys_in_server_files_rejected(tmp_path):
+    p = problems(tmp_path, sessions=SESSIONS + 'password = "EXAMPLE"\n')
+    assert "server/sessions.toml: password looks like a secret" in p
+    p = problems(tmp_path, homelab=HOMELAB + 'api_token = "EXAMPLE"\n')
+    assert "server/homelab.toml: host[0].api_token looks like a secret" in p
+
+
+def test_server_file_path_keys_allowed(tmp_path):
+    hl = HOMELAB + '[[host]]\nname = "ha"\nkind = "http"\nurl = "http://192.0.2.23/"\ntoken_file = "~/t"\n'
+    assert load_site(make(tmp_path, homelab=hl)).name == "example"
+
+
+def test_only_one_picture_display(tmp_path):
+    extra = '\n[[display]]\nid = "wide-2"\nkind = "picture"\nwidth = 800\nheight = 480\n'
+    p = problems(tmp_path, site=SITE.replace("[session_feed]", extra + "\n[session_feed]"))
+    assert "only one picture display" in p

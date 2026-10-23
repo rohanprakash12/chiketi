@@ -19,6 +19,7 @@ SECRET_KEY = re.compile(r"(token|password|passwd|secret|key)$", re.I)
 SECRET_HELP = ("secrets never go in a site; keep them only on the machine that uses them "
                "(e.g. a Home Assistant token in the server's ~/.config/chiketi/ha_token, mode 600)")
 SERVER_FILES = {"sessions.toml", "homelab.toml"}
+SECRET_PATH_KEYS = {"ssh_key", "token_file"}   # these name where a secret is, not the secret
 TOP = {"site": "table", "server": "table", "display": "list", "session_feed": "table", "homelab": "table"}
 SCHEMA = {
     "site": {"name": (str, True)},
@@ -135,6 +136,25 @@ def _check_table(where: str, table: dict, schema: dict, problems: list[str]) -> 
     return out
 
 
+def _secret_keys(where: str, value, path: str, problems: list[str]) -> None:
+    """Server files are copied as-is (and shown in dry-run diffs): no secrets in them either."""
+    if isinstance(value, list):
+        for i, v in enumerate(value):
+            _secret_keys(where, v, f"{path}[{i}]", problems)
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            if SECRET_KEY.search(k) and k not in SECRET_PATH_KEYS:
+                problems.append(f"{where}: {path}{'.' if path else ''}{k} looks like a secret; {SECRET_HELP}")
+            _secret_keys(where, v, f"{path}{'.' if path else ''}{k}", problems)
+
+
+def _same_login(where: str, t: dict, problems: list[str]) -> None:
+    """Files for the account are written over this ssh login, so it must be that account."""
+    ssh, user = t.get("ssh"), t.get("user")
+    if ssh and user and "@" in ssh and ssh.split("@", 1)[0] != user:
+        problems.append(f"{where}.ssh: must log in as {user} (the account that owns its files)")
+
+
 def _server_files(root: Path, problems: list[str]) -> None:
     sdir = root / "server"
     if not sdir.is_dir():
@@ -144,6 +164,13 @@ def _server_files(root: Path, problems: list[str]) -> None:
         if f.name not in SERVER_FILES:
             problems.append(f"server/{f.name}: not a chiketi config file "
                             f"(allowed: {', '.join(sorted(SERVER_FILES))}); {SECRET_HELP}")
+    for name in sorted(SERVER_FILES):
+        f = sdir / name
+        if f.is_file():
+            try:
+                _secret_keys(f"server/{name}", tomllib.loads(f.read_text(encoding="utf-8")), "", problems)
+            except (OSError, tomllib.TOMLDecodeError):
+                pass   # the loaders below report it
     sessions = sdir / "sessions.toml"
     if sessions.is_file() and sessions_mod._load(str(sessions)) is None:
         problems.append("server/sessions.toml: rejected by chiketi (see the message above)")
@@ -214,6 +241,15 @@ def load_site(root) -> Site:
                         chiketi_path=ft["chiketi_path"], port=port,
                         readers=tuple(ft.get("readers", ["server"])),
                         requires_mount=ft.get("requires_mount"))
+    inst = srv.get("install_dir", "/opt/chiketi")
+    if not inst.startswith("/") or inst.rstrip("/") == "" or ".." in inst.split("/"):
+        problems.append(f"server.install_dir: {inst!r} must be an absolute path below / (e.g. /opt/chiketi)")
+    _same_login("server", srv, problems)
+    for i, d in enumerate(displays):
+        if d.kind == "browser":
+            _same_login(f"display[{i}]", {"ssh": d.ssh, "user": d.user}, problems)
+    if sum(d.kind == "picture" for d in displays) > 1:
+        problems.append("only one picture display per site for now (lcd-snap is a single service on port 7778)")
     hl = _check_table("homelab", raw.get("homelab", {}), SCHEMA["homelab"], problems)
     _server_files(root, problems)
     if problems:

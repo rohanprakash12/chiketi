@@ -69,7 +69,7 @@ def render_part(site: Site, part: str, display_id: str | None = None) -> FileOut
         url = _display_url(site, d.id)
         return FileOut(d.ssh, f"{d.home}/kiosk/shell.html",
                        _fill("kiosk-shell.html", display_url_attr=html.escape(url, quote=True),
-                             display_id_comment=d.id, base_js=_js(f"http://{srv.address}:{CONTROL_PORT}"),
+                             base_js=_js(f"http://{srv.address}:{CONTROL_PORT}"),
                              display_url_js=_js(url)), sudo=False)
     if part == "kiosk-launcher":
         return FileOut(d.ssh, f"{d.home}/kiosk/chromium-kiosk.sh",

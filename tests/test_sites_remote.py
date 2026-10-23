@@ -11,16 +11,19 @@ class FakeRunner:
     def __init__(self, files=None):
         self.files = dict(files or {})       # (host, path) -> content
         self.calls = []
+        self.down = set()
 
     def run(self, argv, input=None):
         self.calls.append((argv, input))
         host, cmd = argv[-2], argv[-1]
+        if host in self.down:
+            return subprocess.CompletedProcess(argv, 255, "", "ssh: connect to host: No route to host")
         if "cat " in cmd:
             path = cmd.split("cat ", 1)[1].strip().strip("'")
             key = (host, path.replace('"$HOME"/', "~/"))
             if key in self.files:
                 return subprocess.CompletedProcess(argv, 0, self.files[key], "")
-            return subprocess.CompletedProcess(argv, 1, "", "No such file")
+            return subprocess.CompletedProcess(argv, 3, "", "")
         return subprocess.CompletedProcess(argv, 0, "", "")
 
 
@@ -71,3 +74,32 @@ def test_non_sudo_file_written_as_user():
     apply([f], r, dry_run=False, today="20261023")
     w = [a[-1] for a, _ in r.calls if "install " in a[-1]][0]
     assert not w.startswith("sudo ") and '"$HOME"/' in w
+
+
+def test_unreachable_host_is_an_error_not_a_missing_file():
+    import pytest
+    r = FakeRunner()
+    r.down.add(F.host)
+    with pytest.raises(RuntimeError, match="cannot read"):
+        apply([F], r, dry_run=True, today="20261023")
+
+
+def test_read_distinguishes_missing_from_failure():
+    r = FakeRunner()
+    apply([F], r, dry_run=True, today="20261023")
+    read = r.calls[0][0][-1]
+    assert "test -e" in read and "exit 3" in read
+
+
+def test_backup_check_and_write_use_the_same_privileges():
+    r = FakeRunner({(F.host, F.path): "old\n"})
+    apply([F], r, dry_run=False, today="20261023")
+    bak = next(a[-1] for a, _ in r.calls if "cp -p" in a[-1])
+    assert bak.startswith("sudo test -e ") and "|| sudo cp -p" in bak
+
+
+def test_write_is_atomic():
+    r = FakeRunner()
+    apply([F], r, dry_run=False, today="20261023")
+    w = next(a[-1] for a, _ in r.calls if "install " in a[-1])
+    assert ".chiketi-new" in w and "&& sudo mv -f " in w
