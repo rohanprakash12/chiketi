@@ -1,0 +1,10 @@
+#!/bin/sh
+# smart-read: read-only SMART health and attributes for ONE disk.
+# chiketi-probe runs it through `sudo -n` (Linux) or directly (Unraid, root).
+# -n standby: never spin a sleeping disk up; smartctl exits with bit 1 set instead.
+case "$1" in
+  ''|*[!a-z0-9]*) echo "smart-read: bad device name" >&2; exit 2 ;;
+esac
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+exec smartctl -n standby -H -A "/dev/$1"

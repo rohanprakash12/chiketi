@@ -1,0 +1,95 @@
+#!/bin/sh
+# chiketi-probe: read-only health snapshot for chiketi's Home Lab screen.
+#
+# It runs as the forced command of the chiketi server's key (authorized_keys
+# `command="/usr/local/bin/chiketi-probe",restrict`), so it takes no arguments
+# and reads no input. It prints key=value lines and changes nothing; the only
+# write is a one-hour cache of the apt security-update count in /tmp.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LC_ALL=C
+export PATH LC_ALL
+
+echo "probe_version=1"
+if [ -r /var/local/emhttp/var.ini ]; then KIND=unraid; else KIND=linux; fi
+echo "kind=$KIND"
+
+awk '/^MemTotal:/ {print "mem_total_kb=" $2} /^MemAvailable:/ {print "mem_avail_kb=" $2}' /proc/meminfo
+
+# Real local filesystems only: network and virtual mounts (nfs, virtiofs, fuse,
+# tmpfs, overlay) belong to some other host or to nobody.
+df -P -T -k 2>/dev/null | awk 'NR > 1 && $2 ~ /^(ext[234]|xfs|btrfs|zfs|vfat|f2fs)$/ {
+  pct = $6; sub(/%$/, "", pct); m = $7
+  for (i = 8; i <= NF; i++) m = m " " $i
+  gsub(/[|=]/, "_", m); print "fs=" m "|" pct }'
+
+best=""
+for d in /sys/class/hwmon/hwmon*; do
+  n=$(cat "$d/name" 2>/dev/null)
+  case "$n" in coretemp|k10temp|zenpower|cpu_thermal) ;; *) continue ;; esac
+  for t in "$d"/temp*_input; do
+    [ -r "$t" ] || continue
+    v=$(cat "$t" 2>/dev/null)
+    case "$v" in ''|*[!0-9]*) continue ;; esac
+    if [ -z "$best" ] || [ "$v" -gt "$best" ]; then best=$v; fi
+  done
+done
+[ -n "$best" ] && echo "cpu_temp_c=$((best / 1000))"
+
+if command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null |
+  while read -r t; do
+    case "$t" in ''|*[!0-9]*) ;; *) echo "gpu_temp_c=$t" ;; esac
+  done
+fi
+
+HELPER=/usr/local/lib/chiketi-probe/smart-read
+if command -v smartctl >/dev/null 2>&1 && [ -x "$HELPER" ]; then
+  if [ "$(id -u)" = 0 ]; then RUN=""; else RUN="sudo -n"; fi
+  for dev in $(lsblk -dno NAME,TYPE 2>/dev/null | awk '$2 == "disk" && $1 !~ /^(loop|zram|sr|ram)/ {print $1}'); do
+    out=$($RUN "$HELPER" "$dev" 2>/dev/null)
+    rc=$?
+    # Bit 1: could not open the device, or it is in standby (-n standby). Skip it.
+    [ $((rc & 2)) -ne 0 ] && continue
+    # Virtual disks (virtio) have no model file: leave the model empty, quietly.
+    model=$({ tr -s ' ' < "/sys/block/$dev/device/model"; } 2>/dev/null | sed 's/^ //;s/ $//' | tr -d '|=')
+    printf '%s\n' "$out" | awk -v dev="$dev" -v model="$model" '
+      /overall-health self-assessment test result:/ { h = $NF }
+      /SMART Health Status:/ { h = $NF }
+      $1 == "5"   && $2 ~ /Reallocated_Sector/ { r = $10 }
+      $1 == "197" && $2 ~ /Current_Pending/    { p = $10 }
+      $1 == "198" && $2 ~ /Offline_Uncorrect/  { o = $10 }
+      ($1 == "194" || $1 == "190") && t == "" { t = $10 }
+      /^Temperature:/ && t == "" { t = $2 }
+      END { print "disk=" dev "|" model "|" t "|" r "|" p "|" o "|" h }'
+  done
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  f=$(systemctl --failed --no-legend --plain 2>/dev/null | awk 'NF {print $1}')
+  n=$(printf '%s\n' "$f" | grep -c .)
+  names=$(printf '%s' "$f" | tr '\n' ',' | tr -d '|=' | cut -c1-300)
+  echo "failed_units=$n|$names"
+fi
+
+if command -v apt-get >/dev/null 2>&1; then
+  c=/tmp/chiketi-probe-sec
+  if [ -z "$(find "$c" -mmin -60 2>/dev/null)" ]; then
+    { apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | grep -c '^Inst .*-security'; true; } > "$c.$$" &&
+      mv -f "$c.$$" "$c"
+  fi
+  [ -r "$c" ] && echo "sec_updates=$(cat "$c")"
+fi
+
+if [ "$KIND" = unraid ]; then
+  awk -F= '
+    $1 == "mdState"    { v = $2; gsub(/"/, "", v); print "unraid_array=" v }
+    $1 == "sbSyncErrs" { v = $2; gsub(/"/, "", v); print "unraid_parity_errors=" v }' /var/local/emhttp/var.ini
+  # The array as a whole: Unraid fills data disks one after another, so a
+  # single full disk is normal and only the total matters.
+  df -P -k 2>/dev/null | awk '$6 ~ /^\/mnt\/disk[0-9]+$/ { u += $3; t += $2 }
+    END { if (t > 0) printf "unraid_array_pct=%d\n", (u * 100 + t / 2) / t }'
+  awk -F= '
+    /^\[/ { s = $0; gsub(/[]["]/, "", s) }
+    $1 == "status" { v = $2; gsub(/"/, "", v); if (s != "") print "unraid_disk=" s "|" v }' /var/local/emhttp/disks.ini
+fi
+exit 0

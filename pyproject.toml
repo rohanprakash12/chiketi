@@ -1,0 +1,71 @@
+[project]
+name = "chiketi"
+# Single source of truth: chiketi/__init__.py:__version__. See
+# [tool.setuptools.dynamic] below.
+dynamic = ["version"]
+description = "System stats dashboard with panel and vintage themes"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Rohan Prakash"}]
+keywords = ["dashboard", "system-monitor", "kiosk", "raspberry-pi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications",
+    "Intended Audience :: End Users/Desktop",
+    # signal.pause(), os.getuid() and the X11/loginctl display detection make
+    # this Linux-only, even though the NVIDIA collector itself is portable.
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "psutil>=5.9",
+]
+
+[project.urls]
+Homepage = "https://rohanprakash12.github.io/chiketi/"
+Repository = "https://github.com/rohanprakash12/chiketi"
+Issues = "https://github.com/rohanprakash12/chiketi/issues"
+
+[project.optional-dependencies]
+nvidia = ["nvidia-ml-py>=12.0"]
+dev = ["pytest>=7.0", "ruff>=0.6"]
+
+[project.scripts]
+chiketi = "chiketi.__main__:main"
+
+[build-system]
+# >=77 for PEP 639 `license = "MIT"` / `license-files`; the old licence table is
+# deprecated and warns on build.
+requires = ["setuptools>=77.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {attr = "chiketi.__version__"}
+
+[tool.setuptools.packages]
+find = {include = ["chiketi", "chiketi.*"]}
+
+[tool.setuptools.package-data]
+chiketi = ["assets/**/*"]
+
+# Tests are a development concern: run them from the repo, not from a release
+# artifact. Without this (plus the `prune tests` in MANIFEST.in) setuptools
+# auto-includes top-level tests/ in the sdist -- but only the test_*.py files,
+# leaving out conftest.py, __init__.py and tests/fixtures/, so the shipped
+# suite could not run at all.
+[tool.setuptools.exclude-package-data]
+"*" = ["tests", "tests.*"]
+
+[tool.pytest.ini_options]
+# Only collect the real test suite, so a future standalone tool under scripts/
+# cannot be swept up by pytest's *_test.py glob and drag in a non-dev dep.
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# Imports must follow the sys.path.insert that makes `chiketi` importable.
+"scripts/gen_site_assets.py" = ["E402"]

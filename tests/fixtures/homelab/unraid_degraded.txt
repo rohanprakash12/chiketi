@@ -1,0 +1,17 @@
+probe_version=1
+kind=unraid
+mem_total_kb=32000000
+mem_avail_kb=1000000
+fs=/boot|40
+fs=/mnt/disk1|97
+fs=/mnt/cache|50
+disk=sdb|WDC WD80EFAX|38|8|2|0|PASSED
+disk=sdc|ST8000VN004||||||
+unraid_array=STARTED
+unraid_disk=parity|DISK_OK
+unraid_disk=disk1|DISK_OK
+unraid_disk=disk2|DISK_DSBL
+unraid_disk=parity2|DISK_NP_DSBL
+unraid_parity_errors=3
+garbage line without equals
+unknown_future_key=whatever

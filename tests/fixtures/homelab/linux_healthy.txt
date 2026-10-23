@@ -1,0 +1,10 @@
+probe_version=1
+kind=linux
+mem_total_kb=8000000
+mem_avail_kb=6000000
+fs=/|14
+fs=/boot/efi|1
+cpu_temp_c=41
+disk=sda|Samsung SSD 840 EVO 120GB|31|0|0|0|PASSED
+failed_units=0|
+sec_updates=0

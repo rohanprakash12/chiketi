@@ -1,0 +1,11 @@
+# Lets lcd-snap's headless Chromium create the user namespaces its sandbox
+# needs (Ubuntu 23.10+ blocks them for unconfined programs by default).
+# Install: /etc/apparmor.d/lcd-snap-chrome, then apparmor_parser -r it.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile lcd-snap-chrome /opt/lcd-snap/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+  userns,
+
+  include if exists <local/lcd-snap-chrome>
+}

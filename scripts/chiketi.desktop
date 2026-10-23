@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Chiketi Dashboard
+Comment=System stats dashboard for GeeekPi display
+Exec=chiketi
+Terminal=false
+Hidden=false
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,4116 @@
+
+/* Display name for whichever LLM backend is live. llm.py reports
+   'llama.cpp' | 'ollama' | 'vllm' in llama.backend; an Ollama or vLLM user
+   should not see a panel titled LLAMA.CPP. Defined here rather than beside
+   cleanModel() because cleanModel() is duplicated in display_app.js,
+   control_app.js and the docs/site shim -- screen_functions.js is the single
+   file all three hosts share, and the only consumer of this. */
+/* A llama-server process row's label. The collector reports {pid, name, model};
+   older payloads carried no name at all, and printing "?" beside a live PID
+   reads as a broken row rather than a missing field. */
+function llamaProcName(p) {
+  if (p && p.name) return esc(String(p.name));
+  if (p && p.model) {
+    return esc(String(p.model).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''));
+  }
+  return 'llama-server';
+}
+
+function backendTitle() {
+  const d = m('llama.backend');
+  if (!d.available || !d.value || d.value === 'none') return 'AI ENGINE';
+  // Object.create(null): a plain object literal would resolve '__proto__' or
+  // 'toString' to prototype junk instead of falling through to the escaped
+  // default.
+  const names = Object.assign(Object.create(null), {
+    'llama.cpp': 'LLAMA.CPP', ollama: 'OLLAMA', vllm: 'VLLM',
+  });
+  return names[String(d.value)] || esc(String(d.value).toUpperCase());
+}
+
+/* ── SVG Donut gauge ── */
+function donut(pct, label, ringColor, size, sw, font, opts) {
+  opts = opts || {};
+  const bgRing = opts.bgRing || '#1a1a1a';
+  const labelColor = opts.labelColor || '#aaa';
+  const valColor = (pct > 80 ? (opts.critColor || '#BF0F0F') : (opts.valColor || '#fff'));
+  const linecap = opts.linecap || 'round';
+  const fontWeight = opts.fontWeight || '700';
+  const labelFW = opts.labelFW || '600';
+  const r = (size - sw - 4) / 2;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (Math.min(100, Math.max(0, pct)) / 100) * circ;
+  const cx = size / 2, cy = size / 2;
+  // Render size in cqw so the donut scales with its container instead of a
+  // fixed px size. A fixed-px donut overflows in any frame narrower than the
+  // 1024px kiosk (the control-panel preview and mobile), colliding with the
+  // SECONDARY bar below. At 1024px this resolves to the original px size, so
+  // the actual kiosk display is unchanged.
+  // Gold uses anticlockwise (scale(-1,1)), Coral/Teal use clockwise (rotate(-90))
+  const xform = opts.anticlockwise
+    ? `translate(${size}, 0) scale(-1, 1) rotate(-90 ${cx} ${cy})`
+    : `rotate(-90 ${cx} ${cy})`;
+  // Opt-in tick ring. Off by default so every existing caller is unchanged.
+  let ticks = '';
+  if (opts.ticks) {
+    for (let i = 0; i < 36; i++) {
+      const a = i * 10 * Math.PI / 180, maj = i % 3 === 0;
+      const r1 = r + sw / 2 + 3, r2 = r + sw / 2 + (maj ? 9 : 5);
+      ticks += `<line x1="${(cx + r1 * Math.cos(a)).toFixed(1)}" y1="${(cy + r1 * Math.sin(a)).toFixed(1)}"` +
+        ` x2="${(cx + r2 * Math.cos(a)).toFixed(1)}" y2="${(cy + r2 * Math.sin(a)).toFixed(1)}"` +
+        ` stroke="${ringColor}" stroke-width="${maj ? 1.6 : 0.9}" opacity="${maj ? 0.75 : 0.35}"/>`;
+    }
+  }
+  // The tick ring sits outside the circle radius, so the viewBox has to grow
+  // or the outer ticks are clipped at the svg edge.
+  const pad = opts.ticks ? 11 : 0;
+  const vb = `${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`;
+  const cqv = ((size + pad * 2) / 1024 * 100).toFixed(3);
+  return `<div style="text-align:center">` +
+    (label ? `<div style="color:${labelColor};font-size:${opts.labelSize||'2.34cqw'};font-family:${font};font-weight:${labelFW};letter-spacing:1px;margin-bottom:2px;text-transform:uppercase">${label}</div>` : '') +
+    `<svg width="${size}" height="${size}" viewBox="${vb}" style="width:${cqv}cqw;height:${cqv}cqw;max-width:100%;display:block;margin:0 auto">` + ticks +
+      `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${bgRing}" stroke-width="${sw}"/>` +
+      `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${ringColor}" stroke-width="${sw}" ` +
+        `stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="${linecap}" ` +
+        `transform="${xform}" style="transition:stroke-dashoffset 0.8s ease"/>` +
+      `<text x="${cx}" y="${cy+2}" text-anchor="middle" dominant-baseline="central" ` +
+        `fill="${valColor}" font-size="${opts.valSize||'3.22cqw'}" font-family="${font}" font-weight="${fontWeight}">${Math.round(pct)}%</text>` +
+    `</svg></div>`;
+}
+
+/* ── Thermal scale with tick marks ──
+ * The tick track is inset on both ends (`edge`) so the first/last labels (20
+ * and 120) sit fully inside the panel instead of being clipped at the right
+ * border. `marginLeft` aligns the track start with the thermBar fill (label
+ * column width + the row gap); a matching right inset keeps spacing even. */
+function thermalScale(tickColor, font, marginLeft) {
+  const marks = [20, 50, 70, 90, 110, 120];
+  const edge = '1.4cqw'; // half-width of an end label, kept clear of the panel edge
+  let html = `<div style="margin-left:${marginLeft||'5.57cqw'};margin-right:${edge};position:relative;height:2.34cqw">` +
+    `<div style="position:absolute;top:0;left:0;right:0;height:1px;background:#333"></div>`;
+  for (const t of marks) {
+    const pct = ((t - 20) / 100) * 100;
+    html += `<div style="position:absolute;left:${pct}%;top:0;transform:translateX(-50%)">` +
+      `<div style="width:1px;height:0.78cqw;background:${tickColor}"></div>` +
+      `<div style="color:${tickColor};font-size:1.37cqw;font-family:${font};text-align:center;margin-top:1px">${t}</div></div>`;
+  }
+  return html + `</div>`;
+}
+
+/* SVG ids are built from captions, and url(#...) will not match an id
+   containing a space. "GPU VRAM" silently unlit a whole magic eye before
+   this existed; slugify once, here, rather than at four call sites. */
+function svgId(prefix, label) {
+  return prefix + String(label == null ? '' : label).replace(/[^A-Za-z0-9_-]+/g, '');
+}
+
+/* ── Spinning fan icon — speed scales with actual RPM ── */
+function fanIcon(color, size, rpm) {
+  if (!rpm || rpm <= 0) {
+    // Stopped fan — static, dimmed
+    return `<svg width="${size}" height="${size}" viewBox="0 0 40 40" style="opacity:0.3">` +
+      [0,90,180,270].map(a => `<path d="M20 20 C18 10,12 4,20 2 C28 4,22 10,20 20Z" fill="${color}" transform="rotate(${a} 20 20)"/>`).join('') +
+      `<circle cx="20" cy="20" r="4" fill="#111" stroke="${color}" stroke-width="1"/></svg>`;
+  }
+  // Animation speed: ~10% of real RPM feel
+  // 1000 RPM → ~1.7 rps → 0.6s per revolution
+  // 500 RPM → ~0.83 rps → 1.2s per revolution
+  const rps = (rpm / 60) * 0.1;
+  const speed = Math.max(0.3, 1 / Math.max(0.1, rps));
+  return `<svg width="${size}" height="${size}" viewBox="0 0 40 40" style="animation:spin ${speed.toFixed(2)}s linear infinite">` +
+    [0,90,180,270].map(a => `<path d="M20 20 C18 10,12 4,20 2 C28 4,22 10,20 20Z" fill="${color}" opacity="0.9" transform="rotate(${a} 20 20)"/>`).join('') +
+    `<circle cx="20" cy="20" r="4" fill="#111" stroke="${color}" stroke-width="1"/></svg>`;
+}
+
+/* ── Fan strip (dynamic — grouped by CPU / CASE / GPU) ── */
+function fanStrip(fanColor, font, bgColor) {
+  const cpuFans = m('cpu.fans_cpu');
+  const caseFans = m('cpu.fans_case');
+  const gpuFan = m('gpu.fan');
+  const cpuList = asList(cpuFans);
+  const caseList = asList(caseFans);
+  let html = `<div style="display:flex;align-items:center;gap:0.88cqw;${bgColor ? 'background:'+bgColor+';border-radius:3px;padding:0.44cqw 1.17cqw;' : ''}">`;
+  let shown = 0;
+  if (cpuList.length) {
+    html += `<span style="color:${fanColor};font-size:1.76cqw;font-family:${font};font-weight:700;opacity:0.7">CPU</span>`;
+    for (const rpm of cpuList) { html += fanIcon(fanColor, '2.93cqw', rpm); shown++; }
+  }
+  if (caseList.length) {
+    if (shown) html += `<div style="width:0.59cqw"></div>`;
+    html += `<span style="color:${fanColor};font-size:1.76cqw;font-family:${font};font-weight:700;opacity:0.7">CASE</span>`;
+    for (const rpm of caseList) { html += fanIcon(fanColor, '2.93cqw', rpm); shown++; }
+  }
+  if (gpuFan.available) {
+    if (shown) html += `<div style="width:0.59cqw"></div>`;
+    html += `<span style="color:${fanColor};font-size:1.76cqw;font-family:${font};font-weight:700;opacity:0.7">GPU</span>`;
+    html += fanIcon(fanColor, '2.93cqw', gpuFan.value * 10);
+    shown++;
+  }
+  if (!shown) html += `<span style="color:${fanColor};font-size:1.76cqw;font-family:${font};opacity:0.4">NO FANS DETECTED</span>`;
+  html += `</div>`;
+  return html;
+}
+
+function terminalScreen1(c) {
+  const cpuTemp = m('cpu.temp'), cpuUsage = m('cpu.usage');
+  const cores = m('cpu.per_core');
+  const gpuTemp = m('gpu.temp'), gpuFan = m('gpu.fan'), gpuPower = m('gpu.power');
+  const gpuVram = m('gpu.vram_used'), gpuVramPct = m('gpu.vram_percent'), gpuUtil = m('gpu.util');
+  const ramUsed = m('mem.ram_used'), ramPct = m('mem.ram_percent');
+  const swapUsed = m('mem.swap_used'), swapPct = m('mem.swap_percent');
+  const diskRoot = m('disk.root_used'), diskRootPct = m('disk.root_percent');
+  const diskHome = m('disk.home_used'), diskHomePct = m('disk.home_percent');
+  const dl = m('net.dl'), ul = m('net.ul');
+  const hostname = m('sys.hostname'), uptime = m('sys.uptime');
+
+  const coresStr = cores.available && Array.isArray(cores.value)
+    ? cores.value.slice(0, 8).map(v => Math.round(v)).join(' ') + (cores.value.length > 8 ? ' ...' : '')
+    : 'N/A';
+  const fanStr = gpuFan.available ? `  Fan: ${gpuFan.value}%` : '';
+  const powerStr = gpuPower.available ? `${gpuPower.value}W / ${gpuPower.extra.limit || '?'}W` : 'N/A';
+  const vramG = gpuVram.available ? `${(gpuVram.value/1024).toFixed(1)}/${((gpuVram.extra.total||0)/1024).toFixed(1)}G` : 'N/A';
+  const ramStr = ramUsed.available ? `${ramUsed.value}/${ramUsed.extra.total || '?'}G` : 'N/A';
+  const swapStr = swapUsed.available ? `${swapUsed.value}/${swapUsed.extra.total || '?'}G` : 'N/A';
+  const rootStr = diskRoot.available ? `${diskRoot.value}/${diskRoot.extra.total || '?'}${(diskRoot.unit||'')[0]||'G'}` : 'N/A';
+  const homeStr = diskHome.available ? `${diskHome.value}/${diskHome.extra.total || '?'}${(diskHome.unit||'')[0]||'G'}` : 'N/A';
+
+  return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
+    tPanel(c, 'CPU',
+      tRow(c, 'Temp:', '', cpuTemp.available ? cpuTemp.value + '\u00b0C' : 'N/A') +
+      tRow(c, 'Load:', tBar(c, cpuUsage.available ? cpuUsage.value : null), cpuUsage.available ? Math.round(cpuUsage.value) + '%' : 'N/A') +
+      tRow(c, 'Fans:', '', (function(){ var cpuF=m('cpu.fans_cpu'),caseF=m('cpu.fans_case'),parts=[]; var cl=asList(cpuF),ca=asList(caseF); if(cl.length)parts.push('CPU:'+cl.filter(function(r){return r>0}).length); if(ca.length)parts.push('Case:'+ca.filter(function(r){return r>0}).length); var gpuF=m('gpu.fan'); if(gpuF.available)parts.push('GPU:'+(gpuF.value>0?'On':'Off')); return parts.length?parts.join(' | '):'N/A'; })(), c.dim) +
+      tRow(c, 'Cores:', '', coresStr, c.dim)
+    ) +
+    tPanel(c, 'GPU',
+      tRow(c, 'Temp:', '', gpuTemp.available ? gpuTemp.value + '\u00b0C' + fanStr : 'N/A') +
+      tRow(c, 'Power:', '', powerStr) +
+      tRow(c, 'VRAM:', tBar(c, gpuVramPct.available ? gpuVramPct.value : null), vramG) +
+      tRow(c, 'Util:', tBar(c, gpuUtil.available ? gpuUtil.value : null), gpuUtil.available ? gpuUtil.value + '%' : 'N/A')
+    ) +
+    tPanel(c, 'MEMORY',
+      tRow(c, 'RAM:', tBar(c, ramPct.available ? ramPct.value : null), ramStr) +
+      tRow(c, 'Swap:', tBar(c, swapPct.available ? swapPct.value : null), swapStr)
+    ) +
+    tPanel(c, 'DISK',
+      tRow(c, '/', tBar(c, diskRootPct.available ? diskRootPct.value : null), rootStr) +
+      tRow(c, '/home', tBar(c, diskHomePct.available ? diskHomePct.value : null), homeStr)
+    ) +
+    tPanel(c, 'NETWORK',
+      tRow(c, '\u2193', '', dl.available ? dl.value + ' ' + dl.unit : 'N/A') +
+      tRow(c, '\u2191', '', ul.available ? ul.value + ' ' + ul.unit : 'N/A')
+    ) +
+    tPanel(c, 'SYSTEM',
+      tRow(c, 'Host:', '', mv('sys.hostname')) +
+      tRow(c, 'Up:', '', mv('sys.uptime'), c.dim)
+    ) +
+    `</div></div>`;
+}
+
+/* ── the classic Terminal AI monitor ─────────────────────────────────────
+ * This screen used to be a second GPU board -- utilisation, clocks, CUDA
+ * processes -- which read as a duplicate the moment the family got a GPU
+ * screen of its own. It is the AI monitor now, the same subject the Sci-Fi
+ * and Vintage families put on screen 2: what is loaded, how fast it runs,
+ * and what it is costing the card. Sized in cqw so the control-panel preview
+ * scales with the frame.
+ */
+function terminalScreen2(c) {
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
+  const vram = m('gpu.vram_used'), vramPct = m('gpu.vram_percent');
+  const gpuName = m('gpu.name'), gpuUtil = m('gpu.util');
+  const gpuTemp = m('gpu.temp'), gpuPower = m('gpu.power');
+
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? c.dim : running && healthy ? c.primary : c.critical;
+  const stateText = status.available ? esc(String(status.value)) : 'Not detected';
+
+  const tpsVal = (tps.available && typeof tps.value === 'number') ? tps.value.toFixed(1) : '--';
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : 'N/A';
+  const vramStr = vram.available
+    ? `${vram.value}/${vram.extra.total || '?'} ${vram.unit || 'MiB'}` : 'N/A';
+
+  let procRows = '';
+  if (procs.length) {
+    for (let i = 0; i < Math.min(3, procs.length); i++) {
+      const p = procs[i] || {};
+      procRows += `<div class="t-row" style="color:${c.primary}">` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${llamaProcName(p)}</span>` +
+        `<span style="width:${gq(110)};text-align:right;color:${c.dim}">${esc(String(p.pid || '--'))}</span></div>`;
+    }
+  } else {
+    procRows = `<div class="t-row" style="color:${c.dim}">no local server process</div>`;
+  }
+
+  return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
+    tPanel(c, 'THROUGHPUT',
+      (tpsVal === '--'
+        ? `<div class="t-row" style="color:${c.dim};font-size:${gq(24)};line-height:1.3">Not generating</div>`
+        : `<div class="t-row" style="color:${c.accent};font-size:${gq(46)};line-height:1.05">${tpsVal}</div>` +
+          `<div class="t-row" style="color:${c.dim}">tokens / sec</div>`) +
+      tRow(c, 'Slots:', '', slots.available ? String(slots.value) : 'N/A')) +
+    tPanel(c, 'MODEL',
+      `<div class="t-row" style="color:${c.accent}">${cleanModel()}</div>` +
+      tRow(c, 'Quant:', '', quant.available ? esc(String(quant.value)) : 'N/A') +
+      tRow(c, 'Context:', '', ctxText) +
+      tRow(c, 'Engine:', '', backend.available ? esc(String(backend.value)) : 'N/A', c.dim)) +
+    tPanel(c, backendTitle(),
+      tRow(c, 'Status:', '', stateText, stateColor) +
+      tRow(c, 'Health:', '', health.available ? esc(String(health.value)) : 'N/A',
+           healthy ? c.primary : c.critical) +
+      tRow(c, 'PID:', '', procs.length ? esc(String(procs[0].pid || '--')) : '--', c.dim)) +
+    tPanel(c, 'WEIGHTS',
+      tRow(c, 'VRAM:', tBar(c, vramPct.available ? vramPct.value : null), vramStr) +
+      tRow(c, 'Card:', '', gpuName.available ? esc(String(gpuName.value)) : 'N/A', c.dim)) +
+    tPanel(c, 'CARD LOAD',
+      tRow(c, 'Util:', tBar(c, gpuUtil.available ? gpuUtil.value : null),
+           gpuUtil.available ? gpuUtil.value + '%' : 'N/A') +
+      tRow(c, 'Temp:', '', gpuTemp.available ? gpuTemp.value + '°C' : 'N/A',
+           gpuTemp.available && gpuTemp.value >= 80 ? c.critical : c.primary) +
+      tRow(c, 'Power:', '',
+           gpuPower.available ? `${gpuPower.value} / ${gpuPower.extra.limit || '?'} W` : 'N/A', c.dim)) +
+    tPanel(c, 'SERVER PROCESSES', procRows) +
+    `</div></div>`;
+}
+
+/* ── Terminal: block-height history, so a graph is characters like the rest ── */
+function tSpark(samples, width, color, dim) {
+  const arr = (samples && samples.length) ? samples : [];
+  let cap = 0;
+  for (const v of arr) if (typeof v === 'number' && v > cap) cap = v;
+  cap = cap > 0 ? cap * 1.15 : 1;
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = arr.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, arr[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return `<div class="t-row" style="color:${color};white-space:pre;line-height:1;` +
+    `border-bottom:1px solid ${dim};padding-bottom:1px">${esc(out)}</div>`;
+}
+
+/* ── the classic Terminal GPU board ──────────────────────────────────────
+ * The six palette variants had no GPU screen of their own, so the rotation
+ * fell through to the Sci-Fi TOS board: a green-on-black tty handed over to a
+ * gold LCARS panel every fourth screen and took itself back afterwards. Same
+ * vocabulary as the rest of the family -- bordered panels, a --[ TITLE ] rule,
+ * character meters, tabular listings -- and adaptive to card count the way the
+ * Sci-Fi and distro boards already are.
+ */
+function terminalGpuScreen(c) {
+  const cards = asList(m('gpu.cards'));
+  const frame = (cls, body) =>
+    `<div class="screen-frame"><div class="t-screen ${cls}" style="background:${c.background}">` +
+      body + `</div></div>`;
+  const val = (v, sfx) => (v === null || v === undefined || v === '') ? 'N/A' : esc(String(v)) + (sfx || '');
+  const pc = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v) : null;
+
+  if (!cards.length) {
+    return frame('', tPanel(c, 'GRAPHICS',
+      `<div class="t-row" style="color:${c.dim}">No readable graphics device.</div>` +
+      `<div class="t-row" style="color:${c.dim}">Switch this screen off in Settings.</div>`));
+  }
+
+  /* ── one card, in full: the 2x3 grid the family already reads ── */
+  if (cards.length === 1) {
+    const k = cards[0];
+    const hot = pc(k.temp) !== null && k.temp >= 80;
+    const vramG = `${(bsNum(k.vram_used) / 1024).toFixed(1)}/${(bsNum(k.vram_total) / 1024).toFixed(1)}G`;
+    const procs = asList({ available: true, value: k.processes });
+
+    let procRows = `<div class="t-row" style="color:${c.dim}">` +
+      `<span class="t-label" style="flex:1">PROCESS</span>` +
+      `<span style="width:${gq(96)};text-align:right">PID</span>` +
+      `<span style="width:${gq(120)};text-align:right">VRAM</span></div>`;
+    if (procs.length) {
+      for (let i = 0; i < Math.min(3, procs.length); i++) {
+        const p = procs[i] || {};
+        procRows += `<div class="t-row" style="color:${c.primary}">` +
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+          `<span style="width:${gq(96)};text-align:right;color:${c.dim}">${val(p.pid)}</span>` +
+          `<span style="width:${gq(120)};text-align:right">${val(p.vram_mib, ' MiB')}</span></div>`;
+      }
+    } else {
+      procRows += `<div class="t-row" style="color:${c.dim}">` +
+        (k.source === 'nvml' ? 'no compute processes on this card'
+                             : 'per-process VRAM not exposed by ' + val(k.driver)) + `</div>`;
+    }
+
+    return frame('t-2col-3row',
+      tPanel(c, 'DEVICE',
+        `<div class="t-row" style="color:${c.accent}">${esc(String(k.short_name || k.name || 'GPU'))}</div>` +
+        tRow(c, 'Vendor:', '', val(k.vendor)) +
+        tRow(c, 'Driver:', '', val(k.driver), c.dim) +
+        tRow(c, 'Bus:', '', val(k.bus_id), c.dim)) +
+      tPanel(c, 'UTILISATION',
+        tRow(c, 'Core:', tBar(c, pc(k.util)), val(pc(k.util), '%')) +
+        tRow(c, 'VRAM:', tBar(c, pc(k.vram_percent)), val(pc(k.vram_percent), '%')) +
+        tRow(c, 'Mem BW:', tBar(c, pc(k.mem_util)), val(pc(k.mem_util), '%'))) +
+      tPanel(c, 'TELEMETRY',
+        tRow(c, 'Temp:', '', val(pc(k.temp), '°C'), hot ? c.critical : c.primary) +
+        tRow(c, 'Power:', tBar(c, gpuPowerPct(k)), `${val(pc(k.power))} / ${val(pc(k.power_limit))} W`) +
+        tRow(c, 'Fan:', '', gpuFanText(k), c.dim)) +
+      tPanel(c, 'CLOCKS',
+        tRow(c, 'Core:', '', `${val(k.clock_gpu)} / ${val(k.clock_gpu_max)} MHz`) +
+        tRow(c, 'Memory:', '', `${val(k.clock_mem)} / ${val(k.clock_mem_max)} MHz`)) +
+      tPanel(c, 'MEMORY',
+        tRow(c, 'Used:', tBar(c, pc(k.vram_percent)), vramG) +
+        tRow(c, 'Free:', '',
+             `${((bsNum(k.vram_total) - bsNum(k.vram_used)) / 1024).toFixed(1)}G`, c.dim)) +
+      tPanel(c, 'PROCESSES', procRows));
+  }
+
+  /* ── several cards: one panel each, and a header that totals the rig ── */
+  let watts = 0, anyPower = false;
+  for (const k of cards) {
+    if (typeof k.power === 'number' && isFinite(k.power)) { watts += k.power; anyPower = true; }
+  }
+  let body = tPanel(c, 'GRAPHICS',
+    tRow(c, 'Cards:', '', String(cards.length)) +
+    tRow(c, 'Draw:', '', anyPower ? Math.round(watts) + ' W total' : 'N/A', c.dim));
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    const k = cards[i];
+    const hot = pc(k.temp) !== null && k.temp >= 80;
+    body += tPanel(c, esc(String(k.short_name || k.name || ('GPU ' + i))),
+      tRow(c, 'Core:', tBar(c, pc(k.util)), val(pc(k.util), '%')) +
+      tRow(c, 'VRAM:', tBar(c, pc(k.vram_percent)),
+           `${(bsNum(k.vram_used) / 1024).toFixed(1)}/${Math.round(bsNum(k.vram_total) / 1024)}G`) +
+      tRow(c, 'Temp:', '', `${val(pc(k.temp), '°C')}   ${val(pc(k.power), ' W')}`,
+           hot ? c.critical : c.dim));
+  }
+  // Four fit the grid beside the header. More than that is declared, never
+  // dropped in silence -- a rig quietly rendered as a smaller rig is worse
+  // than no screen at all.
+  if (cards.length > 4) {
+    body += tPanel(c, 'OVERFLOW',
+      `<div class="t-row" style="color:${c.dim}">+${cards.length - 4} more not shown</div>`);
+  }
+  return frame('t-2col-3row', body);
+}
+
+/* ── the classic Terminal Claude board ───────────────────────────────────
+ * Screen 3 used to be one generic renderer for all sixteen themes: theme
+ * colours, but nobody's chrome. Here it is in the family's own panels.
+ */
+function terminalClaudeScreen(c) {
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, total) => total > 0 ? Math.round((part / total) * 100) : null;
+  const total = nz(tokTotal), sess = nz(sTotal);
+
+  return `<div class="screen-frame"><div class="t-screen t-2col-3row" style="background:${c.background}">` +
+    tPanel(c, 'ALL-TIME TOKENS',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(34)};line-height:1.1">${fmtTok(total)}</div>` +
+      tRow(c, 'Input:', tBar(c, share(nz(tokIn), total)), fmtTok(nz(tokIn))) +
+      tRow(c, 'Output:', tBar(c, share(nz(tokOut), total)), fmtTok(nz(tokOut))) +
+      tRow(c, 'Cache W:', tBar(c, share(nz(tokCW), total)), fmtTok(nz(tokCW))) +
+      tRow(c, 'Cache R:', tBar(c, share(nz(tokCR), total)), fmtTok(nz(tokCR)))) +
+    tPanel(c, 'THIS SESSION',
+      `<div class="t-row" style="color:${c.accent};font-size:${gq(34)};line-height:1.1">${fmtTok(sess)}</div>` +
+      tRow(c, 'Input:', tBar(c, share(nz(sIn), sess)), fmtTok(nz(sIn))) +
+      tRow(c, 'Output:', tBar(c, share(nz(sOut), sess)), fmtTok(nz(sOut))) +
+      tRow(c, 'Cache W:', tBar(c, share(nz(sCW), sess)), fmtTok(nz(sCW))) +
+      tRow(c, 'Cache R:', tBar(c, share(nz(sCR), sess)), fmtTok(nz(sCR)))) +
+    tPanel(c, 'MESSAGES',
+      tRow(c, 'Total:', '', fmtNum(mAll)) +
+      tRow(c, 'User:', '', fmtNum(mUser), c.dim) +
+      tRow(c, 'Assistant:', '', fmtNum(mAsst), c.dim) +
+      tRow(c, 'Session:', '', fmtNum(sMsgs))) +
+    tPanel(c, 'TOKEN RATE',
+      tSpark(spark.available ? spark.value : [], 30, c.primary, c.border) +
+      tRow(c, 'Now:', '', fmtNum(rate, '0') + ' tok/min') +
+      tRow(c, 'Agents:', '', String(agents.available ? agents.value : 0), c.accent)) +
+    tPanel(c, 'MONTHLY AVERAGE',
+      tRow(c, 'Tokens:', '', fmtTok(nz(monTok))) +
+      tRow(c, 'Messages:', '', fmtNum(monMsg), c.dim)) +
+    tPanel(c, 'HISTORY',
+      tRow(c, 'Active days:', '', days.available ? String(days.value) : '--') +
+      tRow(c, 'Sessions:', '', sessions.available ? String(sessions.value) : '--', c.dim)) +
+    `</div></div>`;
+}
+
+function sfTosScreen2(c) {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const dayName = days[now.getDay()];
+  const dateStr = `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+
+  return `<div class="screen-frame fluid"><div style="background:#000;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Chakra Petch',sans-serif">` +
+    `<div style="color:${GOLD};font-size:2.05cqw;text-transform:uppercase;letter-spacing:1.17cqw;margin-bottom:0.88cqw">United Federation of Planets</div>` +
+    `<div style="border:2px solid ${GOLD};padding:2.05cqw 7.32cqw;position:relative">` +
+      `<div style="position:absolute;top:-1.32cqw;left:3.52cqw;background:#000;padding:0 1.46cqw;color:${AMBER};font-size:1.76cqw;letter-spacing:0.29cqw">SHIP CHRONOMETER</div>` +
+      `<div style="display:flex;align-items:baseline">` +
+        `<span style="color:${GOLD};font-size:19.53cqw;font-weight:700">${hh}</span>` +
+        `<span style="color:${GOLD};font-size:13.67cqw;animation:blink 1s infinite;margin:0 0.29cqw">:</span>` +
+        `<span style="color:${GOLD};font-size:19.53cqw;font-weight:700">${mm}</span>` +
+        `<span style="color:${AMBER};font-size:8.79cqw;margin-left:1.46cqw">${ss}</span>` +
+      `</div>` +
+    `</div>` +
+    `<div style="color:${GREEN};font-size:4.69cqw;letter-spacing:0.88cqw;margin-top:2.64cqw;text-transform:uppercase">${dayName}</div>` +
+    `<div style="color:#ddd;font-size:5.57cqw;letter-spacing:0.44cqw;margin-top:0.88cqw">${dateStr}</div>` +
+  `</div></div>`;
+}
+
+function sfTngScreen2(c) {
+  const T = PANEL_SPEC.tng || {};
+  const FONT = "'Antonio', sans-serif";
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const dayName = days[now.getDay()];
+  const dateStr = `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+  const ank = T.anakiwa || '#99CCFF';
+  const gt = T.goldenTanoi || '#FFCC66';
+  const nc = T.neonCarrot || '#FF9933';
+  const tn = T.tanoi || '#FFCC99';
+  const li = T.lilac || '#CC99CC';
+
+  return `<div class="screen-frame fluid"><div style="background:#000;width:100%;height:100%;display:flex;font-family:${FONT}">` +
+    `<div style="width:7.32cqw;flex-shrink:0;display:flex;flex-direction:column">` +
+      `<div style="height:4.10cqw;background:${ank};border-bottom-left-radius:2.93cqw"></div>` +
+      `<div style="flex:1;display:flex;flex-direction:column;gap:0.44cqw;padding-top:0.88cqw">` +
+        `<div style="background:${gt};height:3.52cqw;border-top-right-radius:999px;border-bottom-right-radius:999px;width:6.74cqw"></div>` +
+        `<div style="background:${nc};height:3.52cqw;border-top-right-radius:999px;border-bottom-right-radius:999px;width:6.74cqw"></div>` +
+        `<div style="flex:1"></div>` +
+        `<div style="background:${li};height:3.52cqw;border-top-right-radius:999px;border-bottom-right-radius:999px;width:6.74cqw"></div>` +
+      `</div>` +
+      `<div style="height:2.93cqw;background:${ank};border-top-left-radius:2.34cqw"></div>` +
+    `</div>` +
+    `<div style="flex:1;display:flex;flex-direction:column">` +
+      `<div style="height:4.10cqw;background:${ank};display:flex;align-items:center;justify-content:flex-end;padding-right:1.76cqw"><span style="color:#000;font-size:2.64cqw;text-transform:uppercase;letter-spacing:0.44cqw">UNITED FEDERATION OF PLANETS</span></div>` +
+      `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">` +
+        `<div style="display:flex;align-items:baseline"><span style="color:${gt};font-size:19.53cqw;letter-spacing:0.59cqw">${hh}</span><span style="color:${nc};font-size:13.67cqw;animation:blink 1s infinite;margin:0 0.59cqw">:</span><span style="color:${gt};font-size:19.53cqw;letter-spacing:0.59cqw">${mm}</span><span style="color:${tn};font-size:8.79cqw;margin-left:1.76cqw">${ss}</span></div>` +
+        `<div style="color:${ank};font-size:4.69cqw;letter-spacing:1.17cqw;margin-top:1.17cqw;text-transform:uppercase">${dayName}</div>` +
+        `<div style="color:${li};font-size:5.57cqw;letter-spacing:0.59cqw;margin-top:0.59cqw">${dateStr}</div>` +
+      `</div>` +
+      `<div style="height:2.93cqw;background:${ank};display:flex;align-items:center;justify-content:flex-end;padding-right:1.76cqw"><span style="color:#000;font-size:1.90cqw;letter-spacing:0.29cqw">SHIP CHRONOMETER</span></div>` +
+    `</div>` +
+  `</div></div>`;
+}
+
+function sfDs9Screen2(c) {
+  const D = PANEL_SPEC.ds9 || {};
+  const FONT = "'Rajdhani', sans-serif";
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const dayName = days[now.getDay()];
+  const dateStr = `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+  const bg = D.void || '#111419';
+  const tl = D.teal || '#2A9D8F';
+  const bn = D.burnt || '#E7442A';
+  const st = D.steel || '#9EA5BA';
+  const pl = D.pale || '#AAAACC';
+  const lv = D.lavender || '#8888BB';
+
+  return `<div class="screen-frame fluid"><div style="background:${bg};width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:${FONT}">` +
+    `<div style="display:flex;width:80%;align-items:center;gap:0;margin-bottom:1.17cqw">` +
+      `<div style="flex:1;height:0.29cqw;background:${tl};opacity:0.4"></div>` +
+      `<svg width="2.05cqw" height="2.05cqw" viewBox="0 0 14 14"><polygon points="0,14 14,0 14,14" fill="${tl}" opacity="0.6"/></svg>` +
+      `<div style="padding:0 1.76cqw"><span style="color:${tl};font-size:2.05cqw;font-weight:600;text-transform:uppercase;letter-spacing:0.88cqw">BAJORAN SECTOR</span></div>` +
+      `<svg width="2.05cqw" height="2.05cqw" viewBox="0 0 14 14"><polygon points="0,0 14,14 0,14" fill="${tl}" opacity="0.6"/></svg>` +
+      `<div style="flex:1;height:0.29cqw;background:${tl};opacity:0.4"></div>` +
+    `</div>` +
+    `<div style="display:flex;align-items:baseline"><span style="color:${pl};font-size:19.53cqw;font-weight:600;letter-spacing:0.59cqw">${hh}</span><span style="color:${bn};font-size:13.67cqw;animation:blink 1s infinite;margin:0 0.59cqw">:</span><span style="color:${pl};font-size:19.53cqw;font-weight:600;letter-spacing:0.59cqw">${mm}</span><span style="color:${st};font-size:8.79cqw;margin-left:1.76cqw">${ss}</span></div>` +
+    `<div style="color:${tl};font-size:4.69cqw;letter-spacing:1.17cqw;margin-top:1.46cqw;text-transform:uppercase;font-weight:600">${dayName}</div>` +
+    `<div style="color:${lv};font-size:5.57cqw;letter-spacing:0.59cqw;margin-top:0.59cqw;font-weight:500">${dateStr}</div>` +
+    `<div style="display:flex;width:80%;align-items:center;gap:0;margin-top:1.76cqw">` +
+      `<div style="flex:1;height:0.29cqw;background:${bn};opacity:0.3"></div>` +
+      `<svg width="1.46cqw" height="1.46cqw" viewBox="0 0 10 10"><polygon points="0,10 10,0 10,10" fill="${bn}" opacity="0.5"/></svg>` +
+      `<div style="padding:0 1.46cqw"><span style="color:${st};font-size:1.76cqw;font-weight:600;letter-spacing:0.44cqw">STATION CHRONOMETER</span></div>` +
+      `<svg width="1.46cqw" height="1.46cqw" viewBox="0 0 10 10"><polygon points="0,0 10,10 0,10" fill="${bn}" opacity="0.5"/></svg>` +
+      `<div style="flex:1;height:0.29cqw;background:${bn};opacity:0.3"></div>` +
+    `</div>` +
+  `</div></div>`;
+}
+
+/* ═══════════════════════════════════════
+   TERMINAL / DISTRO  — conky in a tty
+   ═══════════════════════════════════════
+ * Modelled on the four conky configs in the reference: dense monospace,
+ * a title with a rule running out of it, thin meters, history graphs, and
+ * tabular process listings. Everything is drawn with characters -- the only
+ * SVG on these screens is nothing at all.
+ */
+
+/* Nothing upstream keeps history: every collector reports an instant. conky's
+   whole look leans on ${cpugraph}, so the renderer keeps its own short ring
+   per series. It fills as the board polls, which is why a graph is stubby for
+   the first half-minute after a theme switch rather than wrong. */
+const DISTRO_HIST = {};
+const DISTRO_HIST_LEN = 48;
+
+function distroPush(key, value) {
+  if (typeof value !== 'number' || !isFinite(value)) return DISTRO_HIST[key] || [];
+  const ring = DISTRO_HIST[key] || (DISTRO_HIST[key] = []);
+  if (ring.length === 0 || ring[ring.length - 1] !== value || ring.length < 2) ring.push(value);
+  else ring.push(value);
+  while (ring.length > DISTRO_HIST_LEN) ring.shift();
+  return ring;
+}
+
+const SPARK_CHARS = ['\u2581','\u2582','\u2583','\u2584','\u2585','\u2586','\u2587','\u2588'];
+
+/* A history graph in eight block heights. Absent readings render as a space,
+   not as a zero -- a flat line at the bottom would claim the metric was idle. */
+function distroSpark(key, value, width, max) {
+  const ring = distroPush(key, value);
+  let cap = max;
+  if (!cap) {
+    cap = 0;
+    for (const v of ring) if (typeof v === 'number' && v > cap) cap = v;
+    cap = cap > 0 ? cap * 1.15 : 1;   // headroom, so the peak is not clipped
+  }
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = ring.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, ring[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return esc(out);
+}
+
+
+/* A history plot: the series, then the axis it sits on. Detached from its
+   reading it read as decoration, which is not what conky's graphs are. */
+function dGraph(key, value, S, width, max) {
+  return `<div style="color:${S.meter};white-space:pre;line-height:1;` +
+    `border-bottom:1px solid ${S.dim};padding-bottom:${gq(1)};margin-bottom:${gq(2)}">` +
+    distroSpark(key, value, width, max) + `</div>`;
+}
+
+/* conky's ${*_bar}, in characters. */
+function distroBar(pct, width, on, off) {
+  const p = Math.max(0, Math.min(100, (typeof pct === 'number' && isFinite(pct)) ? pct : 0));
+  let n = Math.round(width * p / 100);
+  if (n === 0 && p > 0) n = 1;
+  return esc((on || '\u2588').repeat(n) + (off || '\u2591').repeat(width - n));
+}
+
+function distroPct(d) {
+  return (d && d.available && typeof d.value === 'number') ? Math.round(d.value) : null;
+}
+
+function distroVal(v, suffix) {
+  return (v === null || v === undefined) ? '--' : esc(String(v)) + (suffix || '');
+}
+
+/* ── the six distro skins ────────────────────────────────────────────────
+ * Each carries the palette its own conky ships with, and the ASCII mark the
+ * distro is known by. Colours: label / value / accent / meter / warn. */
+const DISTRO_SKINS = {
+  Arch: {
+    label: '#5296c8', value: '#d8e6f0', accent: '#1793d1', meter: '#4dd0e1',
+    dim: '#3f5a6d', warn: '#e06c75', bg: '#06090c',
+    series: ['#1793d1', '#4dd0e1', '#8e79c9', '#c3cdd4'],
+  },
+  Ubuntu: {
+    label: '#c8683f', value: '#f2e6dd', accent: '#E95420', meter: '#e9a05a',
+    dim: '#6b4433', warn: '#ff5555', bg: '#0d0705',
+    series: ['#E95420', '#e9a05a', '#a4487a', '#c9bfb6'],
+  },
+  openSUSE: {
+    label: '#6fa03a', value: '#e3f0d8', accent: '#73ba25', meter: '#a4d65e',
+    dim: '#3d5426', warn: '#e5484d', bg: '#050a04',
+    series: ['#73ba25', '#a4d65e', '#35b9ab', '#c3cdb4'],
+  },
+  Mandriva: {
+    label: '#4a8fc0', value: '#e8eef4', accent: '#2b7cb8', meter: '#e8a33d',
+    dim: '#33556e', warn: '#e05c4a', bg: '#04070b',
+    series: ['#2b7cb8', '#e8a33d', '#6fb1d8', '#b6c4ce'],
+  },
+};
+
+function distroSkin() {
+  const s = DISTRO_SKINS[activeVariantName()];
+  return s || DISTRO_SKINS.Arch;
+}
+
+/* The renderers are per variant, so each knows its own name without reading a
+   global the control panel spells differently from the display. */
+let _distroName = 'Arch';
+function activeVariantName() { return _distroName; }
+
+/* ── character-grid primitives ───────────────────────────────────────── */
+function dRule(title, S, right) {
+  const W = 1000;   /* the rule simply fills; the grid is monospace anyway */
+  return `<div style="display:flex;align-items:center;gap:${gq(6)};` +
+    `margin:${gq(7)} 0 ${gq(3)}">` +
+    `<span style="color:${S.accent};font-weight:700;white-space:nowrap">${title}</span>` +
+    `<span style="flex:1;height:1px;background:${S.dim}"></span>` +
+    (right ? `<span style="color:${S.label};white-space:nowrap">${right}</span>` : '') +
+    `</div>`;
+}
+
+function dRow(label, value, S, valColor) {
+  return `<div style="display:flex;justify-content:space-between;gap:${gq(10)};white-space:nowrap">` +
+    `<span style="color:${S.label}">${label}</span>` +
+    `<span style="color:${valColor || S.value}">${value}</span></div>`;
+}
+
+/* label, meter, reading -- conky's filesystem row. */
+function dMeter(label, pct, reading, S, width, labW, noWarn) {
+  const p = distroPct({available: pct !== null && pct !== undefined, value: pct});
+  // A filesystem at 95% is a warning; a cache-read share at 95% is the system
+  // working well. Only capacity readings opt in to the warn colour.
+  const col = (!noWarn && p !== null && p >= 90) ? S.warn : S.meter;
+  return `<div style="display:flex;align-items:baseline;gap:${gq(8)};white-space:nowrap">` +
+    `<span style="color:${S.label};display:inline-block;width:${gq(labW || 62)};` +
+      `overflow:hidden;text-overflow:ellipsis">${label}</span>` +
+    `<span style="color:${col}">${distroBar(p, width)}</span>` +
+    `<span style="color:${S.value};margin-left:auto">${reading}</span></div>`;
+}
+
+/* A composition bar: one row of cells, each segment's share of the whole in
+   its own colour. Four separate meters show four magnitudes; this shows the
+   proportions, which is the thing the board is actually about. Rounding is
+   settled on the last non-empty segment so the row is always exactly `width`
+   cells and never shears the rows beneath it. */
+function dStack(label, parts, colors, S, width, labW) {
+  const total = parts.reduce((a, b) => a + (typeof b === 'number' && isFinite(b) ? b : 0), 0);
+  let html = `<div style="display:flex;align-items:baseline;gap:${gq(8)};white-space:nowrap">` +
+    `<span style="color:${S.label};display:inline-block;width:${gq(labW || 96)};` +
+      `overflow:hidden;text-overflow:ellipsis">${label}</span>`;
+  if (total <= 0) {
+    html += `<span style="color:${S.dim}">${esc('░'.repeat(width))}</span>`;
+  } else {
+    const cells = parts.map(v => Math.floor((Math.max(0, v) / total) * width));
+    let used = cells.reduce((a, b) => a + b, 0);
+    for (let i = cells.length - 1; i >= 0 && used < width; i--) {
+      if (cells[i] > 0 || parts[i] > 0) { cells[i] += width - used; used = width; }
+    }
+    if (used < width) { cells[cells.length - 1] += width - used; }
+    for (let i = 0; i < cells.length; i++) {
+      if (cells[i] <= 0) continue;
+      html += `<span style="color:${colors[i]}">${esc('█'.repeat(cells[i]))}</span>`;
+    }
+  }
+  return html + `</div>`;
+}
+
+/* Block digits, seven rows deep. The screen is read from across a room, so
+   the time is drawn rather than typed -- this is the same trick the omarchy
+   screensaver uses, and it costs nothing but characters. */
+const DAY_NAMES = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+const BIG_DIGITS = {
+  '0': [' ████ ', '██  ██', '██  ██', '██  ██', '██  ██', '██  ██', ' ████ '],
+  '1': ['  ██  ', ' ███  ', '  ██  ', '  ██  ', '  ██  ', '  ██  ', '██████'],
+  '2': [' ████ ', '██  ██', '    ██', '   ██ ', '  ██  ', ' ██   ', '██████'],
+  '3': [' ████ ', '██  ██', '    ██', '  ███ ', '    ██', '██  ██', ' ████ '],
+  '4': ['██  ██', '██  ██', '██  ██', '██████', '    ██', '    ██', '    ██'],
+  '5': ['██████', '██    ', '█████ ', '    ██', '    ██', '██  ██', ' ████ '],
+  '6': [' ████ ', '██  ██', '██    ', '█████ ', '██  ██', '██  ██', ' ████ '],
+  '7': ['██████', '    ██', '   ██ ', '  ██  ', ' ██   ', ' ██   ', ' ██   '],
+  '8': [' ████ ', '██  ██', '██  ██', ' ████ ', '██  ██', '██  ██', ' ████ '],
+  '9': [' ████ ', '██  ██', '██  ██', ' █████', '    ██', '██  ██', ' ████ '],
+  ':': ['    ', ' ██ ', ' ██ ', '    ', ' ██ ', ' ██ ', '    '],
+};
+
+/* Render a string of digits and colons as seven lines of blocks. Anything the
+   map does not know becomes blanks of the right width, so an unexpected
+   character leaves a gap rather than shearing the rows out of alignment. */
+function bigClock(text, color, dimColor) {
+  const rows = ['', '', '', '', '', '', ''];
+  for (const ch of String(text)) {
+    const g = BIG_DIGITS[ch] || ['      ', '      ', '      ', '      ', '      ', '      ', '      '];
+    for (let r = 0; r < 7; r++) rows[r] += g[r] + ' ';
+  }
+  return `<div style="color:${color};line-height:1.0;white-space:pre;font-weight:500">` +
+    rows.map(r => `<div>${esc(r)}</div>`).join('') + `</div>`;
+}
+
+/* ── screen 1 ────────────────────────────────────────────────────────── */
+function distroScreen1(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const cpu = m('cpu.usage'), ram = m('mem.ram_percent'), swap = m('mem.swap_percent');
+  const cores = asList(m('cpu.per_core'));
+  const cpuT = m('cpu.temp'), mbT = m('cpu.mb_temp'), gpuT = m('gpu.temp');
+  const root = m('disk.root_used'), rootPct = m('disk.root_percent');
+  const home = m('disk.home_used'), homePct = m('disk.home_percent');
+  const dl = m('net.dl'), ul = m('net.ul'), ip = m('net.ip'), iface = m('net.iface');
+  const ping = m('net.ping'), speed = m('net.speed');
+  const host = m('sys.hostname'), up = m('sys.uptime'), kernel = m('sys.kernel');
+  const gUtil = m('gpu.util'), gVram = m('gpu.vram_percent'), gPow = m('gpu.power');
+  const procs = asList(m('sys.top_procs'));
+
+  const now = new Date();
+
+  // ── left column: the time, drawn big, then the identity block
+  const clock = bigClock(
+    String(now.getHours()).padStart(2, '0') + ':' +
+    String(now.getMinutes()).padStart(2, '0'), S.accent) +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
+      `margin-top:${gq(4)};color:${S.label};letter-spacing:0.14em">` +
+      `<span>${esc(DAY_NAMES[now.getDay()])} ${now.getDate()} ` +
+        `${esc(MONTH_NAMES[now.getMonth()])} ${now.getFullYear()}</span>` +
+      `<span style="color:${S.value}">:${String(now.getSeconds()).padStart(2, '0')}</span></div>`;
+
+  const idBlock =
+    dRow('host', host.available ? esc(String(host.value)) : '--', S, S.accent) +
+    dRow('kernel', kernel.available ? esc(String(kernel.value)) : '--', S) +
+    dRow('uptime', up.available ? esc(String(up.value)) : '--', S) +
+    dRow('iface', iface.available ? esc(String(iface.value)) : '--', S) +
+    dRow('addr', ip.available ? esc(String(ip.value)) : '--', S);
+
+  const left =
+    `<div style="font-size:${gq(17)};margin-bottom:${gq(6)}">${clock}</div>` +
+    dRule('SYSTEM', S) + idBlock +
+    dRule('THERMAL', S) +
+    dRow('cpu', distroVal(distroPct(cpuT), '\u00b0C'), S,
+         distroPct(cpuT) !== null && cpuT.value >= 80 ? S.warn : S.value) +
+    dRow('board', distroVal(distroPct(mbT), '\u00b0C'), S) +
+    dRow('gpu', distroVal(distroPct(gpuT), '\u00b0C'), S,
+         distroPct(gpuT) !== null && gpuT.value >= 80 ? S.warn : S.value) +
+    dRule('LOAD', S, cores.length ? cores.length + ' THREADS' : '') +
+    dRow('processes', procs.length ? String(m('sys.top_procs').extra.total || '--') : '--', S) +
+    dRow('busiest', procs.length ? esc(String(procs[0].name || '?')) : '--', S, S.accent);
+
+  // ── right column: the meters and the graphs
+  const cpuPct = distroPct(cpu);
+  const ramPct = distroPct(ram);
+
+  const right =
+    dRule('CPU', S, distroVal(cpuPct, '%')) +
+    dGraph('cpu', cpuPct, S, 62, 100) +
+    dMeter('load', cpuPct, distroVal(cpuPct, '%'), S, 28) +
+
+    dRule('MEMORY', S) +
+    dGraph('ram', ramPct, S, 62, 100) +
+    dMeter('ram', ramPct,
+           `${fmtCapacity(m('mem.ram_used'))} / ${fmtCapacityTotal(m('mem.ram_used'))}`, S, 28) +
+    dMeter('swap', distroPct(swap), distroVal(distroPct(swap), '%'), S, 28) +
+
+    dRule('FILESYSTEMS', S) +
+    dMeter('/', distroPct(rootPct),
+           `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`, S, 28) +
+    (home.available
+      ? dMeter('/home', distroPct(homePct),
+               `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`, S, 28)
+      : `<div style="color:${S.dim}">/home&nbsp;&nbsp;not a separate volume</div>`) +
+
+    dRule('GPU', S, gUtil.available ? distroVal(distroPct(gUtil), '% UTIL') : 'NO CARD') +
+    (gUtil.available || gVram.available
+      ? dGraph('gpu', distroPct(gUtil), S, 62, 100) +
+        dMeter('vram', distroPct(gVram), distroVal(distroPct(gVram), '%'), S, 28) +
+        dRow('power', gPow.available ? distroVal(Math.round(gPow.value), ' W') : '--', S)
+      : `<div style="color:${S.dim}">no readable graphics device</div>`) +
+
+    dRule('NETWORK', S, speed.available
+      ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GBE' : speed.value + ' MB')
+      : '') +
+    `<div style="display:flex;gap:${gq(14)}">` +
+      `<div style="flex:1;min-width:0"><div style="color:${S.label}">down</div>` +
+        dGraph('dl', dl.available ? Number(dl.value) : null, S, 28) + `</div>` +
+      `<div style="flex:1;min-width:0"><div style="color:${S.label}">up</div>` +
+        dGraph('ul', ul.available ? Number(ul.value) : null, S, 28) + `</div>` +
+    `</div>` +
+    dRow('rx / tx',
+         (dl.available ? esc(dl.value + ' ' + dl.unit) : '--') + '  /  ' +
+         (ul.available ? esc(ul.value + ' ' + ul.unit) : '--'), S) +
+    dRow('ping', ping.available ? Number(ping.value).toFixed(1) + ' ms' : '--', S);
+
+  // ── processes: four, two abreast, so each row can carry a readable size
+  function procCell(p, S) {
+    if (!p) return `<div style="flex:1"></div>`;
+    const hot = typeof p.cpu === 'number' && p.cpu >= 50;
+    return `<div style="flex:1;display:flex;white-space:nowrap;min-width:0;` +
+      `color:${hot ? S.warn : S.value}">` +
+      `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+      `<span style="width:${gq(86)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
+      `<span style="width:${gq(78)};text-align:right">${typeof p.cpu === 'number' ? p.cpu.toFixed(1) : '--'}</span>` +
+      `<span style="width:${gq(78)};text-align:right">${typeof p.mem === 'number' ? p.mem.toFixed(1) : '--'}</span>` +
+      `</div>`;
+  }
+  function procHead(S) {
+    return `<div style="flex:1;display:flex;white-space:nowrap;color:${S.label}">` +
+      `<span style="flex:1">NAME</span>` +
+      `<span style="width:${gq(86)};text-align:right">PID</span>` +
+      `<span style="width:${gq(78)};text-align:right">CPU%</span>` +
+      `<span style="width:${gq(78)};text-align:right">MEM%</span></div>`;
+  }
+  let procRows = '';
+  if (procs.length) {
+    procRows = `<div style="display:flex;gap:${gq(26)}">${procHead(S)}${procHead(S)}</div>`;
+    for (let i = 0; i < 2; i++) {
+      procRows += `<div style="display:flex;gap:${gq(26)}">` +
+        procCell(procs[i], S) + procCell(procs[i + 2], S) + `</div>`;
+    }
+  } else {
+    procRows = `<div style="color:${S.dim}">process table not available</div>`;
+  }
+
+  // Sized for a 10" panel read from across a room: 16px base rather than 13,
+  // and no chrome that only names what you are already looking at.
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(16)};line-height:1.4;` +
+      `padding:${gq(12)} ${gq(16)};` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="width:${gq(352)};flex-shrink:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div>` +
+    `</div>` +
+    dRule('PROCESSES', S, procs.length ? 'TOP 4 BY CPU' : '') + procRows +
+  `</div></div>`;
+}
+
+
+/* ── the distro GPU board ────────────────────────────────────────────────
+ * Same vocabulary as the distro system board: a title with a rule running out
+ * of it, character meters, block-height history, and a table. The Sci-Fi GPU
+ * screen was standing in here, which made the family read as two designs.
+ */
+function distroGpuScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+  const cards = asList(m('gpu.cards'));
+
+  const frame = (body) =>
+    `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(16)};line-height:1.4;` +
+      `padding:${gq(12)} ${gq(16)};display:flex;flex-direction:column;overflow:hidden">` +
+      body + `</div></div>`;
+
+  if (!cards.length) {
+    return frame(dRule('GRAPHICS', S) +
+      `<div style="color:${S.dim};padding-top:${gq(10)}">no readable graphics device</div>`);
+  }
+
+  const val = (v, suffix) => (v === null || v === undefined) ? '--' : esc(String(v)) + (suffix || '');
+  const pct = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v) : null;
+
+  /* ── one card, in full ── */
+  if (cards.length === 1) {
+    const k = cards[0];
+    const hot = pct(k.temp) !== null && k.temp >= 80;
+    const left =
+      dRule('DEVICE', S, esc(String(k.vendor || 'GPU'))) +
+      dRow('name', esc(String(k.short_name || k.name || '--')), S, S.accent) +
+      dRow('driver', val(k.driver), S) +
+      dRow('bus', val(k.bus_id), S) +
+      dRule('TELEMETRY', S) +
+      dRow('temp', val(pct(k.temp), '°C'), S, hot ? S.warn : S.value) +
+      dRow('power', `${val(pct(k.power))} / ${val(pct(k.power_limit))} W`, S) +
+      dRow('core', `${val(k.clock_gpu)} / ${val(k.clock_gpu_max)} MHz`, S) +
+      dRow('memory', `${val(k.clock_mem)} MHz`, S) +
+      dRow('fan', gpuFanText(k), S) +
+      dRule('COOLING', S) +
+      `<div style="display:flex;align-items:center;gap:${gq(14)}">` +
+        fanIcon(pct(k.temp) !== null && k.temp >= 80 ? S.warn : S.meter, gq(46), gpuFanRpm(k)) +
+        `<span style="color:${S.value};font-size:${gq(30)}">${gpuFanText(k)}</span></div>` +
+      // The column ran out halfway down and left a dead band across the middle
+      // of the board. Clock history is real data and it belongs here.
+      dRule('CLOCKS', S) +
+      `<div style="color:${S.label}">core</div>` +
+      dGraph('gcore', pct(k.clock_gpu), S, 30) +
+      `<div style="color:${S.label};margin-top:${gq(6)}">memory</div>` +
+      dGraph('gmem', pct(k.clock_mem), S, 30) +
+      dRule('THERMAL', S) +
+      dGraph('gtemp', pct(k.temp), S, 30, 110);
+
+    const right =
+      dRule('UTILISATION', S, val(pct(k.util), '%')) +
+      dGraph('gutil', pct(k.util), S, 62, 100) +
+      dMeter('gpu', pct(k.util), val(pct(k.util), '%'), S, 30, 72) +
+      dRule('MEMORY', S, val(pct(k.vram_percent), '%')) +
+      dGraph('gvram', pct(k.vram_percent), S, 62, 100) +
+      dMeter('vram', pct(k.vram_percent),
+             `${(bsNum(k.vram_used)/1024).toFixed(1)} / ${Math.round(bsNum(k.vram_total)/1024)} G`,
+             S, 30, 72) +
+      dMeter('bus', pct(k.mem_util), val(pct(k.mem_util), '%'), S, 30, 72) +
+      dRule('POWER', S, gpuPowerPctText(k)) +
+      dGraph('gpow', gpuPowerPct(k), S, 62, 100) +
+      dMeter('draw', gpuPowerPct(k), `${val(pct(k.power))} W`, S, 30, 72);
+
+    const procs = asList({available: true, value: k.processes});
+    let table;
+    if (procs.length) {
+      table = `<div style="display:flex;color:${S.label};white-space:nowrap">` +
+        `<span style="flex:1">PROCESS</span>` +
+        `<span style="width:${gq(110)};text-align:right">PID</span>` +
+        `<span style="width:${gq(150)};text-align:right">VRAM</span></div>`;
+      for (let i = 0; i < Math.min(3, procs.length); i++) {
+        const pr = procs[i] || {};
+        table += `<div style="display:flex;white-space:nowrap;color:${S.value}">` +
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(pr.name || '?'))}</span>` +
+          `<span style="width:${gq(110)};text-align:right;color:${S.label}">${val(pr.pid)}</span>` +
+          `<span style="width:${gq(150)};text-align:right">${val(pr.vram_mib)} MiB</span></div>`;
+      }
+    } else {
+      table = `<div style="color:${S.dim}">` +
+        (k.source === 'nvml' ? 'no compute processes on this card'
+         : 'per-process VRAM not exposed by ' + val(k.driver)) + `</div>`;
+    }
+
+    return frame(
+      `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+        `<div style="width:${gq(352)};flex-shrink:0">${left}</div>` +
+        `<div style="flex:1;min-width:0">${right}</div></div>` +
+      dRule('PROCESSES', S, procs.length ? procs.length + ' ACTIVE' : 'IDLE') + table);
+  }
+
+  /* ── several cards: one row each, meters side by side ── */
+  let watts = 0, anyPower = false;
+  for (const k of cards) {
+    if (typeof k.power === 'number' && isFinite(k.power)) { watts += k.power; anyPower = true; }
+  }
+  let body = dRule('GRAPHICS', S,
+    cards.length + ' CARDS' + (anyPower ? '  ·  ' + Math.round(watts) + ' W' : ''));
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    const k = cards[i];
+    const hot = pct(k.temp) !== null && k.temp >= 80;
+    body += `<div style="margin-top:${gq(12)}">` +
+      `<div style="display:flex;align-items:baseline;gap:${gq(12)};white-space:nowrap">` +
+        `<span style="color:${S.accent};font-size:${gq(19)}">` +
+          `${esc(String(k.short_name || k.name || 'GPU'))}</span>` +
+        `<span style="color:${S.dim};font-size:${gq(14)}">${val(k.driver)}</span>` +
+        `<span style="flex:1"></span>` +
+        `<span style="color:${hot ? S.warn : S.value}">${val(pct(k.temp), '°C')}</span>` +
+        `<span style="color:${S.label}">${val(pct(k.power))} W</span></div>` +
+      `<div style="display:flex;gap:${gq(20)};margin-top:${gq(3)}">` +
+        `<div style="flex:1">${dMeter('gpu', pct(k.util), val(pct(k.util), '%'), S, 26, 62)}</div>` +
+        `<div style="flex:1">${dMeter('vram', pct(k.vram_percent),
+           `${(bsNum(k.vram_used)/1024).toFixed(1)}/${Math.round(bsNum(k.vram_total)/1024)}G`,
+           S, 26, 62)}</div></div></div>`;
+  }
+  if (cards.length > 4) {
+    body += `<div style="color:${S.dim};margin-top:${gq(8)}">` +
+      `+${cards.length - 4} more not shown</div>`;
+  }
+  return frame(body);
+}
+
+function distroArchGpu(c) { _distroName = 'Arch'; return distroGpuScreen(c); }
+function distroUbuntuGpu(c) { _distroName = 'Ubuntu'; return distroGpuScreen(c); }
+function distroSuseGpu(c) { _distroName = 'openSUSE'; return distroGpuScreen(c); }
+function distroMandrivaGpu(c) { _distroName = 'Mandriva'; return distroGpuScreen(c); }
+
+const DISTRO_GPU_SCREENS = {
+  Arch: distroArchGpu, Ubuntu: distroUbuntuGpu,
+  openSUSE: distroSuseGpu, Mandriva: distroMandrivaGpu,
+};
+
+const DISTRO_SCREENS = {
+  Arch: distroArchScreen1, Ubuntu: distroUbuntuScreen1,
+  openSUSE: distroSuseScreen1, Mandriva: distroMandrivaScreen1,
+};
+
+function distroArchScreen1(c) { _distroName = 'Arch'; return distroScreen1(c); }
+function distroUbuntuScreen1(c) { _distroName = 'Ubuntu'; return distroScreen1(c); }
+function distroSuseScreen1(c) { _distroName = 'openSUSE'; return distroScreen1(c); }
+function distroMandrivaScreen1(c) { _distroName = 'Mandriva'; return distroScreen1(c); }
+
+/* ── the distro AI monitor ───────────────────────────────────────────────
+ * The four distro boards were borrowing the classic Terminal AI screen, so
+ * every second screen dropped the conky vocabulary for bordered panels. Same
+ * subject, same characters as the rest of the family.
+ */
+function distroAiScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
+  const vramPct = m('gpu.vram_percent'), vramUsed = m('gpu.vram_used'), vramTot = m('gpu.vram_total');
+  const gUtil = m('gpu.util'), gTemp = m('gpu.temp'), gPow = m('gpu.power');
+  const gMem = m('gpu.mem_util'), gClk = m('gpu.clock_gpu'), mClk = m('gpu.clock_mem');
+  const gFan = m('gpu.fan'), gpuName = m('gpu.name');
+  const cards = asList(m('gpu.cards'));
+  const card = cards.length ? cards[0] : {};
+  const gpuProcs = asList({available: true, value: card.processes});
+
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? S.dim : running && healthy ? S.meter : S.warn;
+  const tpsNum = (tps.available && typeof tps.value === 'number') ? tps.value : null;
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : '--';
+  const modelName = m('llama.model').available
+    ? esc(String(m('llama.model').value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''))
+    : '--';
+
+  const powPct = (gPow.available && gPow.extra && gPow.extra.limit)
+    ? Math.round((bsNum(gPow.value) / bsNum(gPow.extra.limit)) * 100) : null;
+  const clkPct = (gClk.available && gClk.extra && gClk.extra.max)
+    ? Math.round((bsNum(gClk.value) / bsNum(gClk.extra.max)) * 100) : null;
+  const tempPct = distroPct(gTemp) === null ? null
+    : Math.max(0, Math.min(100, Math.round(((bsNum(gTemp.value) - 20) / 100) * 100)));
+
+  // The number you actually watch, drawn at the size the room needs.
+  const head =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      (tpsNum === null
+        ? `<span style="color:${S.dim};font-size:${gq(58)};line-height:1;` +
+            `letter-spacing:0.12em;white-space:nowrap">IDLE</span>`
+        : `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
+            `font-variant-numeric:tabular-nums">${tpsNum.toFixed(1)}</span>` +
+          `<span style="color:${S.label};letter-spacing:0.2em">TOK/S</span>`) +
+      `<span style="flex:1"></span>` +
+      `<span style="color:${stateColor};letter-spacing:0.16em">` +
+        `${status.available ? esc(String(status.value)).toUpperCase() : 'NOT DETECTED'}</span></div>`;
+
+  let serverRows;
+  if (procs.length) {
+    serverRows = '';
+    for (let i = 0; i < Math.min(2, procs.length); i++) {
+      const p = procs[i] || {};
+      serverRows += `<div style="display:flex;white-space:nowrap;color:${S.value}">` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${llamaProcName(p)}</span>` +
+        `<span style="width:${gq(96)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span></div>`;
+    }
+  } else {
+    serverRows = `<div style="color:${S.dim}">no local server process</div>`;
+  }
+
+  const left =
+    head +
+    dGraph('tps', tpsNum, S, 34) +
+    dRule('MODEL', S, backend.available ? esc(String(backend.value)).toUpperCase() : '') +
+    `<div style="color:${S.value};font-size:${gq(24)};line-height:1.25;` +
+      `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${modelName}</div>` +
+    dRow('quant', quant.available ? esc(String(quant.value)) : '--', S) +
+    dRow('context', ctxText, S) +
+    dRow('slots', slots.available ? String(slots.value) : '--', S, S.accent) +
+    dRule('RESIDENCY', S, distroVal(distroPct(vramPct), '%')) +
+    dMeter('weights', distroPct(vramPct),
+           vramUsed.available && vramTot.available
+             ? `${(bsNum(vramUsed.value) / 1024).toFixed(1)} / ${(bsNum(vramTot.value) / 1024).toFixed(1)} G`
+             : '--',
+           S, 20, 88, true) +
+    dRow('free',
+         vramUsed.available && vramTot.available
+           ? `${((bsNum(vramTot.value) - bsNum(vramUsed.value)) / 1024).toFixed(1)} G` : '--', S) +
+    dRule('SERVICE', S, healthy ? 'HEALTHY' : '') +
+    dRow('engine', backend.available ? esc(String(backend.value)) : '--', S) +
+    dRow('health', health.available ? esc(String(health.value)) : '--', S,
+         healthy ? S.meter : S.warn) +
+    dRule('SERVER', S, procs.length ? procs.length + ' PROC' : 'IDLE') +
+    serverRows;
+
+  const right =
+    dRule('CARD', S, gpuName.available ? esc(String(gpuName.value)) : 'NO CARD') +
+    dGraph('aiutil', distroPct(gUtil), S, 46, 100) +
+    dMeter('compute', distroPct(gUtil), distroVal(distroPct(gUtil), '%'), S, 23, 88, true) +
+    dMeter('mem bus', distroPct(gMem), distroVal(distroPct(gMem), '%'), S, 23, 88, true) +
+    dMeter('power', powPct,
+           gPow.available
+             ? `${Math.round(bsNum(gPow.value))} / ${distroVal(gPow.extra && gPow.extra.limit)} W`
+             : '--', S, 23, 88, true) +
+    dMeter('thermal', tempPct, distroVal(distroPct(gTemp), '°C'), S, 23, 88) +
+    dMeter('fan', distroPct(gFan), gFan.available ? distroVal(distroPct(gFan), '%') : '--',
+           S, 23, 88, true) +
+    dRule('CLOCKS', S, clkPct === null ? '' : clkPct + '% OF MAX') +
+    dGraph('aicore', gClk.available ? bsNum(gClk.value) : null, S, 46) +
+    dRow('core', gClk.available
+           ? `${bsNum(gClk.value)} / ${distroVal(gClk.extra && gClk.extra.max)} MHz` : '--', S) +
+    dGraph('aimem', mClk.available ? bsNum(mClk.value) : null, S, 46) +
+    dRow('memory', mClk.available
+           ? `${bsNum(mClk.value)} / ${distroVal(mClk.extra && mClk.extra.max)} MHz` : '--', S) +
+    dRule('THERMAL', S) +
+    dGraph('aitemp', distroPct(gTemp), S, 46, 110) +
+    dRow('driver', distroVal(card.driver), S) +
+    dRow('bus', distroVal(card.bus_id), S);
+
+  // What else is resident on the card. The server's own footprint is only half
+  // the story when a browser or a second model is holding VRAM too.
+  function gpuCell(p) {
+    if (!p) return `<div style="flex:1"></div>`;
+    return `<div style="flex:1;display:flex;white-space:nowrap;min-width:0;color:${S.value}">` +
+      `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(String(p.name || '?'))}</span>` +
+      `<span style="width:${gq(96)};text-align:right;color:${S.label}">${distroVal(p.pid)}</span>` +
+      `<span style="width:${gq(116)};text-align:right">${distroVal(p.vram_mib, ' MiB')}</span></div>`;
+  }
+  function gpuHead() {
+    return `<div style="flex:1;display:flex;white-space:nowrap;color:${S.label}">` +
+      `<span style="flex:1">ON THE CARD</span>` +
+      `<span style="width:${gq(96)};text-align:right">PID</span>` +
+      `<span style="width:${gq(116)};text-align:right">VRAM</span></div>`;
+  }
+  let cardTable;
+  if (gpuProcs.length) {
+    cardTable = `<div style="display:flex;gap:${gq(26)}">${gpuHead()}${gpuHead()}</div>`;
+    for (let i = 0; i < 2; i++) {
+      cardTable += `<div style="display:flex;gap:${gq(26)}">` +
+        gpuCell(gpuProcs[i]) + gpuCell(gpuProcs[i + 2]) + `</div>`;
+    }
+  } else {
+    cardTable = `<div style="color:${S.dim}">` +
+      (card.source === 'nvml' ? 'no compute processes on this card'
+                              : 'per-process VRAM not exposed by ' + distroVal(card.driver)) +
+      `</div>`;
+  }
+
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(17)};line-height:1.45;padding:${gq(12)} ${gq(16)};` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="width:${gq(430)};flex-shrink:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div></div>` +
+    dRule('GRAPHICS MEMORY', S,
+          gpuProcs.length ? gpuProcs.length + ' CLIENT' + (gpuProcs.length === 1 ? '' : 'S') : '') +
+    cardTable + `</div></div>`;
+}
+
+/* ── the distro Claude board ─────────────────────────────────────────── */
+function distroClaudeScreen(c) {
+  const S = distroSkin();
+  const F = "'IBM Plex Mono', monospace";
+
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, whole) => whole > 0 ? Math.round((part / whole) * 100) : 0;
+  const total = nz(tokTotal), sess = nz(sTotal);
+  const msgs = nz(mAll), sessN = nz(sessions), daysN = nz(days);
+  const read = (part, whole) => `${fmtTok(part)}  ${String(share(part, whole)).padStart(3)}%`;
+
+  const left =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.accent};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${fmtTok(total)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">TOKENS</span></div>` +
+    dRule('ALL TIME', S, daysN ? daysN + ' DAYS' : '') +
+    dMeter('input', share(nz(tokIn), total), read(nz(tokIn), total), S, 21, 96, true) +
+    dMeter('output', share(nz(tokOut), total), read(nz(tokOut), total), S, 21, 96, true) +
+    dMeter('cache w', share(nz(tokCW), total), read(nz(tokCW), total), S, 21, 96, true) +
+    dMeter('cache r', share(nz(tokCR), total), read(nz(tokCR), total), S, 21, 96, true) +
+    // Derived, not collected: the ratios are the reason anyone reads this board.
+    dRule('AVERAGES', S) +
+    dRow('per session', sessN ? fmtTok(Math.round(total / sessN)) : '--', S) +
+    dRow('per message', msgs ? fmtTok(Math.round(total / msgs)) : '--', S) +
+    dRow('per day', daysN ? fmtTok(Math.round(total / daysN)) : '--', S) +
+    dRule('MESSAGES', S, fmtNum(mAll)) +
+    dMeter('user', share(nz(mUser), msgs), fmtNum(mUser), S, 21, 96, true) +
+    dMeter('assistant', share(nz(mAsst), msgs), fmtNum(mAsst), S, 21, 96, true) +
+    dRow('sessions', sessN ? fmtNum(sessions) : '--', S) +
+    dRow('monthly tokens', fmtTok(nz(monTok)), S) +
+    dRow('monthly messages', fmtNum(monMsg), S);
+
+  const right =
+    `<div style="display:flex;align-items:baseline;gap:${gq(14)};margin-bottom:${gq(2)}">` +
+      `<span style="color:${S.meter};font-size:${gq(66)};line-height:1;` +
+        `font-variant-numeric:tabular-nums">${fmtTok(sess)}</span>` +
+      `<span style="color:${S.label};letter-spacing:0.2em">SESSION</span></div>` +
+    dRule('THIS SESSION', S, fmtNum(sMsgs) + ' MSGS') +
+    dMeter('input', share(nz(sIn), sess), read(nz(sIn), sess), S, 21, 96, true) +
+    dMeter('output', share(nz(sOut), sess), read(nz(sOut), sess), S, 21, 96, true) +
+    dMeter('cache w', share(nz(sCW), sess), read(nz(sCW), sess), S, 21, 96, true) +
+    dMeter('cache r', share(nz(sCR), sess), read(nz(sCR), sess), S, 21, 96, true) +
+    dRow('share of all time', total ? share(sess, total) + '%' : '--', S) +
+    // The collector keeps thirty rate samples, so the plot is thirty cells:
+    // sized to the data rather than to the column, it fills as the ring does.
+    dRule('TOKEN RATE', S, fmtNum(rate, '0') + ' /MIN') +
+    `<div style="color:${S.meter};white-space:pre;line-height:1;` +
+      `border-bottom:1px solid ${S.dim};padding-bottom:${gq(1)};margin-bottom:${gq(2)}">` +
+      distroSparkFrom(spark.available ? spark.value : [], 30) + `</div>` +
+    dRule('AGENTS', S) +
+    `<div style="display:flex;align-items:baseline;gap:${gq(12)}">` +
+      `<span style="color:${S.accent};font-size:${gq(44)};line-height:1.1">` +
+        `${agents.available ? agents.value : 0}</span>` +
+      `<span style="color:${S.label}">spawned this session</span></div>` +
+    dRow('cache read share', total ? share(nz(tokCR), total) + '%' : '--', S, S.accent) +
+    dRow('assistant / user', nz(mUser) ? (nz(mAsst) / nz(mUser)).toFixed(2) + ' : 1' : '--', S);
+
+  // A composition bar reads the split at a glance the way four separate meters
+  // cannot: one row, four colours, proportions to scale.
+  const SER = S.series || [S.accent, S.meter, S.label, S.value];
+  const legend =
+    `<div style="display:flex;gap:${gq(22)};color:${S.label};margin-top:${gq(2)}">` +
+      ['input', 'output', 'cache write', 'cache read'].map((t, i) =>
+        `<span style="color:${SER[i]}">\u25A0 ${t}</span>`).join('') + `</div>`;
+
+  return `<div class="screen-frame"><div style="width:100%;height:100%;background:${S.bg};` +
+      `font-family:${F};font-size:${gq(17)};line-height:1.45;padding:${gq(12)} ${gq(16)};` +
+      `display:flex;flex-direction:column;overflow:hidden">` +
+    `<div style="display:flex;gap:${gq(22)};flex:1;min-height:0">` +
+      `<div style="flex:1;min-width:0">${left}</div>` +
+      `<div style="flex:1;min-width:0">${right}</div></div>` +
+    dRule('COMPOSITION', S, fmtTok(total) + '  /  ' + fmtTok(sess)) +
+    dStack('all time', [nz(tokIn), nz(tokOut), nz(tokCW), nz(tokCR)], SER, S, 82) +
+    dStack('session', [nz(sIn), nz(sOut), nz(sCW), nz(sCR)], SER, S, 82) +
+    legend + `</div></div>`;
+}
+
+/* A block-height plot of a series the caller already holds. distroSpark()
+   pushes onto the renderer's own ring; the Claude sparkline arrives complete
+   from the collector, so it must not be pushed anywhere. */
+function distroSparkFrom(samples, width) {
+  const arr = (samples && samples.length) ? samples : [];
+  let cap = 0;
+  for (const v of arr) if (typeof v === 'number' && v > cap) cap = v;
+  cap = cap > 0 ? cap * 1.15 : 1;
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    const idx = arr.length - width + i;
+    if (idx < 0) { out += ' '; continue; }
+    const v = Math.max(0, Math.min(cap, arr[idx]));
+    out += SPARK_CHARS[Math.min(7, Math.floor((v / cap) * 8))];
+  }
+  return esc(out);
+}
+
+function distroArchAi(c) { _distroName = 'Arch'; return distroAiScreen(c); }
+function distroUbuntuAi(c) { _distroName = 'Ubuntu'; return distroAiScreen(c); }
+function distroSuseAi(c) { _distroName = 'openSUSE'; return distroAiScreen(c); }
+function distroMandrivaAi(c) { _distroName = 'Mandriva'; return distroAiScreen(c); }
+
+function distroArchClaude(c) { _distroName = 'Arch'; return distroClaudeScreen(c); }
+function distroUbuntuClaude(c) { _distroName = 'Ubuntu'; return distroClaudeScreen(c); }
+function distroSuseClaude(c) { _distroName = 'openSUSE'; return distroClaudeScreen(c); }
+function distroMandrivaClaude(c) { _distroName = 'Mandriva'; return distroClaudeScreen(c); }
+
+const DISTRO_AI_SCREENS = {
+  Arch: distroArchAi, Ubuntu: distroUbuntuAi,
+  openSUSE: distroSuseAi, Mandriva: distroMandrivaAi,
+};
+
+const DISTRO_CLAUDE_SCREENS = {
+  Arch: distroArchClaude, Ubuntu: distroUbuntuClaude,
+  openSUSE: distroSuseClaude, Mandriva: distroMandrivaClaude,
+};
+
+/* ═══════════════════════════════════════
+   VINTAGE / SCANLINES
+   ═══════════════════════════════════════ */
+
+function scanShadow(color, spread) {
+  spread = spread || 4;
+  return 'text-shadow:0 0 ' + spread + 'px ' + color + ', 0 0 ' + (spread * 2) + 'px ' + color + '66';
+}
+
+function scanGlow(color, spread) {
+  return 'color:' + color + ';' + scanShadow(color, spread);
+}
+
+function scanSectionLabel(text, color, rightText, rightColor) {
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.59cqw">' +
+    '<span style="' + scanGlow(color, 4) + ';font-size:1.95cqw;font-family:\'Share Tech Mono\',monospace;letter-spacing:3px">' + text + '</span>' +
+    '<div style="flex:1;height:1px;background:' + color + '33;margin:0 1.17cqw"></div>' +
+    (rightText ? '<span style="' + scanGlow(rightColor||color, 3) + ';font-size:1.95cqw;font-family:\'Share Tech Mono\',monospace;letter-spacing:2px">' + rightText + '</span>' : '') +
+  '</div>';
+}
+
+function scanDonut(pct, label, color, size) {
+  const S = PANEL_SPEC.scanlines || {};
+  const F = "'Share Tech Mono', monospace";
+  const dim = S.dim || '#334455';
+  const red = S.red || '#FF3344';
+  const sw = size * 0.07;
+  const r = (size - sw - 6) / 2;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (Math.min(100, Math.max(0, pct)) / 100) * circ;
+  const valColor = pct > 80 ? red : color;
+  const cx = size / 2, cy = size / 2;
+  return '<div style="text-align:center">' +
+    '<div style="' + scanGlow(color, 3) + ';font-size:2.34cqw;font-family:' + F + ';letter-spacing:2px;margin-bottom:2px">' + label + '</div>' +
+    '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" style="filter:drop-shadow(0 0 4px ' + color + '66)">' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + dim + '" stroke-width="' + sw + '"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="' + sw + '" ' +
+        'stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="butt" ' +
+        'transform="rotate(-90 ' + cx + ' ' + cy + ')" style="transition:stroke-dashoffset 0.8s ease;filter:drop-shadow(0 0 3px ' + color + ')"/>' +
+      '<text x="' + cx + '" y="' + (cy+2) + '" text-anchor="middle" dominant-baseline="central" ' +
+        'fill="' + valColor + '" font-size="' + (size * 0.24) + '" font-family="' + F + '" style="filter:drop-shadow(0 0 ' + (size * 0.022).toFixed(1) + 'px ' + valColor + ')">' + Math.round(pct) + '%</text>' +
+    '</svg></div>';
+}
+
+function scanThermBar(label, temp) {
+  const S = PANEL_SPEC.scanlines || {};
+  const F = "'Share Tech Mono', monospace";
+  const cyan = S.cyan || '#00FFCC';
+  const dim = S.dim || '#334455';
+  const pct = Math.max(0, Math.min(100, ((temp-20)/100)*100));
+  let fillColor = S.blue || '#4488FF';
+  if (temp >= 90) fillColor = S.red || '#FF3344';
+  else if (temp >= 70) fillColor = S.amber || '#FFAA00';
+  else if (temp >= 50) fillColor = S.green || '#00FF88';
+  const thermFlash = temp >= 100 ? ';animation:blink 0.5s infinite' : '';
+  return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
+    '<span style="' + scanGlow(cyan, 3) + ';font-size:2.34cqw;font-family:' + F + ';width:4.69cqw;text-align:right;flex-shrink:0">' + label + '</span>' +
+    '<div style="flex:1;height:2.64cqw;background:' + dim + ';border-radius:1px;overflow:hidden">' +
+      '<div style="height:100%;width:' + pct + '%;background:' + fillColor + ';border-radius:1px;transition:width 0.8s ease,background 0.5s ease;box-shadow:0 0 4px ' + fillColor + ',0 0 8px ' + fillColor + '44' + thermFlash + '"></div>' +
+    '</div></div>';
+}
+
+function scanScreen2(c) {
+  const S = PANEL_SPEC.scanlines || {};
+  const F = "'Share Tech Mono', monospace";
+  const cyan = S.cyan || '#00FFCC';
+  const cyanDim = S.cyanDim || '#009977';
+  const amber = S.amber || '#FFAA00';
+  const green = S.green || '#00FF88';
+  const bg = S.bg || '#060810';
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const dayName = days[now.getDay()];
+  const dateStr = months[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
+
+  bsSkin(BS_SKIN_SCAN);
+  return bsFrame(
+    '<div style="width:100%;height:100%;display:flex;flex-direction:column;' +
+      'align-items:center;justify-content:center;font-family:' + F + '">' +
+    '<div style="' + scanGlow(cyanDim, 3) + ';font-size:1.76cqw;letter-spacing:8px;margin-bottom:1.76cqw">CATHODE RAY CHRONOMETER</div>' +
+    '<div style="display:flex;align-items:baseline">' +
+      '<span style="' + scanGlow(cyan, 10) + ';font-size:21.48cqw;letter-spacing:6px">' + hh + '</span>' +
+      '<span style="' + scanGlow(amber, 8) + ';font-size:14.65cqw;animation:blink 1s infinite;margin:0 0.29cqw">:</span>' +
+      '<span style="' + scanGlow(cyan, 10) + ';font-size:21.48cqw;letter-spacing:6px">' + mm + '</span>' +
+      '<span style="' + scanGlow(green, 6) + ';font-size:9.77cqw;margin-left:1.76cqw">' + ss + '</span>' +
+    '</div>' +
+    '<div style="' + scanGlow(amber, 5) + ';font-size:4.69cqw;letter-spacing:10px;margin-top:1.46cqw">' + dayName + '</div>' +
+    '<div style="' + scanGlow(cyan, 4) + ';font-size:5.27cqw;letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
+    '<div style="display:flex;align-items:center;gap:1.17cqw;margin-top:2.34cqw;width:70%">' +
+      '<div style="flex:1;height:1px;background:' + cyan + ';opacity:0.15;box-shadow:0 0 2px ' + cyan + '"></div>' +
+      '<div style="width:0.88cqw;height:0.88cqw;border-radius:50%;background:' + green + ';box-shadow:0 0 4px ' + green + ',0 0 8px ' + green + '44"></div>' +
+      '<div style="width:0.88cqw;height:0.88cqw;border-radius:50%;background:' + amber + ';box-shadow:0 0 4px ' + amber + ',0 0 8px ' + amber + '44"></div>' +
+      '<div style="width:0.88cqw;height:0.88cqw;border-radius:50%;background:' + cyan + ';box-shadow:0 0 4px ' + cyan + ',0 0 8px ' + cyan + '44"></div>' +
+      '<div style="flex:1;height:1px;background:' + cyan + ';opacity:0.15;box-shadow:0 0 2px ' + cyan + '"></div>' +
+    '</div>' +
+  '</div>');
+}
+
+/* ═══════════════════════════════════════
+   VINTAGE / TUBES (Nixie + Magic Eye + IN-13 Bargraph + Dekatron)
+   ═══════════════════════════════════════ */
+
+/* A nixie is a stack of ten wire cathodes in a neon-filled envelope, with an
+ * anode mesh in front. Three things follow from that and none of them were
+ * here:
+ *
+ *   - the unlit cathodes do not go away. They sit behind the lit one as dark
+ *     wire ghosts, and they are the single most recognisable thing about the
+ *     tube. Without them a nixie is just a glowing numeral.
+ *   - neon glow discharge runs orange-red (585nm and 640nm dominate). A white
+ *     core reads as an LED; the brightest point on a real cathode is still
+ *     orange.
+ *   - the anode mesh crosses in front of everything, so the glow is seen
+ *     through a fine grid.
+ *
+ * opts: {ghosts, mesh, neon} -- each independently, so the difference is
+ * arguable rather than asserted.
+ */
+function nixieDigit(value, size, showTube, opts) {
+  opts = opts || {};
+  const N = PANEL_SPEC.tubes || {};
+  const NIXIE = "'Nixie One', cursive";
+  const bright = N.bright || '#FF6E0B';
+  const bloom = N.bloom || '#FF4400';
+  const glass = N.glass || '#332818';
+  const cathode = N.cathode || '#1A1410';
+  const bg = N.bg || '#0A0806';
+  const glassTint = N.glassTint || '#181210';
+  const mesh = N.mesh || '#332820';
+
+  const chars = String(value).split('');
+  let html = '<span style="display:inline-flex;gap:' + (showTube ? gq(3) : '0') + '">';
+  for (let ci = 0; ci < chars.length; ci++) {
+    const ch = chars[ci];
+    const isDigit = /\d/.test(ch);
+    const tubeW = showTube ? (size * 0.7) : '';
+    const tubeH = showTube ? (size * 1.3) : '';
+    const tubeBg = showTube
+      ? 'radial-gradient(ellipse at 40% 35%, rgba(255,68,0,0.04) 0%, ' + bg + ' 60%), linear-gradient(180deg, ' + glassTint + '88 0%, ' + bg + '22 10%, ' + bg + '11 20%, ' + bg + '11 80%, ' + bg + '22 90%, ' + glassTint + '88 100%)'
+      : 'linear-gradient(180deg, ' + glassTint + '55 0%, transparent 20%, transparent 80%, ' + glassTint + '55 100%)';
+    const tubeBorder = showTube ? '1px solid ' + glass + '55' : '1px solid ' + glass + '33';
+    const tubeBorderBottom = showTube ? 'border-bottom:3px solid ' + glass + '88;' : '';
+    const tubeRadius = showTube ? 'border-radius:' + gq(size*0.3) + ' ' + gq(size*0.3) + ' 4px 4px;' : 'border-radius:2px;';
+    const tubeBoxShadow = showTube ? 'box-shadow:inset 0 0 ' + (size*0.4) + 'px rgba(255,68,0,0.07),inset 0 0 ' + (size*0.15) + 'px rgba(255,100,34,0.1),inset 0 ' + (size*0.15) + 'px ' + (size*0.3) + 'px rgba(0,0,0,0.4),0 0 ' + (size*0.25) + 'px rgba(255,68,0,0.1);' : '';
+
+    html += '<span style="position:relative;display:inline-block;' +
+      (showTube ? 'width:' + gq(tubeW) + ';height:' + gq(tubeH) + ';' : 'padding:0 1px;') +
+      'text-align:center;background:' + tubeBg + ';border:' + tubeBorder + ';' + tubeBorderBottom + tubeRadius + tubeBoxShadow + 'overflow:hidden">';
+
+    /* Active digit with 5-layer glow */
+    const digitPos = showTube ? 'position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);' : 'position:relative;';
+    const textGlow = opts.neon
+      ? '0 0 ' + Math.max(2,size*0.025) + 'px #FFD8A8, 0 0 ' + Math.max(6,size*0.075) + 'px #FF8A2B, 0 0 ' + Math.max(14,size*0.18) + 'px #FF5A0A, 0 0 ' + Math.max(28,size*0.40) + 'px rgba(255,58,0,0.62), 0 0 ' + Math.max(54,size*0.75) + 'px rgba(220,20,0,0.30)'
+      : '0 0 ' + Math.max(2,size*0.03) + 'px #FFFFFF, 0 0 ' + Math.max(8,size*0.1) + 'px #FFAA55, 0 0 ' + Math.max(16,size*0.22) + 'px #FF6600, 0 0 ' + Math.max(32,size*0.45) + 'px rgba(255,68,0,0.5), 0 0 ' + Math.max(60,size*0.8) + 'px rgba(255,0,0,0.2)';
+    const litColor = opts.neon ? '#FF8B33' : '#FFAA55';
+    const flickerDur = (2.5 + Math.random() * 2).toFixed(1);
+    const microDur = (0.8 + Math.random() * 0.5).toFixed(1);
+    if (opts.ghosts && isDigit) {
+      const n = parseInt(ch, 10);
+      // Two cathodes in front of the lit one and one behind it: enough to read
+      // as a stack without turning the tube to soup.
+      const stack = [{d: (n + 1) % 10, o: 0.30, dx: -0.018, dy: 0.012},
+                     {d: (n + 3) % 10, o: 0.20, dx: 0.022, dy: -0.010},
+                     {d: (n + 7) % 10, o: 0.13, dx: -0.008, dy: -0.020}];
+      for (const g of stack) {
+        html += '<span style="' + digitPos + 'font-size:' + gq(size) + ';font-family:' + NIXIE +
+          ';color:#6B5140;opacity:' + g.o + ';z-index:' + (10 + stack.indexOf(g)) +
+          ';margin-left:' + gq(size * g.dx) + ';margin-top:' + gq(size * g.dy) + ';text-shadow:none;pointer-events:none">' + g.d + '</span>';
+      }
+    }
+    html += '<span style="' + digitPos + 'font-size:' + gq(size) + ';font-family:' + (isDigit ? NIXIE : "'IBM Plex Mono',monospace") + ';color:' + litColor + ';text-shadow:' + textGlow + ';z-index:13;animation:nixieFlicker ' + flickerDur + 's ease-in-out infinite, nixieMicroFlicker ' + microDur + 's linear infinite">' + ch + '</span>';
+    if (opts.mesh) {
+      // An IN-14 anode carries something like 25 wires across the face; at
+      // size*0.075 the grid read as a screen door rather than as a mesh.
+      const pitch = Math.max(2, Math.round(size * 0.042));
+      html += '<div style="position:absolute;inset:0;z-index:14;pointer-events:none;opacity:0.30;' +
+        'background-image:repeating-linear-gradient(0deg,' + mesh + '00 0,' + mesh + '00 ' + (pitch-1) + 'px,' + mesh + 'cc ' + (pitch-1) + 'px,' + mesh + 'cc ' + pitch + 'px),' +
+        'repeating-linear-gradient(90deg,' + mesh + '00 0,' + mesh + '00 ' + (pitch-1) + 'px,' + mesh + 'aa ' + (pitch-1) + 'px,' + mesh + 'aa ' + pitch + 'px)"></div>';
+    }
+
+    /* Glass reflections for showTube */
+    if (showTube) {
+      html += '<div style="position:absolute;top:8%;right:10%;width:45%;height:15%;background:linear-gradient(130deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02) 60%,transparent);border-radius:50%;transform:rotate(25deg);z-index:15;pointer-events:none"></div>';
+    }
+    html += '</span>';
+  }
+  html += '</span>';
+  return html;
+}
+
+/* A filament in its glass: a wide dim halo, a tighter warm one, then a
+   white-hot wire down the middle. Everything on this board that shows a
+   quantity burns -- nothing in the tube era emitted a flat block of colour. */
+function tubeFilament(pct, color, flash, id, height) {
+  const N = PANEL_SPEC.tubes || {};
+  const interior = N.interior || '#0C0A06';
+  const glass = N.glass || '#332818';
+  const cathode = N.cathode || '#1A1410';
+  const svgW = 300, h = height || 30;
+  const barW = (Math.max(0, Math.min(100, pct)) / 100) * (svgW - 4);
+  const fid = svgId('glow-', id);
+  return '<svg width="100%" height="' + h + '" viewBox="0 0 ' + svgW + ' ' + h + '" ' +
+    'preserveAspectRatio="none" style="overflow:visible;flex:1 1 0;min-width:0">' +
+      '<defs>' +
+        '<filter id="' + fid + '-w" x="-50%" y="-300%" width="200%" height="700%"><feGaussianBlur in="SourceGraphic" stdDeviation="8 4"/></filter>' +
+        '<filter id="' + fid + '-m" x="-30%" y="-200%" width="160%" height="500%"><feGaussianBlur in="SourceGraphic" stdDeviation="4 3"/></filter>' +
+        '<filter id="' + fid + '-t" x="-10%" y="-100%" width="120%" height="300%"><feGaussianBlur in="SourceGraphic" stdDeviation="2 1.5"/></filter>' +
+      '</defs>' +
+      '<rect x="0" y="0" width="' + svgW + '" height="' + h + '" rx="11" ry="11" fill="' + interior + '" stroke="' + glass + '44" stroke-width="1"/>' +
+      '<line x1="4" y1="' + (h/2) + '" x2="' + (svgW-4) + '" y2="' + (h/2) + '" stroke="' + cathode + '" stroke-width="0.5" opacity="0.35"/>' +
+      '<rect x="2" y="' + (h/2-6) + '" width="' + Math.max(0,barW) + '" height="12" rx="6" ry="6" fill="' + color + '" opacity="0.5" filter="url(#' + fid + '-w)" style="transition:width 0.8s ease"/>' +
+      '<rect x="2" y="' + (h/2-4) + '" width="' + Math.max(0,barW) + '" height="8" rx="4" ry="4" fill="' + color + '" opacity="0.7" filter="url(#' + fid + '-m)" style="transition:width 0.8s ease"/>' +
+      '<rect x="2" y="' + (h/2-2) + '" width="' + Math.max(0,barW) + '" height="4" rx="2" ry="2" fill="#FFCC88" opacity="0.85" filter="url(#' + fid + '-t)" style="transition:width 0.8s ease"/>' +
+      '<rect x="2" y="' + (h/2-0.75) + '" width="' + Math.max(0,barW) + '" height="1.5" rx="0.75" ry="0.75" fill="#FFDDAA" style="transition:width 0.8s ease"/>' +
+    '</svg>';
+}
+
+function bargraphBar(pct, label, color, flash) {
+  const N = PANEL_SPEC.tubes || {};
+  const MONO = "'IBM Plex Mono', monospace";
+  const barColor = color || N.barStd || '#FF6622';
+  const flashStyle = flash ? 'animation:blink 0.5s infinite;' : '';
+  return '<div style="display:flex;align-items:center;gap:0.88cqw;' + flashStyle + '">' +
+    '<span style="color:' + (N.label||'#AA8855') + ';text-shadow:0 0 2px ' + (N.label||'#AA8855') + '33;font-size:2.64cqw;font-family:' + MONO + ';width:4.10cqw;text-align:right;flex-shrink:0">' + label + '</span>' +
+    tubeFilament(pct, barColor, false, label) +
+  '</div>';
+}
+
+/* Phosphor. Zinc silicate is the green everyone pictures, but the envelope
+   does not care what is painted on the target -- the ramp below is the only
+   thing that makes one read as green and the other as cyan. */
+const EYE_PHOSPHOR = {
+  green: {rich: ['#e8ffd8','#b6ff8e','#74ff52','#32e033','#15a825','#065c14'],
+          plain: ['#baff9f','#7fff63','#46ef3f','#1fc62c','#0c7e1c'],
+          halo: '#31e13a', bloom: '50,255,90', text: '140,255,160', ink: '#eefdeb'},
+  cyan:  {rich: ['#dffaff','#8fe8ff','#52ccff','#2f9fe0','#1a6fa8','#063f5c'],
+          plain: ['#a9f0ff','#63dcff','#3fbcef','#2c8ac6','#0c4d7e'],
+          halo: '#31b0e1', bloom: '50,180,255', text: '150,225,255', ink: '#ebf8fd'},
+};
+
+function magicEye(pct, label, size, opts) {
+  opts = opts || {};
+  const P = EYE_PHOSPHOR[opts.phosphor] || EYE_PHOSPHOR.green;
+  const eid = svgId('', label);
+  const cx = 210, cy = 210, rOuter = 146, rInner = 66;
+  const minAngle = 4, maxAngle = 320;
+  // A real EM34 closes its shadow as the signal rises -- a strong reading is
+  // a lit eye, not a dark one. Inverted, a pegged CPU reads as a dead tube.
+  const drive = opts.invert ? (100 - Math.max(0, Math.min(100, pct))) : pct;
+  const wedgeAngle = minAngle + (drive / 100) * (maxAngle - minAngle);
+  const startDeg = -wedgeAngle / 2;
+  const endDeg = wedgeAngle / 2;
+  function polar(r, deg) {
+    const a = (deg - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  }
+  function sector(rO, rI, s, e) {
+    const span = ((e - s) % 360 + 360) % 360;
+    const la = span > 180 ? 1 : 0;
+    const p1 = polar(rO, s), p2 = polar(rO, e), p3 = polar(rI, e), p4 = polar(rI, s);
+    return 'M ' + p1.x + ' ' + p1.y + ' A ' + rO + ' ' + rO + ' 0 ' + la + ' 1 ' + p2.x + ' ' + p2.y + ' L ' + p3.x + ' ' + p3.y + ' A ' + rI + ' ' + rI + ' 0 ' + la + ' 0 ' + p4.x + ' ' + p4.y + ' Z';
+  }
+  const shadowPath = sector(rOuter, rInner, startDeg, endDeg);
+  const softPath = sector(rOuter + 4, rInner - 3, startDeg - 2.5, endDeg + 2.5);
+  const s = size / 420;
+  const holeSize = rInner * 2 * s;
+  const MONO = "'IBM Plex Mono', monospace";
+  const N = PANEL_SPEC.tubes || {};
+
+  return '<div style="text-align:center">' +
+    '<div style="position:relative;width:' + gq(size) + ';height:' + gq(size) + ';margin:0 auto;filter:drop-shadow(0 0 ' + gq(4*s) + ' rgba(' + P.bloom + ',0.08)) drop-shadow(0 0 ' + gq(10*s) + ' rgba(' + P.bloom + ',0.06))">' +
+      '<svg viewBox="0 0 420 420" width="' + size + '" height="' + size + '" style="display:block">' +
+        '<defs>' +
+          '<filter id="og-' + eid + '" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur in="SourceGraphic" stdDeviation="14" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="28" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
+          '<filter id="sb-' + eid + '" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>' +
+          (opts.rich
+          ? '<radialGradient id="ph-' + eid + '" cx="46%" cy="40%" r="58%"><stop offset="0%" stop-color="' + P.rich[0] + '"/><stop offset="14%" stop-color="' + P.rich[1] + '" stop-opacity="0.99"/><stop offset="34%" stop-color="' + P.rich[2] + '" stop-opacity="0.97"/><stop offset="58%" stop-color="' + P.rich[3] + '" stop-opacity="0.94"/><stop offset="80%" stop-color="' + P.rich[4] + '" stop-opacity="0.90"/><stop offset="100%" stop-color="' + P.rich[5] + '" stop-opacity="0.88"/></radialGradient>'
+          : '<radialGradient id="ph-' + eid + '" cx="50%" cy="47%" r="50%"><stop offset="0%" stop-color="' + P.plain[0] + '"/><stop offset="26%" stop-color="' + P.plain[1] + '" stop-opacity="0.98"/><stop offset="52%" stop-color="' + P.plain[2] + '" stop-opacity="0.95"/><stop offset="78%" stop-color="' + P.plain[3] + '" stop-opacity="0.92"/><stop offset="100%" stop-color="' + P.plain[4] + '" stop-opacity="0.90"/></radialGradient>') +
+          (opts.rich
+          ? '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="48%" stop-color="rgba(0,0,0,0)"/><stop offset="82%" stop-color="rgba(0,0,0,0.34)"/><stop offset="100%" stop-color="rgba(0,0,0,0.72)"/></radialGradient>'
+          : '<radialGradient id="rf-' + eid + '" cx="50%" cy="50%" r="58%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.40)"/></radialGradient>') +
+          '<clipPath id="fc-' + eid + '"><circle cx="210" cy="210" r="146"/></clipPath>' +
+          '<mask id="fm-' + eid + '"><rect width="420" height="420" fill="black"/><circle cx="210" cy="210" r="146" fill="white"/><circle cx="210" cy="210" r="66" fill="black"/></mask>' +
+        '</defs>' +
+        '<circle cx="210" cy="210" r="132" fill="' + P.halo + '" opacity="0.12" filter="url(#og-' + eid + ')"/>' +
+        '<g mask="url(#fm-' + eid + ')">' +
+          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" filter="url(#og-' + eid + ')" opacity="0.78"/>' +
+          '<circle cx="210" cy="210" r="146" fill="url(#ph-' + eid + ')" opacity="0.92"/>' +
+          '<path d="' + softPath + '" fill="rgba(0,0,0,0.34)" filter="url(#sb-' + eid + ')" style="transition:d 0.5s ease"/>' +
+          '<path d="' + shadowPath + '" fill="rgba(0,0,0,0.96)" style="transition:d 0.5s ease"/>' +
+          '<circle cx="210" cy="210" r="146" fill="url(#rf-' + eid + ')" opacity="0.95"/>' +
+          (opts.rich
+            ? '<ellipse cx="168" cy="122" rx="62" ry="34" fill="#ffffff" opacity="0.07" transform="rotate(-28 168 122)"/>'
+            : '') +
+        '</g>' +
+      '</svg>' +
+      '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + gq(holeSize) + ';height:' + gq(holeSize) + ';border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + gq(5*s) + ' ' + gq(10*s) + ' rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+        '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
+        (label ? '<span style="color:#9d8a72;font-size:' + gq(Math.max(8, holeSize*0.155)) + ';' +
+          'font-family:\'IBM Plex Mono\',monospace;line-height:1;letter-spacing:0.08em;' +
+          'margin-top:' + gq(holeSize*0.06) + '">' + label + '</span>' : '') +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function dekatron(rpm, size) {
+  const N = PANEL_SPEC.tubes || {};
+  const rps = rpm > 0 ? (rpm / 60) * 0.1 : 0;
+  const speed = rps > 0 ? Math.max(0.3, 1 / rps) : 0;
+  const stopped = !rpm || rpm <= 0;
+  const dekOrange = N.dekOrange || '#FF6600';
+  const dekGuide = N.dekGuide || '#552200';
+  const dekInactive = '#181410';
+  let html = '<div style="width:' + gq(size) + ';height:' + gq(size) + ';position:relative;' + (stopped ? 'opacity:0.3' : 'animation:spin ' + speed.toFixed(2) + 's linear infinite') + '">';
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * Math.PI * 2;
+    const x = size / 2 + (size / 2 - 3) * Math.cos(angle) - 1.5;
+    const y = size / 2 + (size / 2 - 3) * Math.sin(angle) - 1.5;
+    const isActive = i === 0;
+    const isTrail = i === 9;
+    const dotColor = isActive ? dekOrange : isTrail ? dekGuide : dekInactive;
+    const dotOpacity = isActive ? 1 : isTrail ? 0.4 : 0.15;
+    const dotGlow = isActive ? '0 0 4px ' + dekOrange + ',0 0 10px ' + dekOrange + '66' : isTrail ? '0 0 3px ' + dekGuide : 'none';
+    html += '<div style="position:absolute;left:' + gq(x) + ';top:' + gq(y) + ';width:' + gq(3) + ';height:' + gq(3) + ';border-radius:50%;background:' + dotColor + ';box-shadow:' + dotGlow + ';opacity:' + dotOpacity + '"></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function tubeSectionLabel(text, color, rightText, rightColor) {
+  const N = PANEL_SPEC.tubes || {};
+  const MONO = "'IBM Plex Mono', monospace";
+  const rc = rightColor || color;
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.59cqw">' +
+    '<span style="color:' + color + ';text-shadow:0 0 2px #FFFFFF66,0 0 6px ' + color + '88,0 0 14px ' + color + '44;font-size:1.95cqw;font-family:' + MONO + ';letter-spacing:3px">' + text + '</span>' +
+    '<div style="flex:1;height:1px;background:' + color + '18;margin:0 1.17cqw"></div>' +
+    (rightText ? '<span style="color:' + rc + ';text-shadow:0 0 2px #FFFFFF44,0 0 6px ' + rc + '66,0 0 12px ' + rc + '33;font-size:1.95cqw;font-family:' + MONO + ';letter-spacing:2px">' + rightText + '</span>' : '') +
+  '</div>';
+}
+
+function tubeScreen2(c) {
+  const N = PANEL_SPEC.tubes || {};
+  const NIXIE = "'Nixie One', cursive";
+  const MONO = "'IBM Plex Mono', monospace";
+  const bg = N.bg || '#0A0806';
+  const barDim = N.barDim || '#CC4400';
+  const core = N.core || '#FF8833';
+  const dekOrange = N.dekOrange || '#FF6600';
+  const warm = N.warm || '#FF9944';
+  const eyeStd = N.eyeStd || '#22DD22';
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const dayName = days[now.getDay()];
+  const dateStr = months[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
+
+  return '<div class="screen-frame"><div style="background:' + bg + ';width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:' + MONO + '">' +
+    '<div style="color:' + barDim + ';text-shadow:0 0 3px ' + barDim + '44;font-size:2.3cqw;letter-spacing:8px;margin-bottom:2.05cqw">NIXIE TUBE CHRONOMETER</div>' +
+    '<div style="display:flex;align-items:center;gap:' + gq(5) + '">' +
+      nixieDigit(hh[0], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(hh[1], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      '<span style="color:#FF8B33;font-size:14.5cqw;font-family:' + NIXIE + ';text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 16px #FF5A0A,0 0 32px #FF3A00AA,0 0 50px #DC140044;animation:blink 1s infinite;margin:0 3px">:</span>' +
+      nixieDigit(mm[0], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(mm[1], 158, true, {neon: true, ghosts: true, mesh: true}) +
+      '<div style="width:' + gq(12) + '"></div>' +
+      nixieDigit(ss[0], 88, true, {neon: true, ghosts: true, mesh: true}) +
+      nixieDigit(ss[1], 88, true, {neon: true, ghosts: true, mesh: true}) +
+    '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:6.2cqw;font-family:' + NIXIE + ';letter-spacing:8px;margin-top:2.05cqw">' + dayName + '</div>' +
+    '<div style="color:#FF8B33;text-shadow:0 0 3px #FFD8A8,0 0 8px #FF8A2B,0 0 18px #FF5A0A66,0 0 35px #FF3A0033;font-size:6.8cqw;font-family:' + NIXIE + ';letter-spacing:4px;margin-top:0.59cqw">' + dateStr + '</div>' +
+    '<div style="display:flex;align-items:center;gap:1.46cqw;margin-top:2.34cqw">' +
+      [dekOrange, warm, eyeStd, '#8855DD', eyeStd, warm, dekOrange].map(function(c) { return '<div style="width:0.73cqw;height:0.73cqw;border-radius:50%;background:' + c + ';box-shadow:0 0 4px ' + c + ',0 0 8px ' + c + '66,0 0 14px ' + c + '22;opacity:0.7"></div>'; }).join('') +
+    '</div>' +
+  '</div></div>';
+}
+
+/* ═══════════════════════════════════════
+   VINTAGE / VFD (Seven-Segment Redux)
+   ═══════════════════════════════════════ */
+
+function vfdPal(colorName) {
+  const V = PANEL_SPEC.vfd || {};
+  return {
+    main: V[colorName] || '#00DDAA',
+    bright: V[colorName+'Bright'] || '#44FFCC',
+    dim: V[colorName+'Dim'] || '#008866',
+    ghost: V[colorName+'Ghost'] || V.ghost || '#0A1A15',
+  };
+}
+
+function vfdSectionLabel(text, color, rightText, rightColor) {
+  const p = vfdPal(color);
+  const rp = rightColor ? vfdPal(rightColor) : p;
+  const F = "'Share Tech Mono', monospace";
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.59cqw">' +
+    '<span style="color:' + p.main + ';text-shadow:0 0 4px ' + p.dim + ';font-size:2.34cqw;font-family:' + F + ';letter-spacing:3px">' + text + '</span>' +
+    '<div style="flex:1;height:1px;background:' + p.main + '18;margin:0 1.17cqw"></div>' +
+    (rightText ? '<span style="color:' + rp.main + ';text-shadow:0 0 3px ' + rp.dim + ';font-size:1.76cqw;font-family:' + F + ';letter-spacing:2px">' + rightText + '</span>' : '') +
+  '</div>';
+}
+
+function vfdDonut(pct, label, color, size) {
+  const p = vfdPal(color);
+  const V = PANEL_SPEC.vfd || {};
+  const F = "'Share Tech Mono', monospace";
+  const cx = size / 2, cy = size / 2;
+  const r = (size - 14) / 2;
+  const sw = size * 0.08;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (Math.min(100, Math.max(0, pct)) / 100) * circ;
+  const isHigh = pct > 80;
+  const ac = isHigh ? (V.red || '#FF4433') : p.main;
+  const ab = isHigh ? (V.redBright || '#FF7766') : p.bright;
+  const fid = svgId('dn-', label);
+
+  let ticks = '';
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2 - Math.PI / 2;
+    const x1 = cx + (r - sw/2 - 1) * Math.cos(a), y1 = cy + (r - sw/2 - 1) * Math.sin(a);
+    const x2 = cx + (r + sw/2 + 1) * Math.cos(a), y2 = cy + (r + sw/2 + 1) * Math.sin(a);
+    ticks += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + (V.substrate||'#0A0A08') + '" stroke-width="1"/>';
+  }
+
+  return '<div style="text-align:center">' +
+    '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" style="display:block;overflow:visible">' +
+      '<defs><filter id="' + fid + '-b" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="g1"/><feGaussianBlur in="SourceGraphic" stdDeviation="5" result="g2"/><feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + p.ghost + '" stroke-width="' + sw + '"/>' +
+      ticks +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + ac + '" stroke-width="' + sw + '" stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="butt" transform="rotate(-90 ' + cx + ' ' + cy + ')" opacity="0.5" filter="url(#' + fid + '-b)" style="transition:stroke-dashoffset 0.8s ease,stroke 0.5s ease"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + ac + '" stroke-width="' + sw + '" stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="butt" transform="rotate(-90 ' + cx + ' ' + cy + ')" opacity="0.95" style="transition:stroke-dashoffset 0.8s ease,stroke 0.5s ease"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + ab + '" stroke-width="' + (sw*0.5) + '" stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="butt" transform="rotate(-90 ' + cx + ' ' + cy + ')" opacity="0.3" style="transition:stroke-dashoffset 0.8s ease,stroke 0.5s ease"/>' +
+      '<text x="' + cx + '" y="' + (cy+1) + '" text-anchor="middle" dominant-baseline="central" fill="' + ac + '" font-size="' + (size*0.22) + '" font-family="' + F + '" style="filter:drop-shadow(0 0 3px ' + ac + '88)">' + Math.round(pct) + '%</text>' +
+    '</svg></div>';
+}
+
+function vfdThermalBar(temp, label) {
+  const V = PANEL_SPEC.vfd || {};
+  const F = "'Share Tech Mono', monospace";
+  const pct = ((Math.max(20, Math.min(120, temp)) - 20) / 100) * 100;
+  let color = 'blue';
+  if (temp >= 90) color = 'red';
+  else if (temp >= 70) color = 'yellow';
+  else if (temp >= 50) color = 'green';
+  const vfdFlash = temp >= 100 ? 'animation:blink 0.5s infinite;' : '';
+  const p = vfdPal(color);
+  const totalSegs = 16;
+  const litSegs = Math.round((pct / 100) * totalSegs);
+  const fid = svgId('tb-', label);
+  const ghost = V.ghost || '#0A1A15';
+
+  let segs = '<defs><filter id="' + fid + '" x="-10%" y="-50%" width="120%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.2 0.8"/></filter></defs>';
+  for (let i = 0; i < totalSegs; i++) {
+    const x = i * (160 / totalSegs) + 0.5;
+    const w = (160 / totalSegs) - 1.5;
+    segs += '<rect x="' + x + '" y="1" width="' + w + '" height="22" rx="1" fill="' + ghost + '" stroke="' + ghost + '66" stroke-width="0.3"/>';
+  }
+  for (let i = 0; i < litSegs; i++) {
+    const x = i * (160 / totalSegs) + 0.5;
+    const w = (160 / totalSegs) - 1.5;
+    segs += '<rect x="' + x + '" y="1" width="' + w + '" height="22" rx="1" fill="' + p.main + '" opacity="0.5" filter="url(#' + fid + ')"/>';
+    segs += '<rect x="' + x + '" y="1" width="' + w + '" height="22" rx="1" fill="' + p.main + '" opacity="0.9"/>';
+    segs += '<rect x="' + x + '" y="3" width="' + w + '" height="16" rx="0.5" fill="' + p.bright + '" opacity="0.25"/>';
+  }
+
+  return '<div style="display:flex;align-items:center;gap:0.88cqw;' + vfdFlash + '">' +
+    '<span style="color:' + (V.green||'#00DDAA') + ';text-shadow:0 0 3px ' + (V.greenDim||'#008866') + ';font-size:2.20cqw;font-family:' + F + ';width:4.69cqw;text-align:right;flex-shrink:0">' + label + '</span>' +
+    '<svg width="100%" height="24" viewBox="0 0 160 24" preserveAspectRatio="none" style="flex:1;overflow:visible">' + segs + '</svg></div>';
+}
+
+function vfdPanel(children) {
+  const V = PANEL_SPEC.vfd || {};
+  const filament = V.filament || '#332211';
+  const filamentWarm = V.filamentWarm || '#443322';
+  const grid = V.grid || '#1A1A18';
+  const substrate = V.substrate || '#0A0A08';
+  return '<div style="background:' + substrate + ';border:1px solid #1a1a16;border-radius:3px;position:relative;overflow:hidden;box-shadow:inset 0 0 20px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.02),0 2px 8px rgba(0,0,0,0.6);width:100%;height:100%">' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:20;background-image:linear-gradient(0deg,transparent 0px,transparent 11px,' + filamentWarm + '18 11px,' + filamentWarm + '18 12px,transparent 12px,transparent 23px,' + filament + '12 23px,' + filament + '12 24px,transparent 24px);background-size:100% 24px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:21;opacity:0.06;background-image:linear-gradient(0deg,' + grid + ' 1px,transparent 1px),linear-gradient(90deg,' + grid + ' 1px,transparent 1px);background-size:4px 4px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:22;background:radial-gradient(ellipse at 50% 40%,transparent 50%,rgba(0,0,0,0.15) 100%)"></div>' +
+    children +
+  '</div>';
+}
+
+function vfdScreen2(c) {
+  const V = PANEL_SPEC.vfd || {};
+  const F = "'Share Tech Mono', monospace";
+  const green = V.green || '#00DDAA';
+  const greenDim = V.greenDim || '#008866';
+  const amber = V.amber || '#FFAA22';
+  const amberDim = V.amberDim || '#886611';
+  const blue = V.blue || '#00D4CC';
+  const blueDim = V.blueDim || '#007A77';
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const dateStr = now.getDate() + ' ' + months[now.getMonth()] + ' ' + now.getFullYear();
+
+  const hostname = m('sys.hostname');
+  const hostStr = hostname.available ? esc(String(hostname.value).toUpperCase()) : '--';
+  const content = '<div style="width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1.76cqw;position:relative;z-index:10">' +
+    '<div style="color:' + greenDim + ';text-shadow:0 0 3px ' + greenDim + '44;font-size:2.64cqw;font-family:' + F + ';letter-spacing:8px">VFD CHRONOMETER</div>' +
+    '<div style="width:85%;height:1px;background:linear-gradient(90deg,transparent,' + green + '33,' + amber + '33,' + blue + '33,transparent)"></div>' +
+    '<div style="display:flex;align-items:baseline">' +
+      '<span style="color:' + green + ';text-shadow:0 0 4px ' + greenDim + ',0 0 10px ' + green + '44;font-size:21.48cqw;font-family:' + F + '">' + hh + '</span>' +
+      '<span style="color:' + green + ';text-shadow:0 0 4px ' + greenDim + ';font-size:14.65cqw;animation:blink 1s infinite;margin:0 0.59cqw">:</span>' +
+      '<span style="color:' + green + ';text-shadow:0 0 4px ' + greenDim + ',0 0 10px ' + green + '44;font-size:21.48cqw;font-family:' + F + '">' + mm + '</span>' +
+      '<span style="color:' + amber + ';text-shadow:0 0 4px ' + amberDim + ',0 0 8px ' + amber + '44;font-size:9.77cqw;font-family:' + F + ';margin-left:1.76cqw">' + ss + '</span>' +
+    '</div>' +
+    '<div style="color:' + amber + ';text-shadow:0 0 5px ' + amberDim + ';font-size:5.86cqw;font-family:' + F + ';letter-spacing:8px">' + days[now.getDay()] + '</div>' +
+    '<div style="color:' + blue + ';text-shadow:0 0 5px ' + blueDim + ';font-size:5.57cqw;font-family:' + F + ';letter-spacing:4px">' + dateStr + '</div>' +
+    '<div style="width:85%;height:1px;background:linear-gradient(90deg,transparent,' + blue + '33,' + amber + '33,' + green + '33,transparent)"></div>' +
+    '<div style="color:' + greenDim + ';text-shadow:0 0 3px ' + greenDim + '44;font-size:1.76cqw;font-family:' + F + ';letter-spacing:6px">' + hostStr + ' \u2022 VACUUM FLUORESCENT DISPLAY</div>' +
+  '</div>';
+
+  return '<div class="screen-frame">' + vfdPanel(content) + '</div>';
+}
+
+/* ═══ Screen 3 — Claude Usage (shared, adapts to theme) ═══ */
+
+/* Safe thousands-separated integer. A metric flagged available is not a
+   promise that it carries a number, so never call .toLocaleString() blind. */
+function fmtNum(d, fallback) {
+  if (!d || !d.available || d.value == null || isNaN(d.value)) {
+    return fallback === undefined ? '--' : fallback;
+  }
+  return Number(d.value).toLocaleString();
+}
+
+function fmtTok(n) {
+  if (n == null || isNaN(n) || n === 0) return '0';
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function sparkline(samples, color, w, h) {
+  if (!samples || samples.length < 2) {
+    const emptyPts = Array.from({length: 30}, (_, i) => `${(i/29)*w},${h}`).join(' ');
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${emptyPts}" fill="none" stroke="${color}" stroke-width="1" opacity="0.2"/></svg>`;
+  }
+  const max = Math.max(1, ...samples);
+  const pts = samples.map((v, i) => {
+    const x = (i / (samples.length - 1)) * w;
+    const y = h - (v / max) * (h - 2);
+    return `${x},${y}`;
+  }).join(' ');
+  const fillPts = pts + ` ${w},${h} 0,${h}`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+    `<polygon points="${fillPts}" fill="${color}" opacity="0.15"/>` +
+    `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
+/* ── Bridge Station: shared primitives, then the GPU screen ──────────────────────────────────────────────────────────
+ * One screen, three densities, chosen from how many cards the collector
+ * actually found. The same build has to read correctly on a single-card
+ * workstation and on a four-card rig, and nobody should have to configure
+ * which. Authored in px against the 1024x600 kiosk, emitted in cqw so the
+ * control-panel preview and a phone scale with the frame.
+ *
+ *   1 card   layout A - both gauges, load bars, per-process VRAM
+ *   2 cards  layout B - a gauge and a bar stack each
+ *   3+       layout C - compact 2x2 tiles
+ *   0        an honest empty state; the screen can be switched off in Settings
+ */
+
+/* px -> cqw against the 1024px kiosk width. */
+function gq(px) { return (px / 1024 * 100).toFixed(3) + 'cqw'; }
+
+/* Gold and Coral glow; Teal deliberately does not. A skin that says no gets
+   the declaration omitted rather than set to `none`, so there is nothing for
+   a later rule to have to override. */
+function bsGlow(px, color, alpha) {
+  const S = bsS();
+  if (S.glowFn) return S.glowFn(px, color, alpha);
+  return S.glow ? `text-shadow:0 0 ${gq(px)} ${color}${alpha || '99'}` : '';
+}
+
+/* ── Skins ───────────────────────────────────────────────────────────────
+ * The Bridge Station layout is one set of code; the chrome that frames it is
+ * per family. Gold draws a glowing spine down the left of every region, Teal
+ * an angular chevron tab across the top, Coral a rounded pill. Fonts, palette,
+ * bar geometry and thermal colours come out of the skin too, so the screens
+ * below never name a colour that belongs to one family only.
+ *
+ * Three copies of this layout would have drifted apart by the second edit.
+ */
+const _T = PANEL_SPEC.ds9 || {};
+const _C = PANEL_SPEC.tng || {};
+
+/* Gold: a hard-edged 12px spine, segmented bars, wide uppercase tracking. */
+const BS_SKIN_TOS = {
+  key: 'gold', chrome: 'spine', font: "'Chakra Petch', sans-serif", fw: '700', bg: '#000',
+  label: '#d8d8d8',        /* mid-greys disappear on a cheap 7" panel */
+  dim: '#9a9a9a', bright: '#ffffff', text: '#e6e6e6', soft: '#dcdcdc',
+  track: '#161616', edge: '#202020', ring: '#141414',
+  r: 0, ls: '0.22em', seg: true, glow: true,
+  a1: GOLD, a2: TEAL, a3: AMBER, a4: GREEN,
+  dCpu: GOLD, dRam: PANEL_SPEC.colors.blue, dVram: GREEN,
+  cPrimary: GOLD, cSecondary: TEAL,
+  cLink: GREEN, cPing: AMBER, cRecv: PANEL_SPEC.colors.thermBlue || '#2288DD',
+  cSend: GREEN, cIp: '#efefef', cMac: '#cfcfcf',
+  kHour: GOLD, kSec: AMBER, kDay: GREEN, kDate: '#dcdcdc',
+  crit: PANEL_SPEC.colors.red, warn: PANEL_SPEC.colors.thermOrange || '#FF7700',
+  cPower: AMBER, tick: '#b4b4b4',
+  therm: _thermColor,
+  vNvidia: GREEN, vAmd: PANEL_SPEC.colors.red, vIntel: PANEL_SPEC.colors.blue,
+};
+
+/* Teal: chevron tabs, navy tracks, 2px corners, Rajdhani semibold, no glow. */
+const BS_SKIN_DS9 = {
+  key: 'teal', chrome: 'tab', font: "'Rajdhani', sans-serif", fw: '600', bg: _T.void || '#111419',
+  label: _T.steel || '#9EA5BA', dim: _T.slate || '#6D748C',
+  bright: _T.pale || '#AAAACC', text: _T.pale || '#AAAACC', soft: _T.steel || '#9EA5BA',
+  track: _T.navy || '#2F3749', edge: _T.navy || '#2F3749', ring: _T.navy || '#2F3749',
+  r: 2, ls: '0.15em', seg: false, glow: false,
+  a1: _T.teal || '#2A9D8F', a2: _T.lavender || '#8888BB',
+  a3: _T.burnt || '#E7442A', a4: _T.cyan || '#66CCCC',
+  dCpu: _T.burnt || '#E7442A', dRam: _T.teal || '#2A9D8F', dVram: _T.lavender || '#8888BB',
+  cPrimary: _T.teal || '#2A9D8F', cSecondary: _T.lavender || '#8888BB',
+  cLink: _T.teal || '#2A9D8F', cPing: _T.warm || '#CCAA77',
+  cRecv: _T.lavender || '#8888BB', cSend: _T.teal || '#2A9D8F',
+  cIp: _T.pale || '#AAAACC', cMac: _T.steel || '#9EA5BA',
+  kHour: _T.pale || '#AAAACC', kSec: _T.burnt || '#E7442A',
+  kDay: _T.teal || '#2A9D8F', kDate: _T.lavender || '#8888BB',
+  crit: _T.alert || '#FF4444', warn: _T.thermOrange || '#DD7733',
+  cPower: _T.warm || '#CCAA77', tick: _T.steel || '#9EA5BA',
+  gaugeSize: 132, gaugeSw: 14,
+  therm: function (t) {
+    if (t >= 90) return _T.thermOrange || '#DD7733';
+    if (t >= 70) return _T.thermYellow || '#CCAA44';
+    if (t >= 50) return _T.thermGreen || '#55AA77';
+    return _T.thermBlue || '#4488AA';
+  },
+  vNvidia: _T.thermGreen || '#55AA77', vAmd: _T.thermOrange || '#DD7733',
+  vIntel: _T.thermBlue || '#4488AA',
+};
+
+/* Coral: rounded pills, fully rounded bars, Antonio at its regular weight. */
+const BS_SKIN_TNG = {
+  key: 'coral', chrome: 'tab', font: "'Antonio', sans-serif", fw: '400', bg: '#000',
+  label: _C.tanoi || '#FFCC99', dim: '#A67FA6',
+  bright: _C.paleCanary || '#FFFF99', text: _C.paleCanary || '#FFFF99',
+  soft: _C.tanoi || '#FFCC99',
+  track: '#1a1a2a', edge: '#26263a', ring: '#1a1a2a',
+  r: 999, ls: '0.15em', seg: false, glow: true,
+  a1: _C.goldenTanoi || '#FFCC66', a2: _C.anakiwa || '#99CCFF',
+  a3: _C.neonCarrot || '#FF9933', a4: _C.lilac || '#CC99CC',
+  dCpu: _C.neonCarrot || '#FF9933', dRam: _C.anakiwa || '#99CCFF',
+  dVram: _C.lilac || '#CC99CC',
+  cPrimary: _C.goldenTanoi || '#FFCC66', cSecondary: _C.lilac || '#CC99CC',
+  cLink: _C.anakiwa || '#99CCFF', cPing: _C.neonCarrot || '#FF9933',
+  cRecv: _C.mariner || '#3366CC', cSend: _C.anakiwa || '#99CCFF',
+  cIp: _C.paleCanary || '#FFFF99', cMac: _C.tanoi || '#FFCC99',
+  kHour: _C.goldenTanoi || '#FFCC66', kSec: _C.tanoi || '#FFCC99',
+  kDay: _C.anakiwa || '#99CCFF', kDate: _C.lilac || '#CC99CC',
+  crit: _C.mars || '#FF2200', warn: _C.thermOrange || '#FF9933',
+  cPower: _C.neonCarrot || '#FF9933', tick: _C.tanoi || '#FFCC99',
+  gaugeSize: 132, gaugeSw: 14,
+  therm: function (t) {
+    if (t >= 90) return _C.thermOrange || '#FF9933';
+    if (t >= 70) return _C.thermYellow || '#FFCC66';
+    if (t >= 50) return _C.thermGreen || '#99CC66';
+    return _C.thermBlue || '#99CCFF';
+  },
+  vNvidia: _C.thermGreen || '#99CC66', vAmd: _C.neonCarrot || '#FF9933',
+  vIntel: _C.anakiwa || '#99CCFF',
+};
+
+/* Vintage: a glowing label, a hairline rule running out of it, and the status
+   riding the far end -- the heading all three families already used. */
+function _bsChromeRule(title, color, right, rightColor) {
+  const S = bsS();
+  return `<div style="position:absolute;left:0;top:0;width:100%;height:${gq(24)};` +
+      `display:flex;align-items:center">` +
+    `<span style="color:${color};${bsGlow(12, color)};font-family:${S.font};` +
+      `font-size:${gq(19)};letter-spacing:${S.ls};white-space:nowrap">${title}</span>` +
+    `<div style="flex:1;height:1px;background:${color}33;margin:0 ${gq(12)}"></div>` +
+    (right ? `<span style="color:${rightColor || color};${bsGlow(9, rightColor || color)};` +
+      `font-family:${S.font};font-size:${gq(18)};letter-spacing:${S.ls};` +
+      `white-space:nowrap">${right}</span>` : '') + `</div>`;
+}
+
+/* ── Others / Claude ─────────────────────────────────────────────────────
+ * The palette first drawn for the 9.3" status LCD and the Go's first page:
+ * a dark slate board, soft mint/amber/coral/sky readings, plain sans type,
+ * rounded corners and no glow. Calm enough to sit in a living room. */
+const CLAUDE_PAL = {
+  bg: '#10171f', panel: '#151e28', ink: '#f0f5f8', muted: '#9eafbf', line: '#2c3947',
+  green: '#72e4b6', amber: '#ffca75', red: '#ff887f', blue: '#8cc8ff', lilac: '#c3b5ff',
+};
+const BS_SKIN_CLAUDE = {
+  key: 'claude', chrome: 'rule', font: "'DejaVu Sans', 'Inter', system-ui, sans-serif", fw: '700',
+  bg: CLAUDE_PAL.bg,
+  label: CLAUDE_PAL.muted, dim: '#7d8d9c', bright: CLAUDE_PAL.ink, text: CLAUDE_PAL.ink,
+  soft: '#c9d4dd', track: CLAUDE_PAL.line, edge: CLAUDE_PAL.line, ring: CLAUDE_PAL.line,
+  r: 6, ls: '0.12em', seg: false, glow: false,
+  a1: CLAUDE_PAL.lilac, a2: CLAUDE_PAL.blue, a3: CLAUDE_PAL.amber, a4: CLAUDE_PAL.green,
+  dCpu: CLAUDE_PAL.amber, dRam: CLAUDE_PAL.blue, dVram: CLAUDE_PAL.green,
+  cPrimary: CLAUDE_PAL.blue, cSecondary: CLAUDE_PAL.green,
+  cLink: CLAUDE_PAL.green, cPing: CLAUDE_PAL.amber, cRecv: CLAUDE_PAL.blue, cSend: CLAUDE_PAL.green,
+  cIp: CLAUDE_PAL.ink, cMac: '#c9d4dd',
+  kHour: CLAUDE_PAL.ink, kSec: CLAUDE_PAL.muted, kDay: CLAUDE_PAL.green, kDate: CLAUDE_PAL.muted,
+  crit: CLAUDE_PAL.red, warn: CLAUDE_PAL.amber, cPower: CLAUDE_PAL.amber, tick: CLAUDE_PAL.muted,
+  gaugeSize: 132, gaugeSw: 14,
+  therm: function (t) {
+    if (t >= 90) return CLAUDE_PAL.red;
+    if (t >= 70) return CLAUDE_PAL.amber;
+    if (t >= 50) return CLAUDE_PAL.green;
+    return CLAUDE_PAL.blue;
+  },
+  vNvidia: CLAUDE_PAL.green, vAmd: CLAUDE_PAL.red, vIntel: CLAUDE_PAL.blue,
+};
+
+/* ── Vintage skins ───────────────────────────────────────────────────────
+ * Every instrument below is the one the family already had: scanDonut,
+ * magicEye, vfdDonut, scanThermBar, bargraphBar, vfdThermalBar, dekatron,
+ * nixieDigit. The skin only says which to reach for. Nothing is redrawn.
+ */
+const _SC = PANEL_SPEC.scanlines || {};
+const _NX = PANEL_SPEC.tubes || {};
+const _VF = PANEL_SPEC.vfd || {};
+const STM = "'Share Tech Mono', monospace";
+const PLEX = "'IBM Plex Mono', monospace";
+
+/* An inline-labelled capacity bar, in whichever family's idiom. Both disks
+   read the same way: name on the left, used-of-total on the right. */
+function _capInline(label, cap, pct, color, track, textColor, font, h, radius, glowPx, edge) {
+  return `<div style="position:relative;height:${gq(h)};background:${track};` +
+      (edge ? `border:1px solid ${edge};` : '') +
+      `border-radius:${radius};overflow:hidden">` +
+    `<div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;background:${color};` +
+      `border-radius:${radius};transition:width 0.8s ease;` +
+      (glowPx ? `box-shadow:${glowPx * 1.6}px 0 ${glowPx * 3}px ${color}66,` +
+        `-${glowPx * 1.6}px 0 ${glowPx * 3}px ${color}66,0 0 ${glowPx}px ${color}` : '') + `"></div>` +
+    `<div style="position:absolute;top:0;left:0;right:0;height:100%;display:flex;` +
+      `justify-content:space-between;align-items:center;padding:0 ${gq(12)};font-family:${font};` +
+      `font-size:${gq(14)};color:${textColor};z-index:2;pointer-events:none">` +
+      `<span>${label}</span><span>${cap}</span></div></div>`;
+}
+
+function _capNone(label, color, font, h, track, radius) {
+  return `<div style="height:${gq(h)};background:${track};border-radius:${radius};display:flex;` +
+    `align-items:center;justify-content:center;font-family:${font};font-size:${gq(14)};` +
+    `color:${color}">${label} &mdash; NONE</div>`;
+}
+
+/* The clock, at quadrant scale rather than full-screen. Same typography and
+   the same colour roles each family's own chronometer screen uses. */
+function _glowClock(hh, mm, ss, day, date, c) {
+  const S = bsS();
+  return `<div style="display:flex;flex-direction:column;justify-content:center;` +
+      `align-items:center;height:100%;gap:${gq(4)}">` +
+    `<div style="display:flex;align-items:baseline">` +
+      `<span style="color:${c.h};${bsGlow(42, c.h)};font-size:${gq(102)};` +
+        `letter-spacing:${gq(3)};line-height:1">${hh}</span>` +
+      `<span style="color:${c.sep};${bsGlow(32, c.sep)};font-size:${gq(74)};` +
+        `animation:blink 1s infinite;margin:0 ${gq(4)}">:</span>` +
+      `<span style="color:${c.h};${bsGlow(42, c.h)};font-size:${gq(102)};` +
+        `letter-spacing:${gq(3)};line-height:1">${mm}</span>` +
+      `<span style="color:${c.s};${bsGlow(22, c.s)};font-size:${gq(46)};` +
+        `margin-left:${gq(12)}">${ss}</span></div>` +
+    `<div style="color:${c.d};${bsGlow(16, c.d)};font-size:${gq(26)};` +
+      `letter-spacing:${gq(9)};margin-top:${gq(16)}">${day}</div>` +
+    `<div style="color:${c.dt};${bsGlow(13, c.dt)};font-size:${gq(22)};` +
+      `letter-spacing:${gq(4)};margin-top:${gq(4)}">${date}</div></div>`;
+}
+
+/* ── The tube ────────────────────────────────────────────────────────────
+ * Scanlines is a CRT, and a CRT is a beam, not a lamp. Everything below
+ * follows from that one fact, and the numbers come from the shaders rather
+ * than from taste:
+ *
+ *   crt-lottes    hardScan -8      the line weighting is a gaussian across
+ *                                  the pitch, not an on/off step
+ *                 maskDark 0.5     the mask DARKENS some subpixels and
+ *                 maskLight 1.5    BRIGHTENS others, so the triad structure
+ *                                  appears without the panel just dimming
+ *                 bloomAmount .15  bloom is subtle
+ *   crt-royale    beam_min_sigma   .02 -> .3, a 15x range driven by pixel
+ *                 beam_max_sigma   brightness and curved by
+ *                 beam_spot_power  .33 -- a bright run of phosphor blooms,
+ *                                  a dim label stays tight
+ *                 beam_horiz_sigma .35 against that vertical range: the
+ *                                  smear is wider along the scan direction,
+ *                                  which is the single biggest tell
+ *                 halation 0.0     OFF by default; only diffusion .075
+ *                 border_size .015 at border_darkness 2.0
+ *   cool-retro-term  ambientLight .2, glowingLine .2, staticNoise .12
+ *
+ * Geometry is deliberately absent. Both references warp the picture itself
+ * (lottes warpX .031 / warpY .041, royale geom_radius 2.0); CSS cannot, so
+ * curvature is only SIGNALLED here by the corner radius and the border
+ * falloff. Real warp needs an feDisplacementMap or WebGL pass and is its own
+ * piece of work.
+ */
+const CRT_DEFS =
+  '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>' +
+    '<filter id="crtNoise" x="0" y="0" width="100%" height="100%">' +
+      '<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>' +
+      '<feColorMatrix in="n" type="saturate" values="0" result="ng"/>' +
+      '<feComponentTransfer in="ng"><feFuncA type="linear" slope="0.07"/></feComponentTransfer>' +
+    '</filter>' +
+  '</defs></svg>';
+
+function _crtLayer(z, css) {
+  return '<div style="position:absolute;inset:0;pointer-events:none;z-index:' + z + ';' +
+    css + '"></div>';
+}
+
+/* hardScan -8: a ramp across the pitch, not a step. A step reads as a
+   venetian blind laid over the picture. */
+function _crtScanlines(pitch, peak) {
+  const at = (f) => (pitch * f).toFixed(2) + 'px';
+  const a = (f) => 'rgba(0,0,0,' + (peak * f).toFixed(3) + ')';
+  return 'background:repeating-linear-gradient(0deg,' + a(1) + ' 0px,' +
+    a(0.45) + ' ' + at(0.28) + ',' + a(0.06) + ' ' + at(0.5) + ',' +
+    a(0.45) + ' ' + at(0.72) + ',' + a(1) + ' ' + at(1) + ')';
+}
+
+const CRT_OVERLAY =
+  _crtLayer(20, _crtScanlines(4, 0.30)) +
+  /* maskDark/maskLight: overlay blending darkens below mid-grey and lifts
+     above it, so the triads show without costing overall brightness. */
+  _crtLayer(21, 'mix-blend-mode:overlay;background:repeating-linear-gradient(90deg,' +
+    'rgba(255,90,90,0.13) 0px,rgba(255,90,90,0.13) 1px,' +
+    'rgba(90,255,90,0.13) 1px,rgba(90,255,90,0.13) 2px,' +
+    'rgba(90,90,255,0.13) 2px,rgba(90,90,255,0.13) 3px)') +
+  _crtLayer(22, 'background:radial-gradient(ellipse 76% 80% at 50% 47%,transparent 40%,' +
+    'rgba(0,0,0,0.30) 76%,rgba(0,0,0,0.66) 100%)') +
+  _crtLayer(23, 'background:radial-gradient(ellipse at 50% 44%,rgba(0,255,190,0.075),' +
+    'transparent 72%)') +
+  /* glowingLine: the refresh haze sitting on the tube. The stops have to stay
+     far apart -- clustered at 45/50/55% they put a hard peak across the middle
+     of the screen, which reads as a line rather than as a band of light. */
+  '<div style="position:absolute;left:0;right:0;top:32%;height:' + gq(300) + ';pointer-events:none;' +
+    'z-index:24;background:linear-gradient(0deg,transparent 0%,rgba(180,255,240,0.018) 28%,' +
+    'rgba(196,255,246,0.038) 50%,rgba(180,255,240,0.018) 72%,transparent 100%)"></div>' +
+  '<div style="position:absolute;inset:0;pointer-events:none;z-index:25;opacity:0.5">' +
+    '<svg width="100%" height="100%" aria-hidden="true">' +
+    '<rect width="100%" height="100%" filter="url(#crtNoise)"/></svg></div>';
+
+/* SCANLINES: phosphor CRT. Two-stage halo on everything, scanline overlay. */
+const BS_SKIN_SCAN = {
+  key: 'scan', chrome: 'rule', font: STM, fw: '700', bg: _SC.bg || '#060810',
+  label: '#7FD9C8', dim: '#8AA6B4',
+  bright: _SC.cyan || '#00FFCC', text: _SC.cyan || '#00FFCC',
+  soft: _SC.cyanDim || '#009977',
+  track: _SC.dim || '#334455', edge: _SC.dim || '#334455', ring: _SC.dim || '#334455',
+  r: 1, ls: '3px', seg: false, glow: true,
+  a1: _SC.cyan || '#00FFCC', a2: _SC.blue || '#4488FF',
+  a3: _SC.amber || '#FFAA00', a4: _SC.green || '#00FF88',
+  cPrimary: _SC.cyan || '#00FFCC', cSecondary: _SC.green || '#00FF88',
+  cLink: _SC.green || '#00FF88', cPing: _SC.amber || '#FFAA00',
+  cRecv: _SC.blue || '#4488FF', cSend: _SC.green || '#00FF88',
+  cIp: _SC.cyan || '#00FFCC', cMac: _SC.cyanDim || '#009977',
+  cPower: _SC.amber || '#FFAA00',
+  crit: _SC.red || '#FF3344', warn: _SC.amber || '#FFAA00',
+  tick: _SC.cyanDim || '#009977',
+  therm: function (t) {
+    if (t >= 90) return _SC.red || '#FF3344';
+    if (t >= 70) return _SC.amber || '#FFAA00';
+    if (t >= 50) return _SC.green || '#00FF88';
+    return _SC.blue || '#4488FF';
+  },
+  vNvidia: _SC.green || '#00FF88', vAmd: _SC.red || '#FF3344', vIntel: _SC.blue || '#4488FF',
+  /* The beam smears along the scan direction, so the halo is wider across
+     the line than along it -- crt-royale runs beam_horiz_sigma .35 against a
+     vertical range of .02-.3. Emulated with offset taps rather than an SVG
+     filter, which measured at a ~67ms hitch on every re-render.
+
+     Each tap's offset stays well inside its own blur radius. Spaced wider
+     than that, the copies stop overlapping and read as ghosting either side
+     of the glyph instead of as one continuous spread. */
+  glowFn: function (px, color) {
+    const n = Math.max(2, Math.min(12, Math.round(1.27 * Math.sqrt(px))));
+    const near = (n * 0.55).toFixed(1), nearBlur = (n * 1.8).toFixed(1);
+    const far = (n * 1.15).toFixed(1), farBlur = (n * 3.0).toFixed(1);
+    return `text-shadow:0 0 ${(n * 0.55).toFixed(1)}px ${color},` +
+      `${near}px 0 ${nearBlur}px ${color}66,-${near}px 0 ${nearBlur}px ${color}66,` +
+      `${far}px 0 ${farBlur}px ${color}2b,-${far}px 0 ${farBlur}px ${color}2b`;
+  },
+  unitLit: true,
+  defs: CRT_DEFS,
+  overlay: CRT_OVERLAY,
+  contentTransform: 'scale(1.008)',
+  frameCss: 'border-radius:22px;box-shadow:inset 0 0 110px 66px rgba(0,0,0,0.72)',
+  barFn: function (pct, color, w, h) {
+    return `<div style="width:${gq(w)};height:${gq(h)};background:${_SC.dim || '#334455'};` +
+      `border-radius:1px;overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;` +
+      `background:${color};border-radius:1px;transition:width 0.8s ease;` +
+      `box-shadow:5px 0 9px ${color}66,-5px 0 9px ${color}66,0 0 3px ${color}"></div></div>`;
+  },
+  dCpu: _SC.amber || '#FFAA00', dRam: _SC.cyan || '#00FFCC', dVram: _SC.green || '#00FF88',
+  gaugeSize: 124, gaugeSw: 10,
+  thermRowFn: function (label, temp) { return scanThermBar(label, temp); },
+  scaleFn: function () { return thermalScale(_SC.cyanDim || '#009977', STM); },
+  fanRowFn: function () {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(_SC.cyan || '#00FFCC', STM, '') + `</div>`;
+  },
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_SC.cyan || '#00FFCC') : (_SC.green || '#00FF88');
+    return _capInline(label, cap, pct, col, _SC.dim || '#334455', _SC.bg || '#060810',
+                      STM, 24, '1px', 3);
+  },
+  capNone: function (label) {
+    return _capNone(label, _SC.cyanDim || '#009977', STM, 24, _SC.dim || '#334455', '1px');
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    return _glowClock(hh, mm, ss, day, date, {h: _SC.cyan || '#00FFCC', sep: _SC.amber || '#FFAA00',
+      s: _SC.green || '#00FF88', d: _SC.amber || '#FFAA00', dt: _SC.cyan || '#00FFCC'});
+  },
+};
+
+/* TUBES: magic eyes, bargraph filaments, dekatrons, nixie digits. */
+const BS_SKIN_TUBE = {
+  key: 'tube', chrome: 'rule', font: PLEX, fw: '700', bg: _NX.bg || '#0A0806',
+  label: _NX.label || '#AA8855', dim: _NX.barDim || '#CC4400',
+  bright: '#FFDDAA', text: _NX.warm || '#FF9944', soft: _NX.label || '#AA8855',
+  track: _NX.interior || '#0C0A06', edge: _NX.glass || '#332818',
+  ring: _NX.cathode || '#1A1410',
+  r: 999, ls: '2px', seg: false, glow: true,
+  a1: _NX.core || '#FF8833', a2: '#4488DD', a3: _NX.bright || '#FF6E0B',
+  a4: _NX.eyeStd || '#22DD22',
+  cPrimary: _NX.barStd || '#FF6622', cSecondary: '#4488DD',
+  cLink: _NX.eyeStd || '#22DD22', cPing: _NX.core || '#FF8833',
+  cRecv: '#4488DD', cSend: _NX.eyeStd || '#22DD22',
+  cIp: _NX.warm || '#FF9944', cMac: _NX.label || '#AA8855',
+  cPower: _NX.core || '#FF8833',
+  crit: '#FF3322', warn: _NX.bright || '#FF6E0B', tick: _NX.dimEdge || '#CC5500',
+  therm: function (t) {
+    if (t >= 90) return '#FF3322';
+    if (t >= 70) return '#DDCC00';
+    if (t >= 50) return _NX.eyeStd || '#22DD22';
+    return '#4488DD';
+  },
+  vNvidia: _NX.eyeStd || '#22DD22', vAmd: _NX.core || '#FF8833', vIntel: '#4488DD',
+  glowFn: function (px, color) {
+    const r = Math.max(2, Math.round(px / 3));
+    return `text-shadow:0 0 ${r}px ${color},0 0 ${r * 3}px ${color}55`;
+  },
+  overlay: '',
+  /* The GPU screen's meters are bars like any other, so they burn like any
+     other. This is the one place the family had two vocabularies. */
+  barFn: function (pct, color, w, h) {
+    return `<div style="width:${gq(w)};flex-shrink:0;display:flex;align-items:center">` +
+      tubeFilament(pct, color, false, 'bar' + Math.round(w) + 'x' + Math.round(h),
+                   Math.max(16, Math.round(h) + 6)) + `</div>`;
+  },
+  gauge: function (pct, cap, which) {
+    return magicEye(pct, cap, 146, {rich: true, invert: true});
+  },
+  capGap: gq(10), capTop: gq(12),
+  gpuGauge: function (pct, cap, color, size, kind) {
+    return magicEye(pct, cap, size, {rich: true, invert: true,
+                                     phosphor: kind === 'vram' ? 'cyan' : 'green'});
+  },
+  thermRowFn: function (label, temp) {
+    const t = (temp === null || temp === undefined) ? 20 : temp;
+    const pct = Math.max(0, Math.min(100, ((Math.max(20, Math.min(120, t)) - 20) / 100) * 100));
+    return bargraphBar(pct, label, BS_SKIN_TUBE.therm(t), t >= 100);
+  },
+  scaleFn: function () { return thermalScale(_NX.dimEdge || '#CC5500', PLEX, '5.00cqw'); },
+  fanRowFn: function () {
+    const cpuList = asList(m('cpu.fans_cpu')), caseList = asList(m('cpu.fans_case'));
+    const gpuFan = m('gpu.fan');
+    const lab = _NX.label || '#AA8855';
+    const tag = (t) => `<span style="color:${lab};font-size:${gq(17)};font-family:${PLEX}">${t}</span>`;
+    let h = `<div style="display:flex;justify-content:center;align-items:center;gap:${gq(9)}">`;
+    let shown = 0;
+    if (cpuList.length) { h += tag('CPU'); for (const r of cpuList) { h += dekatron(r, 26); shown++; } }
+    if (caseList.length) { h += tag('CASE'); for (const r of caseList) { h += dekatron(r, 26); shown++; } }
+    if (gpuFan.available && gpuFan.value !== null) { h += tag('GPU'); h += dekatron(bsNum(gpuFan.value) * 10, 26); shown++; }
+    if (!shown) h += `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(15)};` +
+      `font-family:${PLEX}">NO FANS DETECTED</span>`;
+    return h + `</div>`;
+  },
+  /* The storage rows burn like the thermal rows: nothing here is a flat pill.
+     Primary takes the standard filament, secondary a cooler-running one, the
+     way a lower-current wire sits further down the colour temperature. */
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_NX.barStd || '#FF6622') : '#6699DD';
+    return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
+      `<span style="color:${_NX.label || '#AA8855'};text-shadow:0 0 2px ${_NX.label || '#AA8855'}33;` +
+        `font-size:${gq(17)};font-family:${PLEX};width:${gq(98)};flex-shrink:0;` +
+        `white-space:nowrap">${label}</span>` +
+      tubeFilament(pct, col, false, 'cap' + label, 30) +
+      `<span style="color:#FFDDBB;text-shadow:0 0 3px ${col}88;font-size:${gq(16)};` +
+        `font-family:${PLEX};width:${gq(116)};text-align:right;flex-shrink:0;` +
+        `white-space:nowrap">${cap}</span></div>`;
+  },
+  capNone: function (label) {
+    return '<div style="display:flex;align-items:center;gap:0.88cqw">' +
+      `<span style="color:${_NX.label || '#AA8855'};font-size:${gq(17)};font-family:${PLEX};` +
+        `width:${gq(98)};flex-shrink:0;white-space:nowrap">${label}</span>` +
+      tubeFilament(0, _NX.barDim || '#CC4400', false, 'capNone' + label, 30) +
+      `<span style="color:${_NX.barDim || '#CC4400'};font-size:${gq(16)};font-family:${PLEX};` +
+        `width:${gq(116)};text-align:right;flex-shrink:0;white-space:nowrap">NONE</span></div>`;
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    const lab = _NX.label || '#AA8855';
+    const dot = `<div style="width:${gq(5)};height:${gq(5)};border-radius:50%;` +
+      `background:${_NX.core || '#FF8833'};box-shadow:0 0 ${gq(6)} ${_NX.core || '#FF8833'};` +
+      `animation:blink 1s infinite"></div>`;
+    return `<div style="display:flex;flex-direction:column;justify-content:center;` +
+        `align-items:center;height:100%;gap:${gq(6)}">` +
+      `<div style="display:flex;align-items:center;gap:${gq(2)}">` +
+        nixieDigit(hh[0], 52, true) + nixieDigit(hh[1], 52, true) +
+        `<div style="display:flex;flex-direction:column;gap:${gq(8)};margin:0 ${gq(5)}">${dot}${dot}</div>` +
+        nixieDigit(mm[0], 52, true) + nixieDigit(mm[1], 52, true) +
+        `<div style="margin-left:${gq(6)};display:flex;gap:${gq(2)}">` +
+          nixieDigit(ss[0], 30, true) + nixieDigit(ss[1], 30, true) + `</div></div>` +
+      `<div style="color:${_NX.warm || '#FF9944'};${bsGlow(18, _NX.warm || '#FF9944')};` +
+        `font-family:${PLEX};font-size:${gq(19)};letter-spacing:${gq(5)}">${day}</div>` +
+      `<div style="color:${lab};${bsGlow(12, lab)};font-family:${PLEX};font-size:${gq(16)};` +
+        `letter-spacing:${gq(2)}">${date}</div></div>`;
+  },
+};
+
+/* VFD: segmented bars over a ghost track, filament lines across the glass. */
+const BS_SKIN_VFD = {
+  key: 'vfd', chrome: 'rule', font: STM, fw: '700', bg: _VF.substrate || '#0A0A08',
+  label: _VF.label || '#556655', dim: _VF.greenDim || '#008866',
+  bright: _VF.greenBright || '#44FFCC', text: _VF.green || '#00DDAA',
+  soft: _VF.greenDim || '#008866',
+  track: _VF.greenGhost || '#0A1A15', edge: _VF.grid || '#1A1A18',
+  ring: _VF.greenGhost || '#0A1A15',
+  r: 1, ls: '3px', seg: false, glow: true,
+  a1: _VF.green || '#00DDAA', a2: _VF.blue || '#00D4CC',
+  a3: _VF.amber || '#FFAA22', a4: _VF.yellow || '#DDCC00',
+  cPrimary: _VF.green || '#00DDAA', cSecondary: _VF.blue || '#00D4CC',
+  cLink: _VF.green || '#00DDAA', cPing: _VF.amber || '#FFAA22',
+  cRecv: _VF.blue || '#00D4CC', cSend: _VF.green || '#00DDAA',
+  cIp: _VF.greenBright || '#44FFCC', cMac: _VF.greenDim || '#008866',
+  cPower: _VF.amber || '#FFAA22',
+  crit: _VF.red || '#FF4433', warn: _VF.amber || '#FFAA22',
+  tick: _VF.greenDim || '#008866',
+  therm: function (t) {
+    if (t >= 90) return _VF.red || '#FF4433';
+    if (t >= 70) return _VF.yellow || '#DDCC00';
+    if (t >= 50) return _VF.green || '#00DDAA';
+    return _VF.blue || '#00D4CC';
+  },
+  vNvidia: _VF.green || '#00DDAA', vAmd: _VF.amber || '#FFAA22', vIntel: _VF.blue || '#00D4CC',
+  glowFn: function (px, color) {
+    const r = Math.max(2, Math.round(px / 3));
+    return `text-shadow:0 0 ${r}px ${color},0 0 ${r * 2.5}px ${color}44`;
+  },
+  frameCss: 'border:1px solid #1a1a16;border-radius:3px;box-shadow:inset 0 0 20px rgba(0,0,0,0.5),' +
+    'inset 0 1px 0 rgba(255,255,255,0.02),0 2px 8px rgba(0,0,0,0.6)',
+  overlay:
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:20;' +
+      'background-image:linear-gradient(0deg,transparent 0px,transparent 11px,' +
+      (_VF.filamentWarm || '#443322') + '18 11px,' + (_VF.filamentWarm || '#443322') + '18 12px,' +
+      'transparent 12px,transparent 23px,' + (_VF.filament || '#332211') + '12 23px,' +
+      (_VF.filament || '#332211') + '12 24px,transparent 24px);background-size:100% 24px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:21;' +
+      'opacity:0.06;background-image:linear-gradient(0deg,' + (_VF.grid || '#1A1A18') + ' 1px,transparent 1px),' +
+      'linear-gradient(90deg,' + (_VF.grid || '#1A1A18') + ' 1px,transparent 1px);background-size:4px 4px"></div>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:22;' +
+      'background:radial-gradient(ellipse at 50% 40%,transparent 50%,rgba(0,0,0,0.15) 100%)"></div>',
+  barFn: function (pct, color, w, h) {
+    const cells = Math.max(8, Math.round(w / 14));
+    const gap = 2;
+    const cw = (w - gap * (cells - 1)) / cells;
+    let n = Math.round(cells * pct / 100);
+    if (n === 0 && pct > 0) n = 1;
+    let html = `<div style="display:flex;gap:${gq(gap)};align-items:center;flex-shrink:0">`;
+    for (let i = 0; i < cells; i++) {
+      html += `<div style="width:${gq(cw)};height:${gq(h)};flex-shrink:0;border-radius:1px;` +
+        (i < n ? `background:${color};box-shadow:0 0 4px ${color}88`
+               : `background:${_VF.greenGhost || '#0A1A15'}`) + `"></div>`;
+    }
+    return html + `</div>`;
+  },
+  gauge: function (pct, cap, which) {
+    const name = which === 'cpu' ? 'green' : which === 'ram' ? 'blue' : 'amber';
+    return vfdDonut(pct, cap, name, 142);
+  },
+  thermRowFn: function (label, temp) {
+    return vfdThermalBar((temp === null || temp === undefined) ? 20 : temp, label);
+  },
+  scaleFn: function () { return thermalScale(_VF.greenDim || '#008866', STM); },
+  fanRowFn: function () {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(_VF.green || '#00DDAA', STM, '') + `</div>`;
+  },
+  capBar: function (label, cap, pct, which) {
+    const col = which === 'primary' ? (_VF.green || '#00DDAA') : (_VF.blue || '#00D4CC');
+    const dim = which === 'primary' ? (_VF.greenDim || '#008866') : (_VF.blueDim || '#007A77');
+    const ghost = which === 'primary' ? (_VF.greenGhost || '#0A1A15') : (_VF.blueGhost || '#001A1A');
+    return `<div style="display:flex;align-items:center;gap:${gq(9)}">` +
+      `<span style="color:${col};text-shadow:0 0 3px ${dim};font-size:${gq(14)};` +
+        `font-family:${STM};width:${gq(74)};flex-shrink:0">${label}</span>` +
+      `<div style="flex:1;height:${gq(28)};background:${ghost};border-radius:1px;overflow:hidden;` +
+        `position:relative"><div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;` +
+        `background:${col};border-radius:1px;transition:width 0.8s ease;` +
+        `box-shadow:0 0 4px ${col}66"></div></div>` +
+      `<span style="color:${col};text-shadow:0 0 3px ${dim};font-size:${gq(14)};` +
+        `font-family:${STM};flex-shrink:0">${cap}</span></div>`;
+  },
+  capNone: function (label) {
+    return `<span style="color:${_VF.greenDim || '#008866'};font-size:${gq(17)};` +
+      `font-family:${STM}">${label} &mdash; NONE</span>`;
+  },
+  clockFn: function (hh, mm, ss, day, date) {
+    return _glowClock(hh, mm, ss, day, date, {h: _VF.green || '#00DDAA', sep: _VF.green || '#00DDAA',
+      s: _VF.amber || '#FFAA22', d: _VF.amber || '#FFAA22', dt: _VF.blue || '#00D4CC'});
+  },
+};
+
+/* cqw back to px, for the one place a nested height needs real pixels. */
+function gqPx(px) { return px; }
+
+/* The active skin. Every screen entry point sets it before rendering; the
+   fallback keeps a stray call from rendering nothing rather than throwing. */
+let _bsSkin = BS_SKIN_TOS;
+function bsSkin(s) { _bsSkin = s || BS_SKIN_TOS; }
+function bsS() { return _bsSkin; }
+
+function gpuVendorColor(vendor) {
+  const S = bsS();
+  if (vendor === 'NVIDIA') return S.vNvidia;
+  if (vendor === 'AMD') return S.vAmd;
+  if (vendor === 'Intel') return S.vIntel;
+  return S.a1;
+}
+
+/* A value the driver never reported is shown as absent. Printing 0 where the
+   card said nothing is a lie the renderer cannot take back. */
+function bsVal(v, suffix) {
+  if (v === null || v === undefined || (typeof v === 'number' && !isFinite(v))) return '--';
+  return esc(String(v)) + (suffix || '');
+}
+
+function bsNum(v) {
+  return (typeof v === 'number' && isFinite(v)) ? v : 0;
+}
+
+
+/* Small line icons for the comms readings. Drawn rather than labelled: at a
+   metre and a half a glyph reads before a word does, and the word is still
+   there underneath it. */
+function bsIcon(kind, color, px) {
+  const c = color, w = gq(px || 20);
+  const open = `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" ` +
+    `stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ` +
+    `style="flex-shrink:0;vertical-align:-0.15em">`;
+  const paths = {
+    speed: '<path d="M12 20a8 8 0 1 1 8-8"/><path d="M12 12l5-3"/>',
+    ping:  '<path d="M2 12h4l3-7 4 14 3-7h6"/>',
+    down:  '<path d="M12 4v13"/><path d="M6 12l6 6 6-6"/>',
+    up:    '<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>' +
+           '<path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>',
+    chip:  '<rect x="7" y="7" width="10" height="10" rx="1"/>' +
+           '<path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+  };
+  return open + (paths[kind] || '') + '</svg>';
+}
+
+/* One section of the board. The rectangle and the body layout are shared;
+   only the chrome that frames them changes between families. */
+function bsRegion(x, y, w, h, title, color, right, body, justify, rightColor, mode) {
+  const S = bsS();
+  // `mode === 'centre'` drops the chrome's rail and centres the title: the
+  // chronometer is one object, not a list, so a rail down its side was
+  // pointing at nothing.
+  const bare = mode === 'centre';
+  const inset = (S.chrome === 'spine' && !bare) ? 28 : 0;   /* clear of the spine */
+  const top = (S.chrome === 'spine' && !bare) ? 32 : 36;    /* clear of the tab or rule */
+  return `<div style="position:absolute;left:${gq(x)};top:${gq(y)};width:${gq(w)};height:${gq(h)}">` +
+    (bare ? `<div style="position:absolute;left:0;right:0;top:0;text-align:center;` +
+              `color:${color};font-family:${S.font};font-size:${gq(17)};` +
+              `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+              `${bsGlow(10, color)}">${title}</div>`
+     : S.chrome === 'rule' ? _bsChromeRule(title, color, right, rightColor)
+     : S.chrome === 'tab' ? _bsChromeTab(title, color, right, rightColor)
+                          : _bsChromeSpine(title, color, right, rightColor)) +
+    `<div style="position:absolute;left:${gq(inset)};top:${gq(top)};right:0;bottom:${gq(6)};` +
+      `display:flex;flex-direction:column;justify-content:${justify || 'space-between'};` +
+      `overflow:hidden">${body}</div></div>`;
+}
+
+/* Gold: a glowing spine down the left edge, the title floating beside it. */
+function _bsChromeSpine(title, color, right, rightColor) {
+  const S = bsS(), SW = 12;
+  return `<div style="position:absolute;left:0;top:0;width:${gq(SW)};height:100%;background:${color};` +
+      `border-radius:${gq(SW / 2)};box-shadow:0 0 ${gq(18)} ${color}66"></div>` +
+    `<div style="position:absolute;left:${gq(SW + 16)};top:0;color:${color};font-family:${S.font};` +
+      `font-size:${gq(16)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `${bsGlow(10, color)};white-space:nowrap">${title}</div>` +
+    (right ? `<div style="position:absolute;right:0;top:${gq(2)};color:${rightColor || color};font-family:${S.font};` +
+      `font-size:${gq(13)};font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `opacity:0.85;white-space:nowrap">${right}</div>` : '');
+}
+
+/* Teal and Coral: a header tab across the top, a rule running out of it, and
+   the status text riding the rule's far end. Teal's tab is chamfered, Coral's
+   is a pill -- the one shape each family already used everywhere else. */
+function _bsChromeTab(title, color, right, rightColor) {
+  const S = bsS(), HH = 26;
+  const pill = S.key === 'coral';
+  const nose = pill ? ''
+    : `<svg width="${gq(18)}" height="${gq(HH)}" viewBox="0 0 14 20" style="flex-shrink:0">` +
+      `<polygon points="14,0 14,20 0,20" fill="${color}"/></svg>`;
+  return `<div style="position:absolute;left:0;top:0;width:100%;height:${gq(HH)};` +
+      `display:flex;align-items:center;gap:${pill ? gq(9) : '0'}">` + nose +
+    `<div style="background:${color};height:100%;padding:0 ${gq(15)};display:flex;align-items:center;` +
+      `border-radius:${pill ? '999px' : '0'};flex-shrink:0">` +
+      `<span style="color:#000;font-family:${S.font};font-size:${gq(16)};font-weight:${S.fw};` +
+        `text-transform:uppercase;letter-spacing:${S.ls};white-space:nowrap">${title}</span></div>` +
+    `<div style="flex:1;height:${gq(pill ? 5 : 3)};background:${color};` +
+      `border-radius:${pill ? '999px' : '0'};opacity:${pill ? '1' : '0.4'}"></div>` +
+    (right ? `<span style="color:${rightColor || color};font-family:${S.font};font-size:${gq(15)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `margin-left:${gq(9)};white-space:nowrap">${right}</span>` : '') + `</div>`;
+}
+
+/* A meter. Gold segments it, and a non-zero reading always lights at least
+   one cell: a real but sub-1% value drawn as a wholly empty bar reads as
+   broken rather than small. Teal and Coral keep the continuous track they
+   already used everywhere, squared off or fully rounded to taste. */
+function bsSegBar(pct, color, w, h, cells, gap) {
+  const S = bsS();
+  const p = Math.max(0, Math.min(100, bsNum(pct)));
+  if (S.barFn) return S.barFn(p, color, w, h);
+  if (!S.seg) {
+    const r = S.r >= 999 ? '999px' : S.r + 'px';
+    return `<div style="width:${gq(w)};height:${gq(h)};background:${S.track};border-radius:${r};` +
+      `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${p}%;background:${color};` +
+      `border-radius:${r};transition:width 0.8s ease"></div></div>`;
+  }
+  const cw = (w - gap * (cells - 1)) / cells;
+  let n = Math.round(cells * p / 100);
+  if (n === 0 && p > 0) n = 1;
+  let html = `<div style="display:flex;gap:${gq(gap)};align-items:center">`;
+  for (let i = 0; i < cells; i++) {
+    html += `<div style="width:${gq(cw)};height:${gq(h)};flex-shrink:0;` +
+      (i < n ? `background:${color};box-shadow:0 0 ${gq(6)} ${color}aa` :
+               `background:${S.track};border:1px solid ${S.edge}`) + `"></div>`;
+  }
+  return html + `</div>`;
+}
+
+function bsKv(label, value, color, valPx, labPx) {
+  return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:${gq(12)}">` +
+    `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(labPx || 13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};white-space:nowrap">${label}</span>` +
+    `<span style="color:${color};font-family:${bsS().font};font-size:${gq(valPx || 22)};font-weight:${bsS().fw};` +
+      `font-variant-numeric:tabular-nums;white-space:nowrap;${bsGlow(8, color, '99')}">${value}</span></div>`;
+}
+
+/* A readout bound to the width of its own bar. Letting it span the flex row
+   pushed the number to the far edge, where it read as labelling the next
+   column rather than the bar beneath it. */
+function bsMetered(label, value, pct, color, w, cells, valPx, labPx) {
+  return `<div style="width:${gq(w)}">` + bsKv(label, value, color, valPx, labPx) +
+    bsSegBar(pct, color, w, valPx && valPx < 20 ? 8 : 11, cells, 3) + `</div>`;
+}
+
+/* sysfs reports real RPM, NVML only a duty percentage. Show whichever the card
+   actually gave rather than inventing a conversion between them. */
+function gpuFanText(card) {
+  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return bsVal(card.fan_rpm) + ' RPM';
+  if (card.fan !== null && card.fan !== undefined) return bsVal(card.fan, '%');
+  return '--';
+}
+
+function gpuFanRpm(card) {
+  if (card.fan_rpm !== null && card.fan_rpm !== undefined) return bsNum(card.fan_rpm);
+  if (card.fan !== null && card.fan !== undefined) return Math.round(bsNum(card.fan) / 100 * 2400);
+  return 0;
+}
+
+function gpuPowerPct(card) {
+  const p = card.power, lim = card.power_limit;
+  if (typeof p !== 'number' || typeof lim !== 'number' || lim <= 0) return 0;
+  return Math.round(p / lim * 100);
+}
+
+/* Percentage of a limit, as TEXT. A card that reported no power at all has no
+   percentage either -- rendering the 0 that gpuPowerPct returns for the bar
+   would state a draw of zero watts, which is not what the driver said. */
+function gpuPowerPctText(card) {
+  const p = card.power, lim = card.power_limit;
+  if (typeof p !== 'number' || typeof lim !== 'number' || lim <= 0) return '--';
+  return Math.round(p / lim * 100) + '%';
+}
+
+/* A sub-value riding a larger one -- "/ 450 W", "/ 2520 MHz". It must not
+   recolour itself while still inheriting the parent's text-shadow: a dim
+   glyph wearing a bright halo is what reads as blur. Skins that keep their
+   units lit (the Vintage families, following their reference designs) just
+   take a smaller size in the same phosphor colour. */
+function bsSub(text, px) {
+  const S = bsS();
+  return S.unitLit
+    ? `<span style="font-size:${gq(px)};opacity:0.72">${text}</span>`
+    : `<span style="font-size:${gq(px)};color:${S.dim};text-shadow:none">${text}</span>`;
+}
+
+function gpuName(card) {
+  return esc(String(card.short_name || card.name || 'GPU ' + bsNum(card.index)));
+}
+
+function gpuTempColor(card) {
+  return (card.temp === null || card.temp === undefined) ? bsS().dim : bsS().therm(card.temp);
+}
+
+/* Donut with its caption BELOW the ring. The shared donut() puts the label
+   above, which overflows the top of a vertically-centred region and gets
+   clipped by its overflow:hidden. */
+/* Caption inside the ring, under the reading. Hung below the dial it cost a
+   line of height and bought nothing -- the ring has a hole in the middle and
+   the name of the thing belongs in it. */
+function bsGauge(pct, caption, color, size, sw, opts) {
+  const S = bsS();
+  return `<div style="position:relative;display:inline-block;line-height:0">` +
+    donut(pct, '', color, size, sw, S.font, opts) +
+    `<div style="position:absolute;left:0;right:0;top:${gq(size * 0.705)};text-align:center;` +
+      `color:${S.label};font-family:${S.font};font-size:${gq(13)};font-weight:${S.fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:0.12em;` +
+      `pointer-events:none;white-space:nowrap">${caption}</div></div>`;
+}
+
+/* ── layout A: one card, everything ── */
+function gpuLayoutSingle(card) {
+  const S = bsS();
+  const col = gpuVendorColor(card.vendor);
+  const tc = gpuTempColor(card);
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(50), labelSize: gq(15),
+                 labelColor: bsS().label};
+
+  const head = `<div style="position:absolute;left:${gq(24)};top:${gq(16)};right:${gq(24)};` +
+    `display:flex;align-items:center;gap:${gq(14)};font-family:${bsS().font}">` +
+    `<span style="font-size:${gq(11)};font-weight:${bsS().fw};color:#000;background:${col};` +
+      `padding:${gq(2)} ${gq(9)};border-radius:2px;text-transform:uppercase;letter-spacing:${bsS().ls};` +
+      `box-shadow:0 0 ${gq(12)} ${col}88">${esc(String(card.vendor || 'GPU'))}</span>` +
+    `<span style="color:${bsS().bright};font-size:${gq(27)};font-weight:${bsS().fw};${bsGlow(10, col, '99')};` +
+      `overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${gpuName(card)}</span>` +
+    `<span style="flex:1"></span>` +
+    `<span style="color:${bsS().label};font-size:${gq(12)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};white-space:nowrap">${bsVal(card.driver)} &nbsp;|&nbsp; ${bsVal(card.bus_id)}</span></div>`;
+
+  const utilBody = (card.util === null || card.util === undefined)
+    ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${S.gpuGauge
+        ? S.gpuGauge(bsNum(card.util), 'UTILISATION', col, 150, 'util')
+        : bsGauge(bsNum(card.util), 'UTILISATION', col, 176, 17, dOpts)}</div>`;
+
+  const vramBody = (card.vram_percent === null || card.vram_percent === undefined)
+    ? `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};text-align:center">NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`
+    : `<div style="display:flex;justify-content:center">${S.gpuGauge
+        ? S.gpuGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 150, 'vram')
+        : bsGauge(bsNum(card.vram_percent), 'VRAM', S.a2, 176, 17, dOpts)}</div>`;
+
+  const procs = asList({available: true, value: card.processes});
+  let procBody, procRight;
+  if (procs.length) {
+    procBody = '';
+    for (let i = 0; i < Math.min(3, procs.length); i++) {
+      const pr = procs[i] || {};
+      const tot = bsNum(card.vram_total);
+      const pct = tot > 0 ? Math.round(bsNum(pr.vram_mib) / tot * 100) : 0;
+      procBody += `<div style="display:flex;align-items:center;gap:${gq(12)};font-family:${bsS().font}">` +
+        `<span style="color:${bsS().bright};font-size:${gq(17)};font-weight:${bsS().fw};width:${gq(118)};overflow:hidden;` +
+          `text-overflow:ellipsis;white-space:nowrap">${esc(String(pr.name || '?'))}</span>` +
+        `<span style="color:${bsS().dim};font-size:${gq(16)};width:${gq(70)}">${bsVal(pr.pid)}</span>` +
+        bsSegBar(pct, S.a2, 566, 17, 30, 3) +
+        `<span style="color:${bsS().text};font-size:${gq(16)};font-weight:${bsS().fw};width:${gq(74)};text-align:right;` +
+          `font-variant-numeric:tabular-nums">${bsVal(pr.vram_mib)}M</span></div>`;
+    }
+    procRight = procs.length + ' ACTIVE';
+  } else if (card.source === 'nvml') {
+    // An empty list from NVML means the card is idle, NOT that the data is
+    // unavailable. Saying "not exposed by nvidia" here was simply false.
+    procBody = `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls}">NO COMPUTE PROCESSES ON THIS CARD</div>`;
+    procRight = 'IDLE';
+  } else {
+    // sysfs genuinely has no per-process accounting. Say that, rather than
+    // leaving a box that looks like it failed to load.
+    procBody = `<div style="color:${bsS().dim};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls}">PER-PROCESS VRAM NOT EXPOSED BY ${bsVal(card.driver).toUpperCase()}</div>`;
+    procRight = 'UNAVAILABLE';
+  }
+
+  return head +
+    bsRegion(14, 52, 320, 250, 'PROCESSOR', col, '', utilBody, 'center') +
+    bsRegion(348, 52, 320, 250, 'MEMORY', S.a2, '', vramBody, 'center') +
+    bsRegion(682, 52, 328, 250, 'TELEMETRY', S.a1, '',
+      bsKv('TEMP', bsVal(card.temp, '°C'), tc, 46, 18) +
+      bsKv('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 20), S.cPower, 30) +
+      bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub(`/ ${bsVal(card.clock_gpu_max)} MHz`, 20), bsS().text, 40, 18) +
+      bsKv('MEMORY', bsVal(card.clock_mem) + ' ' + bsSub('MHz', 20), bsS().text, 40, 18),
+      'space-around') +
+    bsRegion(14, 306, 654, 130, 'LOAD', col, '',
+      bsMetered('POWER DRAW', gpuPowerPctText(card), gpuPowerPct(card), S.cPower, 628, 34, 18, 15) +
+      bsMetered('MEMORY CONTROLLER', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a2, 596, 34, 14, 12),
+      'space-around') +
+    bsRegion(682, 306, 328, 130, 'COOLING', tc, '',
+      `<div style="display:flex;align-items:center;gap:${gq(18)}">` +
+        fanIcon(tc, gq(56), gpuFanRpm(card)) +
+        `<div><div style="color:${bsS().bright};font-family:${bsS().font};font-size:${gq(30)};font-weight:${bsS().fw};` +
+          `font-variant-numeric:tabular-nums;${bsGlow(8, tc, '99')}">${gpuFanText(card)}</div>` +
+        `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};` +
+          `text-transform:uppercase;letter-spacing:${bsS().ls}">FAN</div></div></div>`, 'center') +
+    bsRegion(14, 440, 996, 150, 'PROCESSES', S.a2, procRight, procBody, 'space-around');
+}
+
+/* ── layout B: two cards ── */
+function gpuCardPanel(card, x, y, w, h) {
+  const S = bsS();
+  const col = gpuVendorColor(card.vendor);
+  const tc = gpuTempColor(card);
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(46), labelSize: gq(14)};
+
+  const stats = `<div style="display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
+    bsMetered('VRAM', bsVal(card.vram_used) + ' ' + bsSub(`/ ${bsVal(card.vram_total)} MiB`, 15),
+               bsNum(card.vram_percent), S.a2, 384, 26, 28, 16) +
+    bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 15),
+               gpuPowerPct(card), S.cPower, 384, 26, 28, 16) +
+    bsMetered('MEM CTRL', bsVal(card.mem_util, '%'), bsNum(card.mem_util), S.a1, 384, 26, 28, 16) +
+    `</div>`;
+
+  // Fixed width, not flex:1. Stretching this column ran its labels back
+  // underneath the bars in the middle column.
+  const right = `<div style="width:${gq(268)};display:flex;flex-direction:column;justify-content:center;gap:${gq(11)}">` +
+    bsKv('TEMP', bsVal(card.temp, '°C'), tc, 34, 16) +
+    bsKv('CORE', bsVal(card.clock_gpu) + ' ' + bsSub('MHz', 14), bsS().text, 22) +
+    `<div style="display:flex;align-items:center;gap:${gq(12)}">` + fanIcon(tc, gq(40), gpuFanRpm(card)) +
+      `<span style="color:${bsS().text};font-family:${bsS().font};font-size:${gq(17)};font-weight:${bsS().fw};` +
+      `${bsGlow(6, tc, '99')}">${gpuFanText(card)}</span></div></div>`;
+
+  const inner = `<div style="display:flex;align-items:center;gap:${gq(34)};height:100%">` +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 172, 'util')
+                : donut(bsNum(card.util), '', col, 178, 17, bsS().font, dOpts)) +
+    stats + `<div style="flex:1"></div>` + right + `</div>`;
+
+  return bsRegion(x, y, w, h, gpuName(card), col,
+    bsVal(card.driver) + ' &nbsp;|&nbsp; ' + bsVal(card.bus_id), inner, 'center');
+}
+
+/* ── layout C: three or more ── */
+function gpuTile(card, x, y, w, h) {
+  const S = bsS();
+  const col = gpuVendorColor(card.vendor);
+  const tc = gpuTempColor(card);
+  const dOpts = {anticlockwise: true, ticks: S.seg, bgRing: bsS().ring, valColor: bsS().bright,
+                 critColor: bsS().bright, linecap: 'butt', valSize: gq(36), labelSize: gq(13)};
+  // Used keeps a decimal at every magnitude -- rounding 18.3 to 18 on a 24G
+  // card throws away the only digit that moves. The total is a fixed board
+  // spec, so an integer is right there.
+  const gibUsed = function (mib) { return (bsNum(mib) / 1024).toFixed(1); };
+  const gibTotal = function (mib) { return Math.round(bsNum(mib) / 1024); };
+
+  const stack = `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
+    bsMetered('VRAM', gibUsed(card.vram_used) + ' ' + bsSub(`/ ${gibTotal(card.vram_total)} G`, 12),
+               bsNum(card.vram_percent), S.a2, 258, 22, 24, 14) +
+    bsMetered('POWER', bsVal(card.power) + ' ' + bsSub(`/ ${bsVal(card.power_limit)} W`, 12),
+               gpuPowerPct(card), S.cPower, 258, 22, 24, 14) + `</div>`;
+
+  const footer = `<div style="display:flex;align-items:center;gap:${gq(14)};margin-top:${gq(12)};font-family:${bsS().font}">` +
+    fanIcon(tc, gq(32), gpuFanRpm(card)) +
+    `<span style="color:${bsS().text};font-size:${gq(22)};font-weight:${bsS().fw}">${bsVal(card.temp, '°C')}</span>` +
+    `<span style="flex:1"></span>` +
+    `<span style="color:${bsS().label};font-size:${gq(11)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};white-space:nowrap;font-size:${gq(15)}">${bsVal(card.clock_gpu)} MHz</span></div>`;
+
+  const inner = `<div style="display:flex;align-items:center;gap:${gq(16)}">` +
+    (S.gpuGauge ? S.gpuGauge(bsNum(card.util), '', col, 126, 'util')
+                : donut(bsNum(card.util), '', col, 130, 13, bsS().font, dOpts)) +
+    stack + `</div>` + footer;
+
+  return bsRegion(x, y, w, h, gpuName(card), col, bsVal(card.util, '%'), inner, 'center');
+}
+
+function gpuHeader(cards) {
+  let watts = 0, anyPower = false;
+  for (const c of cards) {
+    if (typeof c.power === 'number' && isFinite(c.power)) { watts += c.power; anyPower = true; }
+  }
+  const total = anyPower ? ` &nbsp;|&nbsp; ${Math.round(watts)} W TOTAL` : '';
+  return `<div style="position:absolute;left:${gq(24)};top:${gq(14)};right:${gq(24)};` +
+    `display:flex;align-items:baseline;gap:${gq(14)};font-family:${bsS().font}">` +
+    `<span style="color:${bsS().a1};font-size:${gq(19)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls};${bsGlow(10, bsS().a1, '99')}">GRAPHICS</span>` +
+    `<span style="flex:1"></span>` +
+    `<span style="color:${bsS().label};font-size:${gq(13)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls}">${cards.length} CARD${cards.length === 1 ? '' : 'S'}${total}</span></div>`;
+}
+
+function bsGpuScreen(c) {
+  const cards = asList(m('gpu.cards'));
+  const frame = bsFrame;
+
+  if (!cards.length) {
+    // A machine with no card the collector can read. Say so plainly; the
+    // screen can be switched off in Settings > Screen Rotation.
+    return frame(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;` +
+      `align-items:center;justify-content:center;gap:${gq(10)}">` +
+      `<div style="color:${bsS().a1};font-size:${gq(19)};font-weight:${bsS().fw};text-transform:uppercase;` +
+        `letter-spacing:${bsS().ls};${bsGlow(10, bsS().a1, '99')}">GRAPHICS</div>` +
+      `<div style="color:${bsS().dim};font-size:${gq(15)};font-weight:${bsS().fw};text-transform:uppercase;` +
+        `letter-spacing:${bsS().ls}">NO GPU DETECTED</div></div>`);
+  }
+
+  if (cards.length === 1) return frame(gpuLayoutSingle(cards[0]));
+
+  if (cards.length === 2) {
+    return frame(gpuHeader(cards) +
+      gpuCardPanel(cards[0], 14, 44, 996, 268) +
+      gpuCardPanel(cards[1], 14, 322, 996, 268));
+  }
+
+  const pos = [[14, 44], [518, 44], [14, 320], [518, 320]];
+  let body = gpuHeader(cards);
+  for (let i = 0; i < Math.min(4, cards.length); i++) {
+    body += gpuTile(cards[i], pos[i][0], pos[i][1], 492, 268);
+  }
+  // Beyond four the grid has no room; say what is not shown rather than
+  // silently truncating the list.
+  if (cards.length > 4) {
+    body += `<div style="position:absolute;right:${gq(24)};bottom:${gq(4)};color:${bsS().dim};` +
+      `font-family:${bsS().font};font-size:${gq(12)};font-weight:${bsS().fw};text-transform:uppercase;` +
+      `letter-spacing:${bsS().ls}">+${cards.length - 4} MORE NOT SHOWN</div>`;
+  }
+  return frame(body);
+}
+
+function sfTosGpuScreen(c) { bsSkin(BS_SKIN_TOS); return bsGpuScreen(c); }
+function sfDs9GpuScreen(c) { bsSkin(BS_SKIN_DS9); return bsGpuScreen(c); }
+function sfTngGpuScreen(c) { bsSkin(BS_SKIN_TNG); return bsGpuScreen(c); }
+function scanGpuScreen(c) { bsSkin(BS_SKIN_SCAN); return bsGpuScreen(c); }
+function tubeGpuScreen(c) { bsSkin(BS_SKIN_TUBE); return bsGpuScreen(c); }
+function vfdGpuScreen(c) { bsSkin(BS_SKIN_VFD); return bsGpuScreen(c); }
+
+/* ── Bridge Station: screen 1 ────────────────────────────────────────────
+ * CORE / THERMALS / COMMS / CHRONOMETER, in the same spine vocabulary as the
+ * GPU screen so the Gold family reads as one theme rather than two.
+ *
+ * The NPU readout that used to hold the fourth quadrant moves to its own
+ * screen: on a 1024x600 panel it was four lines of text competing with the
+ * clock, and a local model server deserves the room the GPU screen gets.
+ */
+
+/* Thermal row: label, segmented track, reading. The track is segmented rather
+   than continuous so a glance reads roughly how hot without parsing digits. */
+function bsThermRow(label, temp, w) {
+  const known = (temp !== null && temp !== undefined && isFinite(temp));
+  const c = known ? _thermColor(temp) : bsS().dim;
+  // The scale runs 20-120C, matching the tick labels printed beneath it.
+  const pct = known ? Math.max(0, Math.min(100, ((temp - 20) / 100) * 100)) : 0;
+  return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
+    `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(13)};font-weight:${bsS().fw};` +
+      `text-transform:uppercase;letter-spacing:${bsS().ls};width:${gq(34)};flex-shrink:0">${label}</span>` +
+    bsSegBar(pct, c, w, 16, 14, 4) +
+    `<span style="color:${c};font-family:${bsS().font};font-size:${gq(24)};font-weight:${bsS().fw};` +
+      `width:${gq(62)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+      `${bsGlow(8, c, '99')}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
+}
+
+/* One icon per fan detected, each turning at its own rate.
+   No RPM readout on purpose: fans in a group do not share a speed, so a
+   single number was an average that hid the very thing worth seeing. */
+function bsFanGroup(label, color, rpms) {
+  if (!rpms.length) return '';
+  let icons = '';
+  for (const r of rpms) icons += fanIcon(color, gq(46), r);
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:${gq(6)}">` +
+    `<div style="display:flex;gap:${gq(9)}">${icons}</div>` +
+    `<div style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(15)};font-weight:${bsS().fw};` +
+      `line-height:1;text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</div></div>`;
+}
+
+function bsWiredIcon(color, lit) {
+  const halo = bsS().glow ? `;filter:drop-shadow(0 0 ${gq(6)} ${color})` : '';
+  return `<svg width="${gq(26)}" height="${gq(26)}" viewBox="0 0 24 24" ` +
+    `style="opacity:${lit ? 1 : 0.3}${halo}">` +
+    `<rect x="4" y="9" width="16" height="9" rx="1.5" fill="${color}"/>` +
+    `<rect x="9" y="4" width="6" height="5" fill="${color}"/>` +
+    `<rect x="7" y="18" width="2" height="3" fill="${color}"/>` +
+    `<rect x="15" y="18" width="2" height="3" fill="${color}"/></svg>`;
+}
+
+function bsWifiIcon(color, lit) {
+  return `<svg width="${gq(22)}" height="${gq(22)}" viewBox="0 0 24 24" ` +
+    `style="opacity:${lit ? 1 : 0.3}"><g fill="none" stroke="${color}" ` +
+    `stroke-width="2" stroke-linecap="round">` +
+    `<path d="M4 9a13 13 0 0 1 16 0"/><path d="M7.5 13a8 8 0 0 1 9 0"/></g>` +
+    `<circle cx="12" cy="17.5" r="1.8" fill="${color}"/></svg>`;
+}
+
+/* Capacity bar with its own readout, bound to the bar's width. */
+function bsCapacityBar(label, cap, pct, color, w) {
+  return `<div style="width:${gq(w)}">` +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;` +
+      `margin-bottom:${gq(5)}">` +
+      `<span style="color:${bsS().label};font-family:${bsS().font};font-size:${gq(15)};font-weight:${bsS().fw};` +
+        `text-transform:uppercase;letter-spacing:${bsS().ls}">${label}</span>` +
+      `<span style="color:${bsS().soft};font-family:${bsS().font};font-size:${gq(18)};font-weight:${bsS().fw};` +
+        `font-variant-numeric:tabular-nums">${cap}</span></div>` +
+    bsSegBar(pct, color, w, bsS().seg ? 14 : 18, 26, 3) + `</div>`;
+}
+
+/* Gold segments its thermal track; Teal and Coral keep the continuous bar
+   they already had. Same reading either way -- label, track, degrees. */
+function bsThermRowSolid(label, temp, w) {
+  const S = bsS();
+  const known = (temp !== null && temp !== undefined && isFinite(temp));
+  const c = known ? S.therm(temp) : S.dim;
+  const pct = known ? Math.max(0, Math.min(100, ((temp - 20) / 100) * 100)) : 0;
+  const flash = known && temp >= 100 ? ';animation:blink 0.5s infinite' : '';
+  const r = S.r >= 999 ? '999px' : S.r + 'px';
+  return `<div style="display:flex;align-items:center;gap:${gq(11)}">` +
+    `<span style="color:${S.label};font-family:${S.font};font-size:${gq(15)};font-weight:${S.fw};` +
+      `text-transform:uppercase;letter-spacing:${S.ls};width:${gq(46)};flex-shrink:0">${label}</span>` +
+    `<div style="width:${gq(w)};height:${gq(30)};background:${S.track};border-radius:${r};` +
+      `overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;background:${c};` +
+      `border-radius:${r};transition:width 0.8s ease${flash}"></div></div>` +
+    `<span style="color:${c};font-family:${S.font};font-size:${gq(24)};font-weight:${S.fw};` +
+      `width:${gq(62)};text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;` +
+      `${bsGlow(8, c)}">${known ? Math.round(temp) + '&deg;' : '--'}</span></div>`;
+}
+
+/* ── Bridge Station: screen 1, in whichever skin is active ────────────────
+ * CORE / THERMALS / COMMS / CHRONOMETER. One information layout across the
+ * whole Panel family: the same readings land in the same quadrant whichever
+ * theme is on, so switching themes never means re-learning the board.
+ */
+/* The glass. Scanlines rakes its raster over the whole board and VFD lays
+   filament lines and a grid across it, so the overlay belongs to the frame
+   rather than to any one region. */
+/* `fluid`: true fills any landscape shape; 'strip' also has a bar-display
+   layout. A fluid screen without one is letterboxed on a strip. */
+function bsFrame(body, fluid) {
+  const S = bsS();
+  // A skin may put the board behind glass: its own filter on the content, its
+  // own overlay stack in front. Scanlines uses both; the rest use neither.
+  const inner = (S.contentFilter || S.contentTransform)
+    ? `<div style="position:absolute;inset:0;` +
+      (S.contentFilter ? `filter:${S.contentFilter};` : '') +
+      (S.contentTransform ? `transform:${S.contentTransform};` : '') +
+      `">${body}</div>`
+    : body;
+  return `<div class="screen-frame${fluid ? ' fluid' : ''}${fluid === 'strip' ? ' strip' : ''}">${S.defs || ''}` +
+    `<div style="position:relative;width:100%;height:100%;background:${S.bg};` +
+      `font-family:${S.font};overflow:hidden;${S.frameCss || ''}">` +
+      inner + (S.overlay || '') + `</div></div>`;
+}
+
+function bsScreen1(c) {
+  const S = bsS();
+
+  const cpu = m('cpu.usage'), ram = m('mem.ram_percent'), vram = m('gpu.vram_percent');
+  const root = m('disk.root_used'), rootPct = m('disk.root_percent');
+  const home = m('disk.home_used'), homePct = m('disk.home_percent');
+  const cpuT = m('cpu.temp'), mbT = m('cpu.mb_temp'), gpuT = m('gpu.temp');
+  const ip = m('net.ip'), mac = m('net.mac'), iface = m('net.iface');
+  const speed = m('net.speed'), dl = m('net.dl'), ul = m('net.ul'), ping = m('net.ping');
+  const host = m('sys.hostname');
+
+  const dOpts = {anticlockwise: true, ticks: S.key === 'gold', bgRing: S.ring,
+                 valColor: S.bright, critColor: S.crit, linecap: 'butt',
+                 fontWeight: S.fw, valSize: gq(34), labelSize: gq(14)};
+
+  // Each family draws its own instrument: the Panel donut, the Scanlines
+  // phosphor ring, the Tubes magic eye, the VFD segmented dial.
+  const gauge = S.gauge || function (pct, cap, which) {
+    const col = which === 'cpu' ? S.dCpu : which === 'ram' ? S.dRam : S.dVram;
+    return bsGauge(pct, cap, col, S.gaugeSize || 124, S.gaugeSw || 14, dOpts);
+  };
+  const capBar = S.capBar || function (label, cap, pct, which) {
+    const w = S.chrome === 'spine' ? 442 : 470;
+    return bsCapacityBar(label, cap, pct, which === 'primary' ? S.cPrimary : S.cSecondary, w);
+  };
+  const capNone = S.capNone || function (label) {
+    return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(13)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls}">` +
+      `${label} &mdash; NONE</div>`;
+  };
+
+  // ── CORE
+  const core =
+    `<div style="display:flex;justify-content:space-around;align-items:center">` +
+      gauge(bsNum(cpu.available ? cpu.value : 0), 'CPU', 'cpu') +
+      gauge(bsNum(ram.available ? ram.value : 0), 'RAM', 'ram') +
+      gauge(bsNum(vram.available ? vram.value : 0), 'VRAM', 'vram') +
+    `</div>` +
+    `<div style="display:flex;flex-direction:column;gap:${S.capGap || gq(9)};` +
+      `margin-top:${S.capTop || gq(8)}">` +
+      capBar('PRIMARY', `${fmtCapacity(root)} / ${fmtCapacityTotal(root)}`,
+             bsNum(rootPct.available ? rootPct.value : 0), 'primary') +
+      (home.available
+        ? capBar('SECONDARY', `${fmtCapacity(home)} / ${fmtCapacityTotal(home)}`,
+                 bsNum(homePct.available ? homePct.value : 0), 'secondary')
+        : capNone('SECONDARY')) +
+    `</div>`;
+
+  // ── THERMALS
+  const temps = [cpuT, mbT, gpuT].filter(t => t.available).map(t => t.value);
+  const hottest = temps.length ? Math.max.apply(null, temps) : null;
+  const status = hottest === null ? 'NO SENSORS'
+               : hottest >= 110 ? 'CRITICAL' : hottest >= 90 ? 'WARNING' : 'NOMINAL';
+  const statusColor = hottest === null ? S.dim
+                    : hottest >= 110 ? S.crit : hottest >= 90 ? S.warn : S.therm(60);
+
+  // The scale has to start and stop exactly where the bars do, or the tick
+  // labels point at temperatures the bars never reach.
+  const bodyW = 486 - (S.chrome === 'spine' ? 28 : 0);
+  const labW = S.seg ? 40 : 46, gap = 11, readW = 62;
+  const scaleW = bodyW - labW - readW - gap * 2;
+  let panelScale = `<div style="display:flex;justify-content:space-between;` +
+    `margin-left:${gq(labW + gap)};margin-right:${gq(bodyW - labW - gap - scaleW)}">`;
+  for (const t of [20, 50, 70, 90, 110, 120]) {
+    panelScale += `<span style="color:${S.tick};font-family:${S.font};font-size:${gq(12)}">${t}</span>`;
+  }
+  panelScale += `</div>`;
+  const scale = S.scaleFn ? S.scaleFn() : panelScale;
+
+  const row = S.thermRowFn || function (label, temp) {
+    return (S.seg ? bsThermRow : bsThermRowSolid)(label, temp, scaleW);
+  };
+  const therm =
+    `<div style="display:flex;flex-direction:column;gap:${gq(9)}">` +
+      row('CPU', cpuT.available ? cpuT.value : null) +
+      row('MB', mbT.available ? mbT.value : null) +
+      row('GPU', gpuT.available ? gpuT.value : null) +
+      scale +
+    `</div>` + (S.fanRowFn ? S.fanRowFn() : bsFanRow());
+
+  // ── COMMS
+  const linkUp = ip.available;
+  const speedStr = speed.available
+    ? (speed.value >= 1000 ? Math.round(speed.value / 1000) + ' GbE' : speed.value + ' Mb')
+    : '--';
+  // Up on the header row rather than stacked above the grid: it is an
+  // identity, not a reading, and it was costing the grid a third of its height.
+  // One line, so it cannot hang off the header into the row beneath it --
+  // the two-line version landed square on PING.
+  // Which radio is live comes from the interface name -- wl* is wireless,
+  // anything else is wired. Both icons stay on screen; the dim one is the
+  // link you are not using, which is a reading in itself.
+  const ifaceName = iface.available ? String(iface.value) : '';
+  const onWifi = /^(wl|wlan|wlp)/i.test(ifaceName);
+  const identity =
+    `<div style="display:flex;align-items:center;gap:${gq(9)};white-space:nowrap">` +
+      bsWiredIcon(linkUp && !onWifi ? S.cLink : S.dim, linkUp && !onWifi) +
+      bsWifiIcon(linkUp && onWifi ? S.cLink : S.dim, linkUp && onWifi) +
+      `<span style="color:${S.bright};font-family:${S.font};font-size:${gq(19)};` +
+        `font-weight:${S.fw};${bsGlow(7, S.bright)}">` +
+        `${ifaceName ? esc(ifaceName) : '--'}</span>` +
+      `<span style="color:${linkUp ? S.cLink : S.dim};font-family:${S.font};` +
+        `font-size:${gq(13)};font-weight:${S.fw};text-transform:uppercase;` +
+        `letter-spacing:${S.ls}">${linkUp ? 'LINK' : 'NO LINK'}</span>` +
+    `</div>`;
+
+  // A label hard-left and its value hard-right leaves the middle of every cell
+  // empty, and there are six of them. Stacked instead -- caption over reading
+  // -- the pair reads as one object and the number can be three times the size.
+  const unit = (d) => S.unitLit
+    ? `<span style="font-size:${gq(15)}">${esc(String(d.unit))}</span>`
+    : `<span style="font-size:${gq(15)};color:${S.dim};text-shadow:none">${esc(String(d.unit))}</span>`;
+
+  const tile = (label, value, color, valPx, icon) =>
+    `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
+        (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
+      `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
+        `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
+        `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+        `${bsGlow(9, color)}">${value}</span></div>`;
+
+  const comms =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(24)};` +
+      `row-gap:${gq(26)}">` +
+      tile('LINK', speedStr, S.cLink, 40, 'speed') +
+      tile('PING', ping.available ? bsNum(ping.value).toFixed(1) + ' ms' : '--', S.cPing, 40, 'ping') +
+      tile('RECV', dl.available ? `${esc(String(dl.value))} ${unit(dl)}` : '--', S.cRecv, 40, 'down') +
+      tile('SEND', ul.available ? `${esc(String(ul.value))} ${unit(ul)}` : '--', S.cSend, 40, 'up') +
+      tile('IP', ip.available ? esc(String(ip.value)) : '--', S.cIp, 33, 'globe') +
+      tile('MAC', mac.available ? esc(String(mac.value)) : '--', S.cMac, 21, 'chip') +
+    `</div>`;
+
+  // ── CHRONOMETER
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mmn = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST',
+                  'SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const dayName = days[now.getDay()];
+  const dateStr = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  const chrono = S.clockFn ? S.clockFn(hh, mmn, ss, dayName, dateStr) :
+    `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<div style="display:flex;align-items:baseline;gap:${gq(8)}">` +
+        `<span style="color:${S.kHour};font-family:${S.font};font-size:${gq(138)};font-weight:${S.fw};` +
+          `line-height:1;font-variant-numeric:tabular-nums;` +
+          `${bsGlow(26, S.kHour, '66')}">${hh}:${mmn}</span>` +
+        `<span style="color:${S.kSec};font-family:${S.font};font-size:${gq(58)};font-weight:${S.fw};` +
+          `font-variant-numeric:tabular-nums;${bsGlow(14, S.kSec)}">${ss}</span></div>` +
+      `<div style="color:${S.kDay};font-family:${S.font};font-size:${gq(30)};font-weight:${S.fw};` +
+        `letter-spacing:0.3em;margin-top:${gq(12)};text-transform:uppercase;` +
+        `${bsGlow(10, S.kDay)}">${dayName}</div>` +
+      `<div style="color:${S.kDate};font-family:${S.font};font-size:${gq(23)};font-weight:${S.fw};` +
+        `letter-spacing:${S.ls};text-transform:uppercase">${dateStr}</div></div>`;
+
+  return bsFrame(
+    bsRegion(14, 10, 486, 288, 'CHRONOMETER', S.a1, '', chrono, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'CORE', S.a1,
+             host.available ? esc(String(host.value).toUpperCase()) : '', core, 'space-between') +
+    bsRegion(14, 302, 486, 288, 'THERMALS', S.a3, status, therm, 'space-evenly', statusColor) +
+    bsRegion(524, 302, 486, 288, 'COMMS', S.a2, identity, comms, 'space-around'));
+}
+
+/* Gold labels each fan group and colours it; Teal and Coral keep the compact
+   monochrome strip they already used, so their thermals panel is untouched. */
+function bsFanRow() {
+  const S = bsS();
+  if (S.key !== 'gold') {
+    return `<div style="display:flex;justify-content:center;align-items:center">` +
+      fanStrip(S.label, S.font, '') + `</div>`;
+  }
+  const cpuFans = asList(m('cpu.fans_cpu'));
+  const caseFans = asList(m('cpu.fans_case'));
+  const gpuFanPct = m('gpu.fan');
+  // gpu.fan is a duty percentage, not a tachometer reading; map it onto a
+  // comparable range so the icon turns at a rate the eye can compare.
+  const gpuFans = gpuFanPct.available && gpuFanPct.value !== null
+    ? [Math.round(bsNum(gpuFanPct.value) / 100 * 2400)] : [];
+  if (!cpuFans.length && !caseFans.length && !gpuFans.length) {
+    return `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(12)};` +
+      `font-weight:${S.fw};text-align:center;text-transform:uppercase;` +
+      `letter-spacing:${S.ls}">NO FANS DETECTED</div>`;
+  }
+  return `<div style="display:flex;justify-content:space-around;align-items:flex-end">` +
+    bsFanGroup('CPU', S.a1, cpuFans) + bsFanGroup('CASE', S.a2, caseFans) +
+    bsFanGroup('GPU', S.dVram, gpuFans) + `</div>`;
+}
+
+
+/* ── Bridge Station: screen 2, the NPU ───────────────────────────────────
+ * The model readout was displaced from screen 1 when the chronometer took its
+ * quadrant, and has had nowhere to live since. It gets its own board in the
+ * same four-region vocabulary, so every family renders it in its own chrome.
+ *
+ * Everything here is honest about absence: a box with no local model running
+ * says so rather than drawing an empty gauge.
+ */
+/* A captioned readout: the label small and quiet above, the number as large
+   as the region allows. Shared by every Bridge Station screen so a caption is
+   the same caption everywhere -- it was copied per screen until screen 3
+   needed a third one. */
+function bsBig(label, value, color, valPx, icon) {
+  const S = bsS();
+  return `<div style="display:flex;flex-direction:column;gap:${gq(1)};min-width:0">` +
+    `<span style="color:${S.label};font-family:${S.font};font-size:${gq(14)};` +
+      `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+      `line-height:1.1;display:flex;align-items:center;gap:${gq(6)}">` +
+      (icon ? bsIcon(icon, S.label, 19) : '') + `${label}</span>` +
+    `<span style="color:${color};font-family:${S.font};font-size:${gq(valPx)};` +
+      `font-weight:${S.fw};line-height:1.05;font-variant-numeric:tabular-nums;` +
+      `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+      `${bsGlow(9, color)}">${value}</span></div>`;
+}
+
+function bsNpuScreen(c) {
+  const S = bsS();
+
+  const status = m('llama.status'), health = m('llama.health'), backend = m('llama.backend');
+  const model = m('llama.model'), quant = m('llama.quant'), ctx = m('llama.context');
+  const tps = m('llama.tok_per_sec'), slots = m('llama.active_slots');
+  const procs = asList(m('llama.processes'));
+  const vramUsed = m('gpu.vram_used'), vramTotal = m('gpu.vram_total'), vramPct = m('gpu.vram_percent');
+  const gpuName = m('gpu.name'), gpuPow = m('gpu.power'), gpuTemp = m('gpu.temp');
+  const cards = asList(m('gpu.cards'));
+  const cardShort = cards.length && cards[0].short_name ? esc(String(cards[0].short_name))
+                  : gpuName.available ? esc(String(gpuName.value)) : '--';
+
+  const running = status.available && /run|ok|ready/i.test(String(status.value));
+  const healthy = health.available && /ok|healthy/i.test(String(health.value));
+  const stateColor = !status.available ? S.dim : running && healthy ? S.cLink : S.warn;
+  const stateText = !status.available ? 'NOT DETECTED'
+                  : esc(String(status.value)).toUpperCase();
+
+  const big = bsBig;
+
+  // ── MODEL: what is loaded
+  const modelName = model.available
+    ? esc(String(model.value).replace(/\.gguf$/i, '').replace(/[-_]Q\d[A-Z0-9_]*$/i, ''))
+    : '--';
+  const ctxText = ctx.available
+    ? (Number(ctx.value) >= 1024 ? Math.round(Number(ctx.value) / 1024) + 'K' : String(ctx.value))
+    : '--';
+  const modelBody =
+    `<div style="color:${S.bright};font-family:${S.font};font-size:${gq(34)};` +
+      `font-weight:${S.fw};line-height:1.1;${bsGlow(10, S.bright)}">${modelName}</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(20)}">` +
+      big('QUANT', quant.available ? esc(String(quant.value)) : '--', S.a4 || S.cLink, 34) +
+      big('CONTEXT', ctxText, S.cIp, 34) +
+      big('SLOTS', slots.available ? String(bsNum(slots.value)) : '--', S.cLink, 34) +
+      big('ENGINE', backend.available ? esc(String(backend.value)) : '--', S.soft, 28) +
+    `</div>`;
+
+  // ── THROUGHPUT: the number you actually watch
+  const tpsVal = tps.available && typeof tps.value === 'number'
+    ? tps.value.toFixed(1) : null;
+  const tpsBody =
+    `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<span style="color:${tpsVal === null ? S.dim : S.cLink};font-family:${S.font};` +
+        `font-size:${gq(96)};font-weight:${S.fw};line-height:1;` +
+        `font-variant-numeric:tabular-nums;${bsGlow(26, tpsVal === null ? S.dim : S.cLink, '66')}">` +
+        `${tpsVal === null ? '--' : tpsVal}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(22)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:0.28em;` +
+        `margin-top:${gq(6)}">TOKENS / SEC</span>` +
+      `<span style="color:${S.soft};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `margin-top:${gq(10)}">` +
+        `${slots.available ? bsNum(slots.value) + ' ACTIVE SLOT' + (bsNum(slots.value) === 1 ? '' : 'S') : 'SLOTS --'}` +
+      `</span></div>`;
+
+  // ── WEIGHTS: what the model is costing the card
+  const gib = (mib) => (bsNum(mib) / 1024).toFixed(1);
+  const weightsBody =
+    bsCapacityBar('VRAM IN USE',
+      vramUsed.available && vramTotal.available
+        ? `${gib(vramUsed.value)} / ${gib(vramTotal.value)} G` : '--',
+      bsNum(vramPct.available ? vramPct.value : 0), S.a2,
+      S.chrome === 'spine' ? 442 : 470) +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(14)};margin-top:${gq(16)}">` +
+      big('CARD', cardShort, S.cIp, 26) +
+      big('DRAW', gpuPow.available ? Math.round(bsNum(gpuPow.value)) + ' W' : '--', S.cPower, 30) +
+    `</div>`;
+
+  // ── SERVICE: is it up, and what is it
+  const serviceBody =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(18)}">` +
+      big('STATE', stateText, stateColor, 34) +
+      big('HEALTH', health.available ? esc(String(health.value)).toUpperCase() : '--',
+          healthy ? S.cLink : S.warn, 34) +
+      big('CARD TEMP', gpuTemp.available ? Math.round(bsNum(gpuTemp.value)) + '°C' : '--',
+          gpuTemp.available ? S.therm(gpuTemp.value) : S.dim, 34) +
+      big('SERVER PID', procs.length ? bsVal(procs[0].pid) : '--',
+          procs.length ? S.cIp : S.dim, 34) +
+    `</div>` +
+    (procs.length ? '' :
+      `<div style="color:${S.dim};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls}">` +
+        `NO LOCAL SERVER PROCESS</div>`);
+
+  return bsFrame(
+    bsRegion(14, 10, 486, 288, 'THROUGHPUT', S.a1, '', tpsBody, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'MODEL', S.a1,
+             backend.available ? esc(String(backend.value)).toUpperCase() : '',
+             modelBody, 'space-between') +
+    bsRegion(14, 302, 486, 288, 'WEIGHTS', S.a3, '', weightsBody, 'space-between') +
+    bsRegion(524, 302, 486, 288, 'SERVICE', S.a2, stateText, serviceBody, 'space-between', stateColor));
+}
+
+function sfTosNpuScreen(c) { bsSkin(BS_SKIN_TOS); return bsNpuScreen(c); }
+function sfDs9NpuScreen(c) { bsSkin(BS_SKIN_DS9); return bsNpuScreen(c); }
+function sfTngNpuScreen(c) { bsSkin(BS_SKIN_TNG); return bsNpuScreen(c); }
+function scanNpuScreen(c) { bsSkin(BS_SKIN_SCAN); return bsNpuScreen(c); }
+function tubeNpuScreen(c) { bsSkin(BS_SKIN_TUBE); return bsNpuScreen(c); }
+function vfdNpuScreen(c) { bsSkin(BS_SKIN_VFD); return bsNpuScreen(c); }
+
+function sfTosScreen1(c) { bsSkin(BS_SKIN_TOS); return bsScreen1(c); }
+function sfDs9Screen1(c) { bsSkin(BS_SKIN_DS9); return bsScreen1(c); }
+function sfTngScreen1(c) { bsSkin(BS_SKIN_TNG); return bsScreen1(c); }
+function scanScreen1(c) { bsSkin(BS_SKIN_SCAN); return bsScreen1(c); }
+function tubeScreen1(c) { bsSkin(BS_SKIN_TUBE); return bsScreen1(c); }
+function vfdScreen1(c) { bsSkin(BS_SKIN_VFD); return bsScreen1(c); }
+
+/* ── Screen 3 in the Bridge Station skins ────────────────────────────────
+ * Claude usage used to be one generic renderer for all sixteen themes: it
+ * took the palette and nothing else, so every rotation dropped its family's
+ * chrome for a plain two-column web layout on the third screen. Here it is on
+ * the same four-region board as System Stats and the NPU panel, which means
+ * TOS gets its spine, DS9 and TNG their tabs, and the Vintage skins their
+ * rules, glass and overlays -- for free.
+ */
+
+/* A history plot in the skin's own ink. viewBox coordinates are the 1024px
+   authoring grid; the element itself is sized in cqw, so it scales with the
+   frame the way every other instrument on these boards does. */
+function bsSpark(samples, color, w, h) {
+  const S = bsS();
+  const halo = S.glow ? `filter:drop-shadow(0 0 ${gq(5)} ${color})` : '';
+  const arr = (samples && samples.length >= 2) ? samples : null;
+  if (!arr) {
+    return `<svg width="${gq(w)}" height="${gq(h)}" viewBox="0 0 ${w} ${h}" ` +
+      `preserveAspectRatio="none" style="${halo}">` +
+      `<line x1="0" y1="${h - 1}" x2="${w}" y2="${h - 1}" stroke="${color}" ` +
+      `stroke-width="1.5" opacity="0.25"/></svg>`;
+  }
+  let max = 1;
+  for (const v of arr) if (typeof v === 'number' && v > max) max = v;
+  const pts = arr.map((v, i) => {
+    const x = (i / (arr.length - 1)) * w;
+    const y = h - (Math.max(0, bsNum(v)) / max) * (h - 3);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg width="${gq(w)}" height="${gq(h)}" viewBox="0 0 ${w} ${h}" ` +
+    `preserveAspectRatio="none" style="${halo}">` +
+    `<polygon points="${pts} ${w},${h} 0,${h}" fill="${color}" opacity="0.16"/>` +
+    `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" ` +
+    `stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function bsClaudeScreen(c) {
+  const S = bsS();
+  const bodyW = S.chrome === 'spine' ? 442 : 470;
+
+  const tokIn = m('claude.tokens_input'), tokOut = m('claude.tokens_output');
+  const tokCW = m('claude.tokens_cache_write'), tokCR = m('claude.tokens_cache_read');
+  const tokTotal = m('claude.tokens_total');
+  const sIn = m('claude.session_input'), sOut = m('claude.session_output');
+  const sCW = m('claude.session_cache_write'), sCR = m('claude.session_cache_read');
+  const sTotal = m('claude.session_total'), sMsgs = m('claude.session_msgs');
+  const mUser = m('claude.msgs_user'), mAsst = m('claude.msgs_assistant');
+  const mAll = m('claude.msgs_total');
+  const monTok = m('claude.monthly_tokens'), monMsg = m('claude.monthly_messages');
+  const days = m('claude.days_active'), sessions = m('claude.sessions');
+  const agents = m('claude.agents_active'), rate = m('claude.token_rate');
+  const spark = m('claude.sparkline');
+
+  const nz = (d) => (d && d.available && typeof d.value === 'number') ? d.value : 0;
+  const share = (part, whole) => whole > 0 ? (part / whole) * 100 : 0;
+  const total = nz(tokTotal), sess = nz(sTotal);
+
+  /* Input / output / cache-write / cache-read take the skin's four accents,
+     so the same reading is the same colour in every family. */
+  const cIn = S.a1, cOut = S.a2, cCW = S.a3, cCR = S.a4 || S.cLink;
+
+  // ── USAGE: the all-time total, and the scale it was accumulated over
+  const usageBody =
+    `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `height:100%;gap:${gq(2)}">` +
+      `<span style="color:${total ? S.cLink : S.dim};font-family:${S.font};font-size:${gq(92)};` +
+        `font-weight:${S.fw};line-height:1;font-variant-numeric:tabular-nums;` +
+        `${bsGlow(26, total ? S.cLink : S.dim, '66')}">${fmtTok(total)}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(22)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:0.28em;` +
+        `margin-top:${gq(6)}">TOKENS ALL TIME</span>` +
+      `<span style="color:${S.soft};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `margin-top:${gq(10)}">` +
+        `${sessions.available ? bsNum(sessions.value) : '--'} SESSIONS` +
+        ` &middot; ${days.available ? bsNum(days.value) : '--'} DAYS` +
+      `</span></div>`;
+
+  // ── BREAKDOWN: where those tokens went
+  const breakdownBody =
+    bsMetered('INPUT', fmtTok(nz(tokIn)), share(nz(tokIn), total), cIn, bodyW, 26, 26, 15) +
+    bsMetered('OUTPUT', fmtTok(nz(tokOut)), share(nz(tokOut), total), cOut, bodyW, 26, 26, 15) +
+    bsMetered('CACHE WRITE', fmtTok(nz(tokCW)), share(nz(tokCW), total), cCW, bodyW, 26, 26, 15) +
+    bsMetered('CACHE READ', fmtTok(nz(tokCR)), share(nz(tokCR), total), cCR, bodyW, 26, 26, 15);
+
+  // ── SESSION: the same shape, scoped to the conversation in front of you
+  const sessionBody =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(12)}">` +
+      bsBig('SESSION TOKENS', fmtTok(sess), S.cIp, 40) +
+      bsBig('MESSAGES', fmtNum(sMsgs), S.bright, 40) +
+    `</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(12)};margin-top:${gq(12)}">` +
+      bsBig('IN', fmtTok(nz(sIn)), cIn, 28) +
+      bsBig('OUT', fmtTok(nz(sOut)), cOut, 28) +
+      bsBig('CACHE W', fmtTok(nz(sCW)), cCW, 28) +
+      bsBig('CACHE R', fmtTok(nz(sCR)), cCR, 28) +
+    `</div>`;
+
+  // ── ACTIVITY: the live rate, plotted, and the long-run averages
+  const activityBody =
+    `<div style="display:flex;align-items:flex-end;gap:${gq(14)}">` +
+      `<span style="color:${S.cPing};font-family:${S.font};font-size:${gq(52)};` +
+        `font-weight:${S.fw};line-height:1;font-variant-numeric:tabular-nums;` +
+        `${bsGlow(16, S.cPing)}">${fmtNum(rate, '0')}</span>` +
+      `<span style="color:${S.label};font-family:${S.font};font-size:${gq(17)};` +
+        `font-weight:${S.fw};text-transform:uppercase;letter-spacing:${S.ls};` +
+        `padding-bottom:${gq(6)}">TOK / MIN</span></div>` +
+    `<div style="margin-top:${gq(6)}">` +
+      bsSpark(spark.available ? spark.value : null, S.cPing, bodyW, 50) + `</div>` +
+    `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:${gq(20)};` +
+      `row-gap:${gq(10)};margin-top:${gq(10)}">` +
+      bsBig('AGENTS', String(agents.available ? bsNum(agents.value) : 0), S.cLink, 34, 'chip') +
+      bsBig('MESSAGES', fmtNum(mAll), S.bright, 34) +
+      bsBig('TOKENS / MO', fmtTok(nz(monTok)), S.soft, 28) +
+      bsBig('MSGS / MO', fmtNum(monMsg), S.soft, 28) +
+    `</div>`;
+
+  const ratio = (mAsst.available && mUser.available && bsNum(mUser.value) > 0)
+    ? (bsNum(mAsst.value) / bsNum(mUser.value)).toFixed(1) + ':1'
+    : '';
+
+  return bsFrame(
+    bsRegion(14, 10, 486, 288, 'USAGE', S.a1, '', usageBody, 'center', null, 'centre') +
+    bsRegion(524, 10, 486, 288, 'BREAKDOWN', S.a1, fmtTok(total), breakdownBody, 'space-evenly') +
+    bsRegion(14, 302, 486, 288, 'SESSION', S.a3, ratio ? 'A/U ' + ratio : '',
+             sessionBody, 'space-evenly') +
+    bsRegion(524, 302, 486, 288, 'ACTIVITY', S.a2,
+             agents.available && bsNum(agents.value) > 0 ? 'ACTIVE' : '',
+             activityBody, 'space-evenly',
+             agents.available && bsNum(agents.value) > 0 ? S.cLink : null));
+}
+
+function sfTosClaudeScreen(c) { bsSkin(BS_SKIN_TOS); return bsClaudeScreen(c); }
+function sfDs9ClaudeScreen(c) { bsSkin(BS_SKIN_DS9); return bsClaudeScreen(c); }
+function sfTngClaudeScreen(c) { bsSkin(BS_SKIN_TNG); return bsClaudeScreen(c); }
+function scanClaudeScreen(c) { bsSkin(BS_SKIN_SCAN); return bsClaudeScreen(c); }
+function tubeClaudeScreen(c) { bsSkin(BS_SKIN_TUBE); return bsClaudeScreen(c); }
+function vfdClaudeScreen(c) { bsSkin(BS_SKIN_VFD); return bsClaudeScreen(c); }
+
+/* ── Claude Sessions ─────────────────────────────────────────────────────
+ * Live Claude Code sessions from the session feed. One row per session:
+ * lamp, name, project, state, how long in that state. Sessions waiting on
+ * you come first, tinted and pulsing; idle ones sink to the bottom. Fluid:
+ * as many rows as the screen's height holds, then "+N MORE". */
+const SESS_ORDER = { waiting: 0, busy: 1, shell: 2, idle: 3 };
+const SESS_LABEL = { waiting: 'NEEDS INPUT', busy: 'WORKING', shell: 'RUNNING SHELL', idle: 'IDLE' };
+
+function sessColor(state) {
+  const S = bsS();
+  if (state === 'waiting') return S.warn;
+  if (state === 'busy') return S.cLink;
+  if (state === 'shell') return S.a2;
+  return S.dim;
+}
+
+function sessAge(since) {
+  const n = Number(since);
+  if (since === null || since === undefined || !isFinite(n) || n <= 0) return '--';
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - n));
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
+}
+
+function sessData() {
+  const st = m('sessions.status');
+  const status = st.available ? String(st.value) : 'unconfigured';
+  const lm = m('sessions.list');
+  const list = (lm.available && Array.isArray(lm.value))
+    ? lm.value.filter(function (s) { return s && typeof s === 'object'; }) : [];
+  const sorted = list.slice().sort(function (a, b) {
+    const oa = SESS_ORDER[a.state] !== undefined ? SESS_ORDER[a.state] : 3;
+    const ob = SESS_ORDER[b.state] !== undefined ? SESS_ORDER[b.state] : 3;
+    if (oa !== ob) return oa - ob;
+    // Waiting: longest-waiting first. Everything else: most recent first.
+    const d = (Number(a.since) || 0) - (Number(b.since) || 0);
+    return oa === 0 ? d : -d;
+  });
+  return { status: status, list: sorted };
+}
+
+function sessSummary(list) {
+  const n = { waiting: 0, busy: 0, shell: 0, idle: 0 };
+  list.forEach(function (s) { n[SESS_ORDER[s.state] !== undefined ? s.state : 'idle']++; });
+  const parts = [];
+  if (n.waiting) parts.push(n.waiting + ' NEED' + (n.waiting === 1 ? 'S' : '') + ' INPUT');
+  if (n.busy + n.shell) parts.push((n.busy + n.shell) + ' WORKING');
+  if (n.idle) parts.push(n.idle + ' IDLE');
+  return parts.join(' · ');
+}
+
+/* Column layout shared by the heading row and every session row, in
+   1024-unit widths; `null` is the flexible session-name column. */
+const SESS_COLS = [
+  { key: 'name', label: 'SESSION', w: null },
+  { key: 'project', label: 'PROJECT', w: 140 },
+  { key: 'state', label: 'STATUS', w: 165 },
+  { key: 'tokens', label: 'TOTAL<br>TOKENS', w: 95, align: 'right' },
+  { key: 'agents', label: 'AGENTS', w: 70, align: 'right' },
+  { key: 'time', label: 'TIME', w: 90, align: 'right' },
+];
+const SESS_LAMP = 18, SESS_GAP = 16;   // the mark is drawn 1.5x the lamp slot
+
+function sessCell(col, inner, extra) {
+  return `<div style="${col.w === null ? 'flex:1;min-width:0' : `width:${gq(col.w)};flex-shrink:0`};` +
+    `text-align:${col.align || 'left'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${extra || ''}">` +
+    inner + `</div>`;
+}
+
+function bsSessionHeadings(h, px) {
+  const S = bsS();
+  return `<div style="display:flex;align-items:center;gap:${gq(SESS_GAP)};padding:0 ${gq(16)};height:${gq(h || 34)};` +
+      `flex-shrink:0;color:${S.label};font-size:${gq(px || 11.5)};letter-spacing:${S.ls};line-height:1.3">` +
+    `<span style="width:${gq(SESS_LAMP * 1.5)};flex-shrink:0"></span>` +
+    SESS_COLS.map(function (c) { return sessCell(c, c.label); }).join('') + `</div>`;
+}
+
+function bsSessionRow(s, rowH, typeK) {
+  const S = bsS();
+  const k = typeK || rowH / 64;   // type grows with the row
+  const state = SESS_ORDER[s.state] !== undefined ? s.state : 'idle';
+  const col = sessColor(state);
+  const waiting = state === 'waiting';
+  const msg = waiting && s.message
+    ? `<div style="color:${col};font-size:${gq(14 * k)};white-space:nowrap;overflow:hidden;` +
+        `text-overflow:ellipsis;opacity:0.9">${esc(String(s.message))}</div>` : '';
+  const tokens = typeof s.tokens === 'number' && isFinite(s.tokens) ? fmtTok(s.tokens) : '--';
+  const agents = typeof s.agents === 'number' && isFinite(s.agents) ? s.agents : null;
+  const round = S.r >= 999 ? '999px' : gq(S.r * 2);
+  const C = {};
+  SESS_COLS.forEach(function (c) { C[c.key] = c; });
+  return `<div style="display:flex;align-items:center;gap:${gq(SESS_GAP)};height:${gq(rowH)};flex-shrink:0;` +
+      `padding:0 ${gq(16)};border-radius:${round};` +
+      (waiting ? `background:${col}26;` : `border-bottom:${gq(1)} solid ${S.edge};`) + `">` +
+    `<span style="display:flex;${waiting ? 'animation:hlPulse 2s ease-in-out infinite;' : ''}` +
+      `${state === 'idle' ? '' : `filter:drop-shadow(0 0 ${gq(5)} ${col}aa)`}">` +
+      toolMark(s.tool === 'codex' ? 'codex' : 'claude', col, SESS_LAMP * 1.5, state === 'idle') + `</span>` +
+    sessCell(C.name, `<div style="color:${state === 'idle' ? S.label : S.bright};font-size:${gq(26 * k)};` +
+        `font-weight:${S.fw};overflow:hidden;text-overflow:ellipsis">${esc(String(s.name || ''))}</div>${msg}`) +
+    sessCell(C.project, esc(String(s.project || '')), `color:${S.label};font-size:${gq(18 * k)}`) +
+    sessCell(C.state, SESS_LABEL[state], `color:${col};letter-spacing:0.12em;font-size:${gq(14 * k)};${bsGlow(8, col)}`) +
+    sessCell(C.tokens, tokens, `color:${S.soft};font-size:${gq(19 * k)};font-variant-numeric:tabular-nums`) +
+    sessCell(C.agents, agents ? String(agents) : '--',
+             `color:${agents ? S.a2 : S.dim};font-size:${gq(19 * k)};font-variant-numeric:tabular-nums;` +
+             (agents ? bsGlow(8, S.a2) : '')) +
+    sessCell(C.time, sessAge(s.since), `color:${waiting ? col : S.soft};font-size:${gq(19 * k)}`) + `</div>`;
+}
+
+/* The status line across the top of the screen: amber while anything waits
+   on you (or the feed is down), green while something is working, a quiet
+   rule when all is idle. Readable from across the room before any text is. */
+function sessStatusColor(d) {
+  const S = bsS();
+  if (d.status === 'offline') return S.warn;
+  if (d.list.some(function (s) { return s.state === 'waiting'; })) return S.warn;
+  if (d.list.some(function (s) { return s.state === 'busy' || s.state === 'shell'; })) return S.cLink;
+  return S.edge;
+}
+
+/* ── Screen tabs ─────────────────────────────────────────────────────────
+ * One tab per screen, built or planned, so the board says what it covers.
+ * A built screen's icon is in its own colour; a planned one stays grey until
+ * it exists. The showing screen's tab is lit; a tab whose area needs you
+ * fades in and out, so trouble shows from whichever screen is up. */
+/* The tab icons: small lit objects rather than line glyphs -- a console, a
+   positronic core, a habitat, a sunrise over a planet, a warp core. Drawn
+   on a 48-unit grid in one colour: a body filled with that colour fading
+   to dark, bright edges, and white-hot highlights where the light is. */
+/* Tool marks. Claude's: a twelve-ray starburst of uneven, tapered rays.
+   Codex's: a terminal prompt inside a rounded cloud. Both in one colour so a
+   row's mark can carry its status. */
+const CLAUDE_STAR = (function () {
+  const L = [21, 15.5, 19, 14, 21, 16.5, 18.5, 14.5, 20.5, 15.5, 19.5, 14];
+  let d = '';
+  for (let i = 0; i < 12; i++) {
+    const a = (i * 30 + (i % 3) * 4 - 90) * Math.PI / 180, w = 0.17;
+    const p = function (r, da) {
+      return (24 + r * Math.cos(a + da)).toFixed(2) + ' ' + (24 + r * Math.sin(a + da)).toFixed(2);
+    };
+    d += 'M' + p(2.5, -w * 3) + 'L' + p(L[i], -0.02) + 'L' + p(L[i], 0.02) + 'L' + p(2.5, w * 3) + 'Z';
+  }
+  return d;
+})();
+const CODEX_CLOUD = 'M14 38h20a10 10 0 0 0 1.6-19.9A12 12 0 0 0 12.8 16 9 9 0 0 0 14 38z';
+
+function toolMark(tool, c, px, hollow) {
+  const size = `width:${gq(px)};height:${gq(px)};flex-shrink:0`;
+  if (tool === 'codex') {
+    return `<svg viewBox="0 0 48 48" style="${size}"><path d="${CODEX_CLOUD}" ` +
+      `fill="${hollow ? 'none' : c}" fill-opacity="${hollow ? 0 : 0.25}" stroke="${c}" stroke-width="3.2" stroke-linejoin="round"/>` +
+      `<path d="M17 23l4.5 3.5-4.5 3.5M24.5 31h7" fill="none" stroke="${hollow ? c : '#fff'}" stroke-width="3" ` +
+      `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  return `<svg viewBox="0 0 48 48" style="${size}"><path d="${CLAUDE_STAR}" fill="${hollow ? 'none' : c}" ` +
+    `stroke="${c}" stroke-width="${hollow ? 2.4 : 1.2}" stroke-linejoin="round"/>` +
+    (hollow ? '' : `<circle cx="24" cy="24" r="3.4" fill="${c}"/>`) + `</svg>`;
+}
+
+function bsTabIcon(key, c, px) {
+  const id = 'ti-' + key + '-' + String(c).replace(/[^0-9a-zA-Z]/g, '');
+  const body = `url(#${id}b)`, glow = `url(#${id}g)`;
+  const defs = `<defs>` +
+    `<linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1">` +
+      `<stop offset="0" stop-color="${c}" stop-opacity="0.55"/><stop offset="1" stop-color="${c}" stop-opacity="0.08"/>` +
+    `</linearGradient>` +
+    `<radialGradient id="${id}g"><stop offset="0" stop-color="#fff"/><stop offset="0.35" stop-color="${c}"/>` +
+      `<stop offset="1" stop-color="${c}" stop-opacity="0"/></radialGradient></defs>`;
+  const st = `stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
+  const art = {
+    // Command console: angled screen, a lit prompt and cursor, readout lines.
+    // Claude: the starburst, white-hot at the centre.
+    sessions:
+      `<circle cx="24" cy="24" r="12" fill="${glow}" opacity="0.6"/>` +
+      `<path d="${CLAUDE_STAR}" fill="${c}" stroke="${c}" stroke-width="1" stroke-linejoin="round"/>` +
+      `<circle cx="24" cy="24" r="4" fill="#fff"/>`,
+    console:
+      `<path d="M6 9h36a3 3 0 0 1 3 3v20a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V12a3 3 0 0 1 3-3z" fill="${body}" ${st}/>` +
+      `<path d="M10 17l6 4.5-6 4.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<rect x="19" y="24.5" width="10" height="3" rx="1" fill="#fff"/>` +
+      `<rect x="21" y="15" width="17" height="2" rx="1" fill="${c}" opacity="0.7"/>` +
+      `<rect x="21" y="19.5" width="11" height="2" rx="1" fill="${c}" opacity="0.45"/>` +
+      `<path d="M19 35l-2.5 5h15L29 35" fill="${c}" opacity="0.5"/><path d="M12 41h24" ${st}/>`,
+    // Positronic core: a white-hot centre inside two crossed orbits.
+    harness:
+      `<circle cx="24" cy="24" r="13" fill="${glow}" opacity="0.55"/>` +
+      `<ellipse cx="24" cy="24" rx="20" ry="7.5" transform="rotate(30 24 24)" fill="none" ${st} opacity="0.9"/>` +
+      `<ellipse cx="24" cy="24" rx="20" ry="7.5" transform="rotate(-30 24 24)" fill="none" ${st} opacity="0.9"/>` +
+      `<ellipse cx="24" cy="24" rx="20" ry="7.5" transform="rotate(90 24 24)" fill="none" ${st} opacity="0.45"/>` +
+      `<circle cx="24" cy="24" r="5" fill="#fff"/>` +
+      `<circle cx="40.5" cy="14.5" r="2.4" fill="${c}"/><circle cx="7.5" cy="14.5" r="2.4" fill="${c}"/>` +
+      `<circle cx="24" cy="44" r="2.4" fill="${c}"/>`,
+    // Habitat: a peaked roof with a second chevron over it, lit window and door.
+    home:
+      `<path d="M4 23L24 6l20 17" fill="none" ${st} stroke-width="2.4"/>` +
+      `<path d="M12 12.5L24 3l12 9.5" fill="none" stroke="${c}" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>` +
+      `<path d="M9 21.5L24 9l15 12.5V42H9z" fill="${body}" ${st}/>` +
+      `<rect x="13.5" y="25" width="8" height="7" rx="1" fill="#fff"/>` +
+      `<path d="M13.5 28.5h8M17.5 25v7" stroke="${c}" stroke-width="1.2"/>` +
+      `<path d="M27 42V31a3.5 3.5 0 0 1 7 0v11" fill="${c}"/>` +
+      `<path d="M4 42h40" ${st}/>`,
+    // Sunrise over a planet's horizon, with rays and the planet's limb lit.
+    myday:
+      `<circle cx="24" cy="27" r="11" fill="${glow}"/>` +
+      `<circle cx="24" cy="27" r="6" fill="#fff"/>` +
+      `<path d="M24 7v5M10 13l3.5 3.5M38 13l-3.5 3.5M4 27h5M39 27h5" ${st}/>` +
+      `<path d="M2 45c6-9 14-12 22-12s16 3 22 12z" fill="${body}" ${st}/>` +
+      `<path d="M8 41c5-4.5 10-6 16-6s11 1.5 16 6" fill="none" stroke="#fff" stroke-width="1.4" opacity="0.6"/>`,
+    // Warp core: a column of lit coils with a white-hot reaction chamber.
+    lab:
+      `<rect x="16" y="3" width="16" height="42" rx="4" fill="${body}" ${st}/>` +
+      `<rect x="19" y="8" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<rect x="19" y="14" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<circle cx="24" cy="24" r="8" fill="${glow}"/><circle cx="24" cy="24" r="3.5" fill="#fff"/>` +
+      `<rect x="19" y="31" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<rect x="19" y="37" width="10" height="3" rx="1.5" fill="${c}"/>` +
+      `<path d="M11 10v28M37 10v28" ${st} opacity="0.6"/><path d="M11 24h5M32 24h5" ${st}/>`,
+  }[key] || '';
+  return `<svg viewBox="0 0 48 48" style="width:${gq(px)};height:${gq(px)};overflow:visible">${defs}${art}</svg>`;
+}
+
+function bsTabList() {
+  const S = bsS();
+  // `built` flips to true as each screen ships; `screen` is the registry id
+  // a tap on the tab jumps to.
+  return [
+    // Claude's own coral, in every theme: the tab is the Claude mark.
+    { key: 'sessions', label: 'SESSIONS', color: '#D97757', built: true, screen: 'screen7' },
+    { key: 'harness', label: 'AI HARNESS', color: S.a2, built: false },
+    { key: 'home', label: 'HOME', color: S.a4, built: false },
+    { key: 'myday', label: 'MY DAY', color: S.a3, built: false },
+    { key: 'lab', label: 'HOME LAB', color: S.dRam, built: hlConfigured(), screen: 'screen6' },
+  ];
+}
+
+/* Which areas need attention, as the colour their tab should take:
+   amber for a warning, red for Home Lab's red alert, nothing when calm. */
+function bsTabAttention() {
+  const S = bsS();
+  const d = sessData();
+  const lab = hlConfigured() ? hlData().mode : null;
+  return {
+    sessions: (d.status === 'offline' || d.list.some(function (s) { return s.state === 'waiting'; })) ? S.warn : null,
+    lab: lab === 'crit' ? S.crit : (lab === 'warn' || lab === 'stale') ? S.warn : null,
+  };
+}
+
+function bsTabs(active, vertical) {
+  if (vertical) return bsTabsColumn(active);
+  const S = bsS();
+  const alert = bsTabAttention();
+  return `<div style="display:flex;align-items:flex-end;gap:${gq(10)}">` +
+    bsTabList().map(function (t) {
+      const on = t.key === active;
+      const col = t.built ? (alert[t.key] || t.color) : S.dim;
+      const glow = t.built ? `filter:drop-shadow(0 0 ${gq(on ? 7 : 4)} ${col}${on ? 'cc' : '88'});` : '';
+      const pulse = t.built && alert[t.key] ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+      return `<div${t.screen ? ` data-screen="${t.screen}"` : ''} style="width:${gq(78)};display:flex;flex-direction:column;align-items:center;gap:${gq(5)};` +
+          `padding:${gq(6)} 0 ${gq(5)};opacity:${t.built ? (on ? 1 : 0.8) : 0.35};` +
+          (on ? `background:linear-gradient(to top, ${col}30, ${col}00);` : '') + `` +
+          `border-bottom:${gq(3)} solid ${on ? col : 'transparent'};${on ? `box-shadow:0 ${gq(4)} ${gq(10)} -${gq(4)} ${col}aa;` : ''}">` +
+        `<div style="display:flex;${glow}${pulse}">${bsTabIcon(t.key, col, 40)}</div>` +
+        `<div style="color:${col};font-size:${gq(9.5)};letter-spacing:${S.ls};white-space:nowrap;${pulse}">${t.label}</div>` +
+        `</div>`;
+    }).join('') + `</div>`;
+}
+
+/* The strip's tabs: a column of icons down the far left, no labels (there
+   is no height for them). The showing screen's tab is lit from the left. */
+function bsTabsColumn(active) {
+  const S = bsS();
+  const alert = bsTabAttention();
+  return `<div style="display:flex;flex-direction:column;justify-content:space-evenly;height:100%">` +
+    bsTabList().map(function (t) {
+      const on = t.key === active;
+      const col = t.built ? (alert[t.key] || t.color) : S.dim;
+      const glow = t.built ? `filter:drop-shadow(0 0 ${gq(on ? 5 : 3)} ${col}${on ? 'cc' : '88'});` : '';
+      const pulse = t.built && alert[t.key] ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+      return `<div${t.screen ? ` data-screen="${t.screen}"` : ''} style="display:flex;align-items:center;` +
+          `justify-content:center;height:${gq(40)};opacity:${t.built ? (on ? 1 : 0.8) : 0.35};` +
+          `border-left:${gq(3)} solid ${on ? col : 'transparent'};` +
+          (on ? `background:linear-gradient(to right, ${col}30, ${col}00);` : '') + `">` +
+        `<div style="display:flex;${glow}${pulse}">${bsTabIcon(t.key, col, 30)}</div>` +
+        `</div>`;
+    }).join('') + `</div>`;
+}
+
+/* The header every full-size screen shares: the tabs, then date and clock. */
+function sessHeader(d, status) { return bsHeader('sessions'); }
+
+function bsHeader(active) {
+  const S = bsS();
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST',
+                  'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+  return `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(6)};height:${gq(96)};` +
+      `display:flex;align-items:flex-end;border-bottom:${gq(2)} solid ${S.edge}">` +
+    `<div style="flex:1"></div>` + bsTabs(active) +
+    `<div style="flex:1;display:flex;justify-content:flex-end;align-items:center;gap:${gq(18)};` +
+        `align-self:center;white-space:nowrap">` +
+      `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:${gq(5)};color:${S.kDate};` +
+        `font-size:${gq(14)};letter-spacing:${S.ls}"><span>${days[now.getDay()]}</span>` +
+        `<span>${months[now.getMonth()]} ${now.getDate()}</span></div>` +
+      `<span style="color:${S.kHour};font-size:${gq(54)};font-weight:${S.fw};font-variant-numeric:tabular-nums;` +
+        `line-height:1;${bsGlow(14, S.kHour)}">${hh}:${mm}</span></div></div>`;
+}
+
+function sessFooter(d) {
+  const S = bsS();
+  const chk = m('sessions.checked_at');
+  const host = chk.available && chk.extra && chk.extra.host ? String(chk.extra.host) : '';
+  let text = '', col = S.dim;
+  if (d.status === 'offline') {
+    const t = chk.available ? Number(chk.value) : NaN;
+    const at = isFinite(t) && t > 0
+      ? new Date(t * 1000).toTimeString().slice(0, 5) : 'NEVER';
+    text = 'SESSION FEED OFFLINE · LAST UPDATE ' + at; col = S.warn;
+  } else if (d.status === 'ok') {
+    text = 'FEED LIVE' + (host ? ' · ' + esc(host) : '');
+  }
+  return `<div style="position:absolute;left:${gq(28)};right:${gq(28)};bottom:${gq(10)};height:${gq(22)};` +
+    `color:${col};font-size:${gq(13)};letter-spacing:${S.ls};text-transform:uppercase;white-space:nowrap;` +
+    `overflow:hidden;${col === S.warn ? bsGlow(8, col) : ''}">${text}</div>`;
+}
+
+function bsSessionsScreen(c) {
+  if (layoutClass() === 'strip') return bsSessionsStrip(c);
+  const S = bsS();
+  const d = sessData();
+  const H = fluidH();
+  const status = sessStatusColor(d);
+  const ROW = 64, GAP = 8, TOP = 118, FOOT = 40;
+  const bodyH = H - TOP - FOOT;
+  const rowsH = bodyH - 34;   // under the column headings
+  const fit = Math.max(1, Math.floor((rowsH + GAP) / (ROW + GAP)));
+  const shown = d.list.length > fit ? d.list.slice(0, fit - 1) : d.list;
+  // A short list grows its rows (up to 1.25x) so names read from across a room.
+  const rowH = d.list.length > fit ? ROW
+    : Math.min(80, Math.max(ROW, Math.floor((rowsH * 0.8 + GAP) / Math.max(1, shown.length) - GAP)));
+  const more = d.list.length - shown.length;
+  const note = function (text, color, size) {
+    return `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:${color};` +
+      `font-size:${gq(size)};letter-spacing:${S.ls};text-transform:uppercase;${bsGlow(14, color)}">${text}</div>`;
+  };
+  let body;
+  if (d.status === 'unconfigured') {
+    body = note('SESSION FEED NOT CONFIGURED', S.dim, 34);
+  } else if (d.status === 'pending') {
+    body = note('CONNECTING TO SESSION FEED', S.dim, 34);
+  } else if (d.list.length === 0) {
+    body = d.status === 'offline' ? note('SESSION FEED OFFLINE', S.warn, 40) : note('NO ACTIVE SESSIONS', S.dim, 40);
+  } else {
+    body = bsSessionHeadings() + `<div style="display:flex;flex-direction:column;gap:${gq(GAP)};` +
+        (d.status === 'offline' ? 'opacity:0.45;' : '') + `">` +
+      shown.map(function (s) { return bsSessionRow(s, rowH); }).join('') + `</div>` +
+      (more > 0 ? `<div style="color:${S.label};font-size:${gq(17)};letter-spacing:${S.ls};` +
+        `padding:${gq(10)} ${gq(16)} 0 ${gq(52)}">+${more} MORE</div>` : '');
+  }
+  const inner = `<div style="position:absolute;left:0;right:0;top:50%;height:${gq(H)};transform:translateY(-50%)">` +
+    `<div style="position:absolute;left:0;right:0;top:0;height:${gq(6)};background:${status};` +
+      (status === S.edge ? '' : `box-shadow:0 0 ${gq(14)} ${status}88;`) + `"></div>` +
+    sessHeader(d, status) +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(TOP)};height:${gq(bodyH)};` +
+      `overflow:hidden">${body}</div>` +
+    sessFooter(d) + `</div>`;
+  return bsFrame(inner, true);
+}
+
+/* Sessions on a bar display (1920x462 is 1024 x 246 units). Same colour
+   bar, columns, clock and footer as the full screen; the tabs move to a
+   column on the far left, and the clock shares the top line with the
+   headings' space. */
+function bsSessionsStrip(c) {
+  const S = bsS();
+  const d = sessData();
+  const H = frameH();
+  const status = sessStatusColor(d);
+  const TOP = STRIP.TOP, HEAD = 22, FOOT = STRIP.FOOT, GAP = 4;
+  const rowsH = H - TOP - HEAD - FOOT - 6;
+  const ROW = 34;
+  const fit = Math.max(1, Math.floor((rowsH + GAP) / (ROW + GAP)));
+  const shown = d.list.slice(0, fit);
+  const more = d.list.length - shown.length;
+  const rowH = Math.min(56, Math.floor((rowsH + GAP) / Math.max(1, shown.length) - GAP));
+  const counts = (d.status === 'ok' || d.status === 'offline') && d.list.length ? sessSummary(d.list) : '';
+  const sumCol = status === S.edge ? S.label : status;
+  let body;
+  const note = function (text, color) {
+    return `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:${color};` +
+      `font-size:${gq(24)};letter-spacing:${S.ls};${bsGlow(10, color)}">${text}</div>`;
+  };
+  if (d.status === 'unconfigured') body = note('SESSION FEED NOT CONFIGURED', S.dim);
+  else if (d.status === 'pending') body = note('CONNECTING TO SESSION FEED', S.dim);
+  else if (d.list.length === 0) {
+    body = d.status === 'offline' ? note('SESSION FEED OFFLINE', S.warn) : note('NO ACTIVE SESSIONS', S.dim);
+  } else {
+    body = bsSessionHeadings(HEAD, 9.5) + `<div style="display:flex;flex-direction:column;gap:${gq(GAP)};` +
+        (d.status === 'offline' ? 'opacity:0.45;' : '') + `">` +
+      shown.map(function (s) { return bsSessionRow(s, rowH, Math.min(0.85, rowH / 46)); }).join('') + `</div>`;
+  }
+  const chk = m('sessions.checked_at');
+  const host = chk.available && chk.extra && chk.extra.host ? esc(String(chk.extra.host)) : '';
+  const foot = d.status === 'offline' ? 'SESSION FEED OFFLINE' : d.status === 'ok' ? 'FEED LIVE' + (host ? ' · ' + host : '') : '';
+  return bsStripFrame({ active: 'sessions', status: status, lead: counts, leadColor: sumCol, body: body,
+                        foot: foot, footColor: d.status === 'offline' ? S.warn : S.dim, more: more });
+}
+
+/* The bar-display frame every strip screen shares (1024 x ~246 units): the
+   status line on top, the tabs in a column on the far left, a top line with
+   the screen's lead text and the date and clock, the body, and a footer. */
+const STRIP = { TABS: 64, X: 78, TOP: 46, FOOT: 18 };
+function bsStripFrame(o) {
+  const S = bsS();
+  const H = frameH(), X = STRIP.X, TOP = STRIP.TOP, FOOT = STRIP.FOOT;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const inner =
+    `<div style="position:absolute;left:0;right:0;top:0;height:${gq(4)};background:${o.status};` +
+      (o.status === S.edge ? '' : `box-shadow:0 0 ${gq(10)} ${o.status}88;`) + `"></div>` +
+    `<div style="position:absolute;left:0;top:${gq(4)};bottom:0;width:${gq(STRIP.TABS)};` +
+      `border-right:${gq(1.5)} solid ${S.edge}">${bsTabs(o.active, true)}</div>` +
+    `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(4)};height:${gq(TOP - 4)};display:flex;` +
+        `align-items:center;gap:${gq(16)};border-bottom:${gq(1.5)} solid ${S.edge}">` +
+      `<div style="color:${o.leadColor};font-size:${gq(o.leadSize || 13)};letter-spacing:${S.ls};white-space:nowrap;` +
+        `${bsGlow(8, o.leadColor)}${o.leadPulse ? ';animation:hlPulse 2s ease-in-out infinite' : ''}">${o.lead}</div>` +
+      `<div style="margin-left:auto;color:${S.kDate};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap">` +
+        `${days[now.getDay()]} · ${months[now.getMonth()]} ${now.getDate()}</div>` +
+      `<div style="color:${S.kHour};font-size:${gq(32)};font-weight:${S.fw};line-height:1;` +
+        `font-variant-numeric:tabular-nums;${bsGlow(10, S.kHour)}">${hh}:${mm}</div></div>` +
+    `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(TOP + 2)};height:${gq(H - TOP - FOOT - 4)};` +
+      `overflow:hidden">${o.body}</div>` +
+    `<div style="position:absolute;left:${gq(X + 16)};right:${gq(32)};bottom:${gq(4)};height:${gq(FOOT - 4)};` +
+        `display:flex;font-size:${gq(9.5)};letter-spacing:${S.ls};white-space:nowrap;text-transform:uppercase;` +
+        `color:${o.footColor}">` +
+      `<span>${o.foot}</span>` +
+      (o.more > 0 ? `<span style="margin-left:auto;color:${S.label}">+${o.more} MORE</span>` : '') + `</div>`;
+  return bsFrame(inner, 'strip');
+}
+
+function sfTosSessions(c) { bsSkin(BS_SKIN_TOS); return bsSessionsScreen(c); }
+function sfTngSessions(c) { bsSkin(BS_SKIN_TNG); return bsSessionsScreen(c); }
+function sfDs9Sessions(c) { bsSkin(BS_SKIN_DS9); return bsSessionsScreen(c); }
+
+
+/* Others / Claude wrappers. The clock is the 9.3" display's: big plain
+   digits, the date beneath, nothing else. Fluid like the Sci-Fi clock. */
+function claudeScreen1(c) { bsSkin(BS_SKIN_CLAUDE); return bsScreen1(c); }
+function claudeNpuScreen(c) { bsSkin(BS_SKIN_CLAUDE); return bsNpuScreen(c); }
+function claudeClaudeScreen(c) { bsSkin(BS_SKIN_CLAUDE); return bsClaudeScreen(c); }
+function claudeGpuScreen(c) { bsSkin(BS_SKIN_CLAUDE); return bsGpuScreen(c); }
+function claudeSessions(c) { bsSkin(BS_SKIN_CLAUDE); return bsSessionsScreen(c); }
+function claudeClockScreen(c) {
+  bsSkin(BS_SKIN_CLAUDE);
+  const S = bsS(), P = CLAUDE_PAL;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const date = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  return bsFrame(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;` +
+      `justify-content:center;gap:${gq(18)};border-top:${gq(6)} solid ${P.line}">` +
+    `<div style="color:${P.ink};font-size:${gq(250)};font-weight:700;line-height:1;` +
+      `font-variant-numeric:tabular-nums;letter-spacing:-0.02em">${hh}:${mm}</div>` +
+    `<div style="color:${P.muted};font-size:${gq(44)};letter-spacing:0.04em">${esc(date)}</div></div>`, true);
+}
+
+
+/* ── Home Lab ────────────────────────────────────────────────────────────
+ * Management by exception: when everything is healthy the screen says so and
+ * nothing else; when something needs attention it says what, where and since
+ * when, worst first. No CPU or memory numbers that do not need attention.
+ * Same chrome as Sessions: status line, tabs, date and clock, footer. */
+function hlConfigured() {
+  const st = m('homelab.status');
+  return st.available && st.value !== 'unconfigured';
+}
+
+function hlData() {
+  const st = m('homelab.status');
+  const status = st.available ? String(st.value) : 'unconfigured';
+  const hm = m('homelab.hosts'), im = m('homelab.issues'), ck = m('homelab.checked_at');
+  const isObj = function (x) { return x && typeof x === 'object'; };
+  const hosts = (hm.available && Array.isArray(hm.value)) ? hm.value.filter(isObj) : [];
+  const issues = (im.available && Array.isArray(im.value)) ? im.value.filter(isObj) : [];
+  const checkedAt = (ck.available && typeof ck.value === 'number' && isFinite(ck.value)) ? ck.value : null;
+  const poll = Number(ck.extra && ck.extra.poll_seconds) || 30;
+  let mode = { ok: 'nominal', warn: 'warn', crit: 'crit', pending: 'pending' }[status] || 'unconfigured';
+  const live = mode === 'nominal' || mode === 'warn' || mode === 'crit';
+  // A stalled poller must never look healthy.
+  if (live && checkedAt === null) mode = 'pending';
+  else if (live && Date.now() / 1000 - checkedAt > 3 * poll) mode = 'stale';
+  return { mode: mode, hosts: hosts, issues: issues, checkedAt: checkedAt };
+}
+
+function hlAgo(epoch) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - epoch));
+  if (s < 60) return s + ' S AGO';
+  if (s < 3600) return Math.floor(s / 60) + ' MIN AGO';
+  return Math.floor(s / 3600) + ' H AGO';
+}
+
+function hlClock(epoch) {
+  const n = Number(epoch);
+  if (!isFinite(n) || n <= 0) return '--:--';
+  const d = new Date(n * 1000);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function hlStateColor(state) {
+  const S = bsS();
+  if (state === 'crit') return S.crit;
+  if (state === 'warn') return S.warn;
+  if (state === 'ok') return S.cLink;
+  return S.dim;
+}
+
+const HL_BANNER = {
+  nominal: 'ALL SYSTEMS NOMINAL', warn: 'YELLOW ALERT', crit: 'RED ALERT', stale: 'TELEMETRY STALE',
+  pending: 'ACQUIRING TELEMETRY', unconfigured: 'HOME LAB NOT CONFIGURED',
+};
+function hlModeColor(mode) {
+  const S = bsS();
+  return mode === 'nominal' ? S.cLink : mode === 'crit' ? S.crit
+    : (mode === 'warn' || mode === 'stale') ? S.warn : S.dim;
+}
+
+/* The status line's colour: green when nominal, amber or red when not, a
+   quiet rule while there is nothing to say yet. */
+function hlStatusColor(mode) {
+  const S = bsS();
+  return (mode === 'pending' || mode === 'unconfigured') ? S.edge : hlModeColor(mode);
+}
+
+function bsAlertBanner(mode, size) {
+  const S = bsS();
+  const text = HL_BANNER[mode] || HL_BANNER.unconfigured, col = hlModeColor(mode);
+  // Fit the line to ~940 units: tracking adds ~0.85em per character.
+  const px = Math.min(size, Math.floor(940 / (text.length * 0.85)));
+  const pulse = mode === 'crit' ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+  return `<div style="text-align:center;color:${col};font-weight:${S.fw};font-size:${gq(px)};line-height:1.1;` +
+    `letter-spacing:${S.ls};white-space:nowrap;${bsGlow(16, col)};${pulse}">${text}</div>`;
+}
+
+/* One pill per host: the name and a lamp. The lamp is the only colour. */
+function bsHostStrip(hosts, k) {
+  const S = bsS();
+  k = k || 1;
+  const round = S.r >= 999 ? '999px' : gq(S.r * 2);
+  const pills = hosts.slice(0, 12).map(function (h) {
+    const col = hlStateColor(h.state);
+    const pulse = h.state === 'crit' ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
+    return `<div style="display:flex;align-items:center;gap:${gq(9 * k)};padding:${gq(6 * k)} ${gq(16 * k)};` +
+        `border:${gq(2)} solid ${col}${h.state === 'ok' ? '88' : ''};border-radius:${round}">` +
+      `<span style="width:${gq(14 * k)};height:${gq(14 * k)};border-radius:50%;background:${col};flex-shrink:0;` +
+        `box-shadow:0 0 ${gq(8 * k)} ${col}aa;${pulse}"></span>` +
+      `<span style="color:${S.label};font-size:${gq(18 * k)};letter-spacing:${S.ls};` +
+        `text-transform:uppercase;white-space:nowrap">${esc(String(h.name))}</span></div>`;
+  }).join('');
+  return `<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:${gq(12 * k)} ${gq(14 * k)}">${pills}</div>`;
+}
+
+/* A severity bar, the host, what is wrong, detail, and since when. `k`
+   scales it down for the strip, where it is one line. */
+function bsIssueCard(i, k) {
+  const S = bsS();
+  k = k || 1;
+  const col = i.severity === 'crit' ? S.crit : S.warn;
+  const oneLine = k < 1;
+  return `<div style="display:flex;align-items:stretch;gap:${gq(14 * k)};min-height:${gq(50 * k)};flex-shrink:0">` +
+    `<div style="width:${gq(10 * k)};background:${col};box-shadow:0 0 ${gq(8)} ${col}88;` +
+      `border-radius:${S.r >= 999 ? '999px' : '0'};flex-shrink:0"></div>` +
+    `<div style="flex:1;min-width:0;display:flex;flex-direction:${oneLine ? 'row' : 'column'};` +
+        `justify-content:${oneLine ? 'flex-start' : 'center'};align-items:${oneLine ? 'center' : 'stretch'};` +
+        `gap:${oneLine ? gq(18) : '0'}">` +
+      `<div style="display:flex;align-items:baseline;gap:${gq(12 * k)};min-width:0">` +
+        `<span style="color:${col};font-size:${gq(17 * k)};letter-spacing:${S.ls};text-transform:uppercase;` +
+          `white-space:nowrap;flex-shrink:0">${esc(String(i.host || ''))}</span>` +
+        `<span style="color:${S.bright};font-size:${gq(24 * k)};white-space:nowrap;overflow:hidden;` +
+          `text-overflow:ellipsis">${esc(String(i.title || ''))}</span></div>` +
+      `<div style="color:${S.dim};font-size:${gq(16 * k)};white-space:nowrap;overflow:hidden;min-width:0;` +
+        `text-overflow:ellipsis">${esc(String(i.detail || ''))}</div></div>` +
+    `<div style="color:${S.label};font-size:${gq(16 * k)};letter-spacing:${S.ls};white-space:nowrap;` +
+      `align-self:center">SINCE ${hlClock(i.since)}</div></div>`;
+}
+
+function hlFooter(d) {
+  const S = bsS();
+  if (d.mode === 'stale') return { text: 'NO FRESH CHECK FOR ' + hlAgo(d.checkedAt).replace(' AGO', ''), color: S.warn };
+  if (d.checkedAt === null) return { text: '', color: S.dim };
+  return { text: 'CHECKED ' + hlAgo(d.checkedAt) + ' · ' + d.hosts.length + ' HOSTS', color: S.dim };
+}
+
+function bsHomelabScreen(c) {
+  if (layoutClass() === 'strip') return bsHomelabStrip(c);
+  const S = bsS();
+  const d = hlData();
+  const H = fluidH();
+  const status = hlStatusColor(d.mode);
+  const TOP = 118, FOOT = 40;
+  const bodyH = H - TOP - FOOT;
+  const calm = d.issues.length === 0;
+  // Below a compact banner (~70) and the host strip (~2 rows, ~100): cards of ~62.
+  const fit = Math.max(1, Math.min(6, Math.floor((bodyH - 190) / 62)));
+  const shown = d.issues.length > fit ? d.issues.slice(0, fit - 1) : d.issues;
+  const more = d.issues.length - shown.length;
+  const cards = calm ? '' :
+    `<div style="display:flex;flex-direction:column;gap:${gq(12)}">` +
+      shown.map(function (i) { return bsIssueCard(i); }).join('') +
+      (more > 0 ? `<div style="color:${S.label};font-size:${gq(16)};letter-spacing:${S.ls};` +
+        `text-align:right">+${more} MORE</div>` : '') + `</div>`;
+  const body = `<div style="height:100%;display:flex;flex-direction:column;` +
+      `justify-content:${calm ? 'center' : 'flex-start'};gap:${gq(calm ? 48 : 22)}">` +
+    bsAlertBanner(d.mode, calm ? 96 : 60) + bsHostStrip(d.hosts) + cards + `</div>`;
+  const foot = hlFooter(d);
+  const inner = `<div style="position:absolute;left:0;right:0;top:50%;height:${gq(H)};transform:translateY(-50%)">` +
+    `<div style="position:absolute;left:0;right:0;top:0;height:${gq(6)};background:${status};` +
+      (status === S.edge ? '' : `box-shadow:0 0 ${gq(14)} ${status}88;`) + `"></div>` +
+    bsHeader('lab') +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(TOP)};height:${gq(bodyH)};` +
+      `overflow:hidden">${body}</div>` +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};bottom:${gq(10)};height:${gq(22)};` +
+      `color:${foot.color};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap;overflow:hidden">` +
+      `${foot.text}</div></div>`;
+  return bsFrame(inner, true);
+}
+
+/* Home Lab on a bar display: the banner is the top line's lead, then the
+   host lights in one row and up to three one-line issues. */
+function bsHomelabStrip(c) {
+  const S = bsS();
+  const d = hlData();
+  const H = frameH();
+  const rowsH = H - STRIP.TOP - STRIP.FOOT - 6;
+  const calm = d.issues.length === 0;
+  const fit = calm ? 0 : Math.max(1, Math.floor((rowsH - 34) / 36));
+  const shown = d.issues.slice(0, fit);
+  const more = d.issues.length - shown.length;
+  const col = hlModeColor(d.mode);
+  const body = `<div style="height:100%;display:flex;flex-direction:column;` +
+      `justify-content:${calm ? 'center' : 'flex-start'};gap:${gq(calm ? 0 : 8)};padding-top:${gq(calm ? 0 : 4)}">` +
+    bsHostStrip(d.hosts, calm ? 0.95 : 0.58) +
+    (calm ? '' : `<div style="display:flex;flex-direction:column;gap:${gq(5)}">` +
+      shown.map(function (i) { return bsIssueCard(i, 0.62); }).join('') + `</div>`) + `</div>`;
+  const foot = hlFooter(d);
+  return bsStripFrame({ active: 'lab', status: hlStatusColor(d.mode), lead: HL_BANNER[d.mode] || HL_BANNER.unconfigured,
+                        leadColor: col, leadSize: 20, leadPulse: d.mode === 'crit', body: body,
+                        foot: foot.text, footColor: foot.color, more: more });
+}
+
+function sfTosHomelab(c) { bsSkin(BS_SKIN_TOS); return bsHomelabScreen(c); }
+function sfTngHomelab(c) { bsSkin(BS_SKIN_TNG); return bsHomelabScreen(c); }
+function sfDs9Homelab(c) { bsSkin(BS_SKIN_DS9); return bsHomelabScreen(c); }
+function claudeHomelab(c) { bsSkin(BS_SKIN_CLAUDE); return bsHomelabScreen(c); }
