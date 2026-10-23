@@ -52,9 +52,12 @@ software.** The software is the same for everyone; a site folder says where and 
 - Installing an operating system or base packages on a kiosk (the tooling assumes the
   kiosk machine has a browser and a compositor; it says so if they are missing).
 - Device approval: still done in the control panel (pairing stays the gate).
-- Programs that drive a specific screen's hardware (e.g. a USB LCD's own driver). They
-  are separate projects with their own licences; they read the picture URL from their own
-  config. chiketi documents the contract (fetch `/lcd.png`), nothing more.
+- The program that pushes pictures to a screen's hardware (e.g. a USB LCD with its own
+  protocol). It is a separate project with its own licence, kept as small as possible: it
+  fetches `/lcd.png` and sends it to the screen, and shows a plain "no signal" frame when
+  pictures stop. It draws nothing else (no own sessions or backup views: chiketi draws
+  every screen, and backup trouble surfaces on Home Lab). chiketi defines the contract and
+  generates the pusher's config file (below); the pusher's code is not part of chiketi.
 
 ## The site format
 
@@ -93,6 +96,8 @@ kind = "picture"              # rendered on the server by lcd-snap
 width = 1920
 height = 462
 readers = ["192.0.2.30"]      # machines allowed to fetch the picture
+pusher_ssh = "admin@192.0.2.30"                      # the machine the screen is plugged into
+pusher_config = "~/.config/chiketi-pusher/config.toml" # where the pusher reads its settings
 
 [session_feed]
 ssh = "admin@192.0.2.40"
@@ -122,7 +127,7 @@ Rules:
 | `check` | Validates `site.toml` and `server/*.toml`; prints the plan of machines and parts. Touches nothing. |
 | `render PART [--display ID]` | Prints a generated file (`server-unit`, `kiosk-page`, `kiosk-launcher`, `kiosk-unit`, `picture-unit`, `feed-unit`, `feed-env`). Touches nothing. |
 | `deploy server [--ref REF]` | Today's server deploy: `git archive` of a committed chiketi version into a venv under `install_dir`, the generated unit, `server/*.toml` into `~/.config/chiketi/`, restart, health check. |
-| `deploy display ID` | `browser`: generated wrapper page, launcher and unit to the kiosk machine, restart the kiosk. `picture`: generated lcd-snap unit and its files on the server, restart it. |
+| `deploy display ID` | `browser`: generated wrapper page, launcher and unit to the kiosk machine, restart the kiosk. `picture`: generated lcd-snap unit and its files on the server, restart it, and the generated pusher config (picture URL, size, how long before "no signal") to `pusher_ssh`:`pusher_config`. Restarting the pusher is the pusher's own service's job (`--restart-unit NAME` optional). |
 | `deploy feed` | Generated session-feed unit and environment file to the feed machine (the code comes from the chiketi checkout on that machine, as today). |
 | `deploy probe [HOST…]` | Installs the Home Lab probe on the hosts listed (or all of `[homelab].probe_hosts`), using the server's probe key. |
 
@@ -143,6 +148,8 @@ private repository holds today:
 - `lcd-snap.service` (LCD_URL with the display id and `feed=picture`, LCD_ALLOW from
   `readers`, LCD_W/LCD_H)
 - `claude-session-feed.service` and `feed.env` (FEED_ALLOW from `readers`)
+- `pusher.toml` for a picture display's pusher: `url = "http://{address}:7778/lcd.png"`,
+  `width`, `height`, `stale_seconds` (default 15)
 
 Values are escaped for their context (HTML for the page, systemd quoting for units), and
 rendering refuses a value containing a newline.
@@ -172,7 +179,10 @@ section is rewritten around it.
    example comments) or fixed in the template before anything is deployed.
 3. Deploy each part with the new command; verify the server's health, both displays
    checking in, frames reaching the picture reader, the session feed answering.
-4. The private repository then holds only the site folder, notes and house tools that are
+4. The USB LCD's existing driver is cut down to a pusher (fetch, push, "no signal"),
+   reading `pusher.toml`; its own sessions and backup views are removed. It stays its own
+   small GPL program, outside chiketi.
+5. The private repository then holds only the site folder, notes and house tools that are
    not part of chiketi (they move out of the way of the site folder).
 
 ## Testing
