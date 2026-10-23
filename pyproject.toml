@@ -66,6 +66,12 @@ chiketi = ["assets/**/*"]
 # cannot be swept up by pytest's *_test.py glob and drag in a non-dev dep.
 testpaths = ["tests"]
 
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
 [tool.ruff.lint.per-file-ignores]
 # Imports must follow the sys.path.insert that makes `chiketi` importable.
 "scripts/gen_site_assets.py" = ["E402"]

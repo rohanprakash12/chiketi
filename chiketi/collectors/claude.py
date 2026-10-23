@@ -7,7 +7,7 @@ import json
 import os
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from chiketi.collectors.base import MetricCollector, MetricValue
 
@@ -63,7 +63,7 @@ def _parse_timestamp(raw) -> datetime | None:
         ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except Exception:
         return None
-    return ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
 
 
 def _new_session_stats() -> dict:

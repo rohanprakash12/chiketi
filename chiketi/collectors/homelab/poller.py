@@ -88,7 +88,7 @@ class HomelabPoller(threading.Thread):
         hosts = self._cfg.hosts
         with ThreadPoolExecutor(max_workers=min(8, len(hosts))) as ex:
             results = list(ex.map(lambda h: self._check(h, now), hosts))
-        for h, (conds, partial) in zip(hosts, results):
+        for h, (conds, partial) in zip(hosts, results, strict=True):
             self._tracker.update(h.name, conds, now, partial)
             if conds or not partial:
                 self._checked.add(h.name)

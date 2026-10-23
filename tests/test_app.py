@@ -234,7 +234,8 @@ class TestMetricEngine:
             engine.join(timeout=2)
         assert not engine.is_alive()
         assert len(fake.stamps) >= 3, fake.stamps
-        gaps = [b - a for a, b in zip(fake.stamps, fake.stamps[1:])]
+        # Consecutive pairs: the second list is one shorter, so not strict.
+        gaps = [b - a for a, b in zip(fake.stamps, fake.stamps[1:], strict=False)]
         avg = sum(gaps) / len(gaps)
         # Old behaviour slept a full interval *after* collecting: 0.32s.
         # New behaviour sleeps the remainder: ~0.20s.

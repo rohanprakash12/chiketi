@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from chiketi.collectors.disk import _gib as disk_gib, _tib
+from chiketi.collectors.disk import _gib as disk_gib
+from chiketi.collectors.disk import _tib
 from chiketi.collectors.llm import _extract_quant
 from chiketi.collectors.memory import _gib as mem_gib
 from chiketi.collectors.network import _format_rate

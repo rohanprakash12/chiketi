@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from chiketi.config import Timing, TIMING
+from chiketi.config import TIMING, Timing
 
 
 class TestTimingDefaults:

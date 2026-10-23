@@ -10,8 +10,8 @@ import json
 import os
 import socket
 import threading
-import urllib.request
 import urllib.error
+import urllib.request
 from http.server import HTTPServer, ThreadingHTTPServer
 from unittest import mock
 
@@ -27,7 +27,6 @@ from chiketi.server import (
     _serialize_metrics,
     set_metrics_source,
 )
-
 
 XRANDR_SAMPLE = """\
 Screen 0: minimum 320 x 200, current 1920 x 1080, maximum 16384 x 16384

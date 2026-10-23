@@ -122,7 +122,8 @@ def test_self_update_limits_fields():
     r.approve("kiosk-1", "Go")
     s = r.self_update("kiosk-1", {"auto_rotate": True, "seconds": 9999, "theme": "Others/Claude",
                                     "name": "hijack", "gear": False})
-    assert (s["auto_rotate"], s["seconds"], s["theme"], s["name"], s["gear"]) == (True, 600, "Others/Claude", "Go", True)
+    got = (s["auto_rotate"], s["seconds"], s["theme"], s["name"], s["gear"])
+    assert got == (True, 600, "Others/Claude", "Go", True)
     with pytest.raises(ValueError):
         r.self_update("kiosk-1", {"theme": "No/Such"})
     with pytest.raises(KeyError):

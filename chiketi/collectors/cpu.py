@@ -108,7 +108,7 @@ class CpuCollector(MetricCollector):
 
             cpu_fans: list[float] = []
             case_fans: list[float] = []
-            for idx, label, rpm in all_fans:
+            for idx, _label, rpm in all_fans:
                 if rpm > 0:
                     # Track which fans have been seen active
                     self._active_fan_indices.add(idx)

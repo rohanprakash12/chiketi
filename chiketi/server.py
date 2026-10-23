@@ -11,15 +11,17 @@ import os
 import subprocess
 import threading
 import time
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 from chiketi.config import TIMING
-from chiketi.themes import (
-    get_active_theme, set_active_theme,
-    get_families,
-)
+from chiketi.devices import DeviceRegistry, clean_caps, valid_id
 from chiketi.panel_spec import web_spec
+from chiketi.themes import (
+    get_active_theme,
+    get_families,
+    set_active_theme,
+)
 
 CONTROL_PORT = 7777
 
@@ -53,8 +55,6 @@ _STATE_LOCK = threading.RLock()
 # could write their snapshots out of order and leave the saved file describing
 # an older state than the live one.
 _PERSIST_LOCK = threading.Lock()
-
-from chiketi.devices import DeviceRegistry, clean_caps, valid_id
 
 # Displays registered with this server (see chiketi/devices.py).
 DEVICES = DeviceRegistry()
@@ -940,8 +940,8 @@ def start_server(bind_host: str = "0.0.0.0", token: str | None = None) -> None:
 
     # Ensure a DisplayManager exists even if app.run() was not used. In the
     # normal app.run() path the manager is created first, so this is a no-op.
-    from chiketi.app import get_display_manager, DisplayManager
     import chiketi.app as _app_mod
+    from chiketi.app import DisplayManager, get_display_manager
     if get_display_manager() is None:
         _app_mod._display_mgr = DisplayManager(
             f"http://localhost:{CONTROL_PORT}/display"

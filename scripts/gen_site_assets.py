@@ -7,10 +7,11 @@ import pathlib
 import shutil
 import subprocess
 import sys
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from chiketi.panel_spec import web_spec
-from chiketi.themes import get_families, get_active_family, get_active_theme
+from chiketi.themes import get_active_family, get_active_theme, get_families
 
 UI = ROOT / "chiketi" / "assets" / "ui"
 OUT = ROOT / "docs" / "site"
@@ -35,8 +36,7 @@ themes_blob = {"active_family": get_active_family(),
 # like a real, good-looking machine rather than a test rig.
 fixture_json = subprocess.run(
     ["node", "-e",
-     "process.stdout.write(JSON.stringify(require(%s).FULL))"
-     % json.dumps(str(ROOT / "tests" / "js" / "fixtures.js"))],
+     f"process.stdout.write(JSON.stringify(require({json.dumps(str(ROOT / 'tests' / 'js' / 'fixtures.js'))}).FULL))"],
     check=True, capture_output=True, text=True, cwd=str(ROOT)).stdout
 metrics = json.loads(fixture_json)
 
@@ -80,10 +80,13 @@ shim = r"""
 /* ── site render shim (replaces display_app.js poll loop) ── */
 var metrics = window.SITE_METRICS;
 var activeFamily = null, activeVariant = null, themeColors = null;
-function m(key){ if(!metrics||!metrics[key]) return {value:null,available:false,unit:'',extra:{}}; return metrics[key]; }
-function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A'; return esc(suffix? d.value+suffix : String(d.value)); }
+function m(key){ if(!metrics||!metrics[key]) return {value:null,available:false,unit:'',extra:{}};
+  return metrics[key]; }
+function mv(key,suffix){ var d=m(key); if(!d.available) return 'N/A';
+  return esc(suffix? d.value+suffix : String(d.value)); }
 function cleanModel(){ var d=m('llama.model'); if(!d.available) return '--';
-  return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'').replace(/_/g,' ').replace(/-$/,'')); }
+  return esc(String(d.value).replace(/\.gguf$/i,'').replace(/[-_]Q\d[A-Z0-9_]*$/i,'')
+    .replace(/_/g,' ').replace(/-$/,'')); }
 
 /* Mirrors getScreenRegistry() in display_app.js. The site used to render only
    screen 1, which quietly made four fifths of the product invisible to anyone
@@ -182,7 +185,7 @@ _T_PX_TO_CQW = [
      "    font-size: 1.367cqw; font-family: 'Consolas', monospace; line-height: 1.5625cqw;"),
 ]
 for _old, _new in _T_PX_TO_CQW:
-    assert _old in display_css, "gen_site_assets: .t-* anchor not found: %r" % _old
+    assert _old in display_css, f"gen_site_assets: .t-* anchor not found: {_old!r}"
     display_css = display_css.replace(_old, _new)
 # Mirror the product (server.py): substitute the url-rewritten fonts.css INTO the
 # __FONTS_CSS__ placeholder in display.css. Concatenating instead would leave the
@@ -209,5 +212,5 @@ for f in sorted(FONTS_DST.iterdir()):
     if f.is_file() and f.name not in _wanted:
         f.unlink()
 
-print("wrote data.js (%d themes), dashboard.js, dashboard.css; mirrored %d font files"
-      % (sum(len(v) for v in families.values()), len(_wanted)))
+print(f"wrote data.js ({sum(len(v) for v in families.values())} themes), dashboard.js, dashboard.css; "
+      f"mirrored {len(_wanted)} font files")

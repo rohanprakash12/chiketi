@@ -9,11 +9,11 @@ real failure mode of the obvious narrow-except implementation.
 from __future__ import annotations
 
 import contextlib
-import signal
-import threading
 import json
 import os
+import signal
 import stat
+import threading
 from pathlib import Path
 from unittest import mock
 

@@ -532,7 +532,10 @@ def run(
     engine.start()
 
     from chiketi.server import (
-        start_server, set_metrics_source, apply_saved_state, CONTROL_PORT,
+        CONTROL_PORT,
+        apply_saved_state,
+        set_metrics_source,
+        start_server,
     )
     display_url = f"http://localhost:{CONTROL_PORT}/display"
 

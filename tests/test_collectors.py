@@ -12,7 +12,6 @@ from unittest import mock
 
 import pytest
 
-
 import chiketi.collectors.claude as claude_mod
 import chiketi.collectors.cpu as cpu_mod
 import chiketi.collectors.disk as disk_mod
@@ -569,8 +568,9 @@ class TestTokSecStaleness:
 
 class TestClaudeCollector:
     def test_scan_file_accumulates(self, tmp_path):
-        from tests.conftest import FIXTURES_DIR
         import os
+
+        from tests.conftest import FIXTURES_DIR
         col = ClaudeCollector()
         totals = {
             "input": 0, "output": 0, "cache_write": 0, "cache_read": 0,

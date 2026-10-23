@@ -71,7 +71,7 @@ def _load_pci_ids() -> dict[tuple[str, str], str]:
     table: dict[tuple[str, str], str] = {}
     for path in _PCI_IDS_PATHS:
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            with open(path, encoding="utf-8", errors="replace") as fh:
                 vendor = None
                 for line in fh:
                     if not line or line.startswith("#"):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 # Core Panel palette (Gold variant)
 PANEL_GOLD = "#FDCD06"
 PANEL_RED = "#BF0F0F"
