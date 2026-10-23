@@ -34,9 +34,14 @@ themes_blob = {"active_family": get_active_family(),
 # fixture. tests/js/fixtures.js FULL is the one map a harness assertion keeps
 # complete, so take it as the base and overlay only what makes the shot look
 # like a real, good-looking machine rather than a test rig.
+# The fixture stamps times from Date.now(); pin the clock so the output is the same on
+# every run (CI fails on any diff). data.js shifts those times to the viewer's clock.
+SITE_EPOCH = 1792800000
+_fixtures = json.dumps(str(ROOT / "tests" / "js" / "fixtures.js"))
 fixture_json = subprocess.run(
     ["node", "-e",
-     f"process.stdout.write(JSON.stringify(require({json.dumps(str(ROOT / 'tests' / 'js' / 'fixtures.js'))}).FULL))"],
+     f"Date.now = () => {SITE_EPOCH * 1000}; "
+     f"process.stdout.write(JSON.stringify(require({_fixtures}).FULL))"],
     check=True, capture_output=True, text=True, cwd=str(ROOT)).stdout
 metrics = json.loads(fixture_json)
 
@@ -70,6 +75,22 @@ data_js = (
     "window.PANEL_SPEC = " + json.dumps(web_spec()) + ";\n"
     "window.SITE_THEMES = " + json.dumps(themes_blob) + ";\n"
     "window.SITE_METRICS = " + json.dumps(metrics) + ";\n"
+    f"window.SITE_EPOCH = {SITE_EPOCH};\n"
+    "(function () {\n"
+    "  // Demo times were made at SITE_EPOCH; move them to now so ages read as intended.\n"
+    "  var d = Math.floor(Date.now() / 1000) - window.SITE_EPOCH, m = window.SITE_METRICS;\n"
+    "  function rebase(v) {\n"
+    "    if (Array.isArray(v)) { v.forEach(rebase); return; }\n"
+    "    if (!v || typeof v !== 'object') return;\n"
+    "    for (var k in v) {\n"
+    "      if (k === 'since' && typeof v[k] === 'number') v[k] += d; else rebase(v[k]);\n"
+    "    }\n"
+    "  }\n"
+    "  for (var key in m) {\n"
+    "    if (/\\.checked_at$/.test(key) && typeof m[key].value === 'number') m[key].value += d;\n"
+    "    else rebase(m[key].value);\n"
+    "  }\n"
+    "})();\n"
 )
 (OUT / "data.js").write_text(data_js)
 
