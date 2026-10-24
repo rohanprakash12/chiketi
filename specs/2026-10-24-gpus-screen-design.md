@@ -110,9 +110,9 @@ gpu_procs=<pci bus id>|<count>
   limited to 5 s, and the process query to 4 s, so the GPU part takes at most 14 s. Where it
   does not, there is no per-call bound, and the poller's SSH limit is the only one.
   - That limit (`run_probe`) rises from 20 s to 30 s.
-  - A poll takes as long as its slowest host (eight run at once), and the next poll starts
-    `poll_seconds` after it finishes. A refresh can therefore take up to about
-    `poll_seconds + 30 s`, and the staleness rule in §3 allows for that.
+  - A poll takes as long as its slowest batch of hosts (eight run at once), and the next
+    poll starts `poll_seconds` after it finishes. §3's staleness allowance is built from
+    that schedule.
 
 ## 2. Parsing, state and alerts (`collectors/homelab/`)
 
@@ -135,14 +135,17 @@ gpu_procs=<pci bus id>|<count>
 
 **`rules.py`**
 - `gpu_state(gpu, thresholds, host_outcome) -> str` implements decision 3.
-- `IssueTracker.update()` gains `keep_prefixes=()`: keys starting with one of these
-  prefixes that the update does not mention are left exactly as they were, as for a partial
-  update. Every other key clears normally.
-  - When a host answers but its GPU telemetry is unavailable (`unreadable`), the poller
-    passes `keep_prefixes=("gpu_temp:",)`.
-  - So a raised GPU alert survives a failed GPU query, while that host's filesystem and
-    memory issues still clear normally.
-  - Cached readings are never evaluated again as new evidence.
+- `IssueTracker.update()` gains `keep=None`, a predicate on condition keys. A key it
+  accepts that the update does not mention is left exactly as it was, as for a partial
+  update. Every other key clears normally. The poller passes:
+  - for an `unreadable` host: every `gpu_temp:` key (no GPU there has fresh evidence);
+  - for an `ok` or `legacy` host: exactly the keys `gpu_temp:<i>` of the GPUs whose
+    reading lacks what recovery needs. That is a missing temperature, or (version 2) a
+    missing throttle mask.
+
+  So a raised GPU alert is cleared only by a reading that shows it is over. It is never
+  cleared by an `N/A`, or by a failed query. Other GPUs, and the host's filesystem and memory
+  issues, clear normally. Cached readings are never evaluated again as new evidence.
 - **One condition per GPU:** `gpu_temp:<index>` (the existing key, so a running issue
   carries over).
   - Its severity and title come from heat *or* throttling: crit `GPU <i> <t>°C`, warn
@@ -200,12 +203,14 @@ After each poll the snapshot gains:
   `bsGpusScreen(c)`.
 
 **Freshness:**
-- **Staleness** is judged on `homelab.gpus`' own `extra.published_at` (when the snapshot
-  was published, i.e. the poll *finished*) and `extra.stale_after` (seconds). Both are set
-  by the collector, which knows the schedule:
-  `stale_after = 2 × (1.1 × poll_seconds + ceil(hosts / 8) × 30)`.
-  - That is two full cycles at the worst case: the 10 % jitter, the 30 s SSH limit, and
-    eight hosts at a time.
+- **Staleness** is judged on `homelab.gpus`' own `extra.published_at` and
+  `extra.stale_after` (seconds).
+  - `published_at` is stamped by `poll_once()` when it publishes the snapshot (the poll
+    *finished*). The collector copies it unchanged, so repeated `collect()` calls on a frozen
+    snapshot never make it look newer.
+  - `stale_after = 2 × (1.1 × poll_seconds + ceil(hosts / 8) × 40)` is a conservative
+    allowance, not an exact bound. It is two cycles, with the 10 % jitter, and 40 s per batch
+    of eight hosts: the 30 s SSH limit plus a backup-API fetch.
   - The display marks the GPU data stale when `now − published_at > stale_after`.
   - Home Lab's own screen keeps its rule; `checked_at` (the poll start) stays as it is.
 - **When stale:**
@@ -217,9 +222,9 @@ After each poll the snapshot gains:
   `SEEN <age>` under its state, and is left out of the power total.
 - **Power.** `n` counts every GPU row (cached ones included), and `a` the rows that are
   fresh and have a finite power reading:
-  - `<W> W NOW` when the snapshot is fresh and `a = n`;
+  - `<W> W NOW` when the snapshot is fresh and `a = n > 0`;
   - `<W> W FROM a OF n GPUS` when `0 < a < n`;
-  - `-- W` when `a = 0` or the snapshot is stale.
+  - `-- W` when `a = 0` (including no GPUs at all) or the snapshot is stale.
 
 **Full layout** (Sessions' frame: status bar, `bsHeader('gpus')`, body, footer):
 - **Columns:**
@@ -326,6 +331,11 @@ through `gq()`.
 - **Alerts survive an unreadable query:** a raised GPU issue stays through `unreadable`
   cycles, while the same host's other issues clear. It clears normally after good `ok`
   polls, including when one of two GPUs was alerted and both now read healthy.
+- **Alerts survive missing fields:** a raised heat alert stays while that GPU's temperature
+  reads `N/A`, and a throttling alert stays while its mask reads `N/A`. Each clears after a
+  real healthy reading, while a second GPU's alert clears on its own good readings.
+- **`published_at`:** repeated `collect()` calls on a frozen snapshot return the same
+  value.
 - **Slow polls:** with a fake clock, a 10 s poll, 30 s collections and 12 hosts (two
   batches), the published snapshot is never stale between two consecutive publications,
   including just before the second one. A poller that stops publishing is stale after
