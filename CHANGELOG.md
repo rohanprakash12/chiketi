@@ -16,6 +16,11 @@ Chiketi grows from one dashboard on one panel into a server for several displays
   `chiketi-site deploy probe <host>`; hosts on the old probe show temperatures only.
 - Home Lab raises one issue per GPU for heat or throttling, cleared only by a
   reading that shows it is over.
+- Throttling is judged over the last few polls: a card whose driver reports a
+  slowdown on and off (seen on a V100 at its memory-heat limit) reads THROTTLING
+  steadily, and the alert needs 3 slowdowns in the last 4 polls. The probe also
+  reports each card's memory temperature (shown under the core temperature) and
+  its UUID, so a swapped card never inherits another's history.
 - New Kiosk displays get Home Lab, Sessions and GPUs; saved displays are unchanged.
 
 ### Screen modes

@@ -86,7 +86,8 @@ judged on the whole array (`unraid_array_pct`), not each `/mnt/diskN`. GPUs (pro
 come with an explicit outcome per host (`ok`, `legacy`, `none`, `unreadable`, `offline`,
 `pending`); each host's last GPUs are remembered in the baseline file, an unreadable
 sample is never used, and a GPU alert clears only on a reading that shows it is over
-(`IssueTracker.update(keep=...)`).
+(`IssueTracker.update(keep=...)`). Throttling is judged over a short per-GPU history in
+the poller (monotonic, identity-checked, spec §6), not one sample.
 
 ## Devices and pairing
 
