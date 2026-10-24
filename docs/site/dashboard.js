@@ -4921,14 +4921,14 @@ function tngSessions(c) {
   const D = kioskSess();
   const H = kioskH();
   const cols = [22, 'minmax(0,1fr)', 130, 160, 100, 64, 86].map(function (w) { return typeof w === 'number' ? kq(w) : w; }).join(' ');
-  // Five rows at the design height, more in a taller frame, never more than fit.
+  // Five rows at the design height (the mockup), as many as fit in a taller frame.
   const budget = H - 76 - 22, rowsH = function (list) {
     return list.reduce(function (a, s) { return a + (s.message ? 80 : 68) + 6; }, 0);
   };
   const capFor = function (room) {
     let k = 0;
     while (k < D.list.length && rowsH(D.list.slice(0, k + 1)) <= room) k++;
-    return Math.min(k, 5 + Math.max(0, Math.floor((H - 600) / 74)));
+    return H <= 600 ? Math.min(k, 5) : k;
   };
   const f = kioskFit(D.list.length, capFor(budget), capFor(budget - 34));
   const shown = D.list.slice(0, f.shown);
@@ -5199,7 +5199,7 @@ function ds9Sessions(c) {
   const capFor = function (room) {
     let k = 0, used = 0;
     while (k < D.list.length && used + (D.list[k].message ? RH[0] : RH[1]) + 6 <= room) { used += (D.list[k].message ? RH[0] : RH[1]) + 6; k++; }
-    return Math.min(k, 5 + Math.max(0, Math.floor((H - 600) / 66)));
+    return H <= 600 ? Math.min(k, 5) : k;
   };
   if (capFor(budget - 30) < Math.min(5, D.list.length) && D.list.length > capFor(budget)) RH = [62, 52];
   const f = kioskFit(D.list.length, capFor(budget), capFor(budget - 30));
@@ -5575,7 +5575,10 @@ function tgrad(S, frac, n) {
 function tdsFrame(S, v, active, body) {
   const D = kioskClock();
   const worst = kioskWorst();
+  // The server's name, within the date line's 15 columns: the tabs start right after.
   const host = m('sys.hostname');
+  const name = host.available && host.value != null ? String(host.value) : '--';
+  const hostLine = Array.from('chiketi · ' + name).length <= 15 ? 'chiketi · ' + name : name;
   const tabs = kioskMenu(active).map(function (t, k) {
     const sup = TDS_SUP.charAt(k) || String(k + 1);
     if (t.active) {
@@ -5589,7 +5592,7 @@ function tdsFrame(S, v, active, body) {
       `font-size:${kq(19)};line-height:${kq(25)}">` +
     `<div style="position:absolute;left:${kq(14)};top:${kq(10)};display:flex;align-items:center;gap:${kq(16)}">${pixClock(S, D.hm)}` +
       `<div style="line-height:${kq(22)}"><div style="color:${S.label};font-size:${kq(17)}">${D.short} ${D.year}</div>` +
-      `<div style="color:${S.accent};font-size:${kq(17)};white-space:nowrap">chiketi · ${host.available ? esc(host.value) : '--'}</div></div></div>` +
+      `<div data-hostline style="color:${S.accent};font-size:${kq(17)};white-space:nowrap;max-width:${kq(156)};overflow:hidden;text-overflow:ellipsis">${esc(hostLine)}</div></div></div>` +
     `<div style="position:absolute;left:${kq(366)};right:${kq(8)};top:${kq(18)};display:flex;gap:${kq(4)};font-size:${kq(16)};line-height:${kq(24)};` +
       `white-space:nowrap;overflow:hidden">${tabs}</div>` +
     `<div style="position:absolute;left:${kq(8)};right:${kq(8)};top:${kq(80)};bottom:${kq(8)};border:1px solid ${S.dim};border-radius:${kq(8)};` +

@@ -149,14 +149,14 @@ function tngSessions(c) {
   const D = kioskSess();
   const H = kioskH();
   const cols = [22, 'minmax(0,1fr)', 130, 160, 100, 64, 86].map(function (w) { return typeof w === 'number' ? kq(w) : w; }).join(' ');
-  // Five rows at the design height, more in a taller frame, never more than fit.
+  // Five rows at the design height (the mockup), as many as fit in a taller frame.
   const budget = H - 76 - 22, rowsH = function (list) {
     return list.reduce(function (a, s) { return a + (s.message ? 80 : 68) + 6; }, 0);
   };
   const capFor = function (room) {
     let k = 0;
     while (k < D.list.length && rowsH(D.list.slice(0, k + 1)) <= room) k++;
-    return Math.min(k, 5 + Math.max(0, Math.floor((H - 600) / 74)));
+    return H <= 600 ? Math.min(k, 5) : k;
   };
   const f = kioskFit(D.list.length, capFor(budget), capFor(budget - 34));
   const shown = D.list.slice(0, f.shown);
@@ -427,7 +427,7 @@ function ds9Sessions(c) {
   const capFor = function (room) {
     let k = 0, used = 0;
     while (k < D.list.length && used + (D.list[k].message ? RH[0] : RH[1]) + 6 <= room) { used += (D.list[k].message ? RH[0] : RH[1]) + 6; k++; }
-    return Math.min(k, 5 + Math.max(0, Math.floor((H - 600) / 66)));
+    return H <= 600 ? Math.min(k, 5) : k;
   };
   if (capFor(budget - 30) < Math.min(5, D.list.length) && D.list.length > capFor(budget)) RH = [62, 52];
   const f = kioskFit(D.list.length, capFor(budget), capFor(budget - 30));

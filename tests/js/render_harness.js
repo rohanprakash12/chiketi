@@ -145,7 +145,7 @@ const KIOSK_WORDS = { 'Sci-Fi/TOS': BS_WORDS, 'Others/Claude': BS_WORDS };
 const LOOK_WORDS = function (lab, over) {
   return Object.assign({}, BS_WORDS, { lab: Object.assign({}, BS_WORDS.lab, lab) }, over || {});
 };
-KIOSK_WORDS['Sci-Fi/TNG'] = LOOK_WORDS({ HL_YELLOW: 'CONDITION YELLOW' }, { gpuGrouped: true,
+KIOSK_WORDS['Sci-Fi/TNG'] = LOOK_WORDS({ HL_YELLOW: 'CONDITION YELLOW' }, { gpuGrouped: true, tallSess683: 7,
   status: { ok: '#CC99CC', warn: '#FFCC66', crit: '#FF5544' } });
 ['cyan', 'amber', 'phosphor', 'red_alert', 'blue', 'hacker'].forEach(function (v) {
   KIOSK_WORDS['Terminal/' + v] = LOOK_WORDS({ FULL: 'GREEN', KIOSK_CALM: 'GREEN', HL_YELLOW: 'YELLOW', HL_RED: 'RED', HL_BUSY: 'RED',
@@ -951,6 +951,15 @@ __HARNESS.skins.forEach(function (skin) {
         const hidden = c[1] - got.length;
         if (hidden ? !(more && Number(more[1]) === hidden) : !!more) fail('LOOKS', where + ' ' + c[0], 'MORE ' + (more && more[1]) + ' for ' + hidden + ' hidden');
       });
+      // No wasted space (the Go's 683, and 770): a taller frame shows more sessions, not
+      // the design height's five over a blank band.
+      if (h >= 683) {
+        const sl = FIX.SESS_MANY['sessions.list'];
+        metrics = Object.assign({}, FIX.SESS_MANY, { 'sessions.list': Object.assign({}, sl, { value: sl.value.map(function (x, i) {
+          return Object.assign({}, x, i < 2 ? { state: 'waiting', message: 'Claude is waiting for your input' } : { state: 'idle', message: '' }); }) }) });
+        const got = attrs(R('sessions')(colors), 'data-session').length;
+        if (got < (h >= 770 ? 8 : (W.tallSess683 || 6))) fail('LOOKS', where + ' SESS_MANY', 'only ' + got + ' sessions in a tall frame');
+      }
       // GPUs: 8 cards at least.
       [['GPU_HOUSE_BUSY', 8], ['GPU_HOUSE_BUSY9', 9]].forEach(function (c) {
         metrics = FIX[c[0]];
@@ -1006,6 +1015,17 @@ __HARNESS.skins.forEach(function (skin) {
       rows.forEach(function (r, i) {
         // The row's own markup, up to the next row.
         if (!/seen/i.test(r)) fail('LOOKS', key + ' h=576 offline row ' + i, 'cached row without its age');
+      });
+    }
+    // On-device (Go, 2026-10-24): a server name longer than the mockup's ran under the
+    // first tab. The header line stays within the date line's 15 columns.
+    if (W.alertsByHost) {
+      [['atlas', 'chiketi · atlas'], ['build-runner-eleven', 'build-runner-eleven']].forEach(function (c) {
+        metrics = Object.assign({}, FIX.FULL, { 'sys.hostname': Object.assign({}, FIX.FULL['sys.hostname'], { value: c[0] }) });
+        const html = R('lab')(colors);
+        const m2 = /<div data-hostline style="([^"]*)">([^<]*)</.exec(html);
+        if (!m2 || m2[2] !== c[1]) fail('LOOKS', key + ' host line ' + c[0], 'got ' + (m2 && m2[2]));
+        else if (c[0].length > 6 && !/max-width:[^;]*cqw;.*text-overflow:ellipsis/.test(m2[1])) fail('LOOKS', key + ' host line', 'long name not bounded');
       });
     }
     metrics = FIX.GPU_HOUSE_MANY;
