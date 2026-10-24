@@ -50,11 +50,11 @@
 **Interfaces:**
 - Produces:
   - `kioskSkinFrom(id, base, extra)`: returns (and `bsSkin`s) `Object.freeze(Object.assign({}, base, extra))`, cached by `id`; the same object on every call with that id.
-  - `kioskIssueLayout(n, h)`: `{ cols, rows, rowH, big, shown, more }`. `n <= 4`: one column, `big`, `rowH = min(76, floor(h / max(1, n)))`, all shown. Otherwise `rows = min(8, ceil(min(n, 16) / 2))`, two columns, `rowH = floor(h / rows)`; with `n > rows*2` the last cell is the `+N MORE` line: `shown = rows*2 - 1`, `more = n - shown`.
+  - `kioskIssueLayout(n, h)`: `{ cols, rows, rowH, big, shown, more }`. `n <= 4`: one column, `big`, `rowH = min(76, floor(h / max(1, n)))`, all shown. Otherwise `rows = min(8, ceil(min(n, 16) / 2))` (the design arrangement); when `n > 16` a taller list adds rows while each stays at least 30 units: `rows = max(8, min(ceil(n / 2), floor(h / 30)))`; two columns, `rowH = floor(h / rows)`; with `n > rows*2` the last cell is the `+N MORE` line: `shown = rows*2 - 1`, `more = n - shown`.
   - `gpuStateColor(st)`: `if (typeof S.gpuState === 'function') return S.gpuState(st);` before today's mapping.
   - Harness: `SKIN_SNAP` also records the identity of every function-valued property of every shared skin (`BS_SKIN_*`), and the skins-never-written check compares those identities too.
 
-- [ ] **Step 1: failing tests** in KIOSK CORE: `kioskSkinFrom('t', BS_SKIN_SCAN, {kHour:'#123'})` is frozen, is the same object on a second call, has `kHour '#123'` and `key 'scan'`, and `BS_SKIN_SCAN.kHour` stays `undefined`; `kioskIssueLayout(15, 284)` → `{cols:2, rows:8, shown:15, more:0}`; `kioskIssueLayout(20, 284)` → `shown 15, more 5`; `(3, 300)` → `big, rowH 76`; a skin with `gpuState: () => '#abc'` makes `gpuStateColor('busy') === '#abc'`.
+- [ ] **Step 1: failing tests** in KIOSK CORE: `kioskSkinFrom('t', BS_SKIN_SCAN, {kHour:'#123'})` is frozen, is the same object on a second call, has `kHour '#123'` and `key 'scan'`, and `BS_SKIN_SCAN.kHour` stays `undefined`; `kioskIssueLayout(15, 284)` → `{cols:2, rows:8, shown:15, more:0}`; `kioskIssueLayout(20, 284)` → `rows 9, shown 17, more 3`; `kioskIssueLayout(40, 480)` → `rows 16, shown 31, more 9` (taller shows more); `(3, 300)` → `big, rowH 76`; a skin with `gpuState: () => '#abc'` makes `gpuStateColor('busy') === '#abc'`.
 - [ ] **Step 2:** `node tests/js/render_harness.js` → FAIL (functions missing).
 - [ ] **Step 3:** implement.
 - [ ] **Step 4:** harness → `renderer harness OK` (golden unchanged: no existing skin has `gpuState`).
@@ -92,7 +92,7 @@
 - Row height: 64; if more rows than fit, 48 (the mockup's step); if still fewer than `min(n, 8)` fit, `rowH = floor((rowsH − 27 + 6) / 8) − 6` so 8 always show; `kioskFit` with the `+N MORE` line reserved; `k = rowH / 64`.
 - Empty states from `gpuEmptyNote`.
 
-**Notice:** `scanNotice`: the Scanlines frame (`scanSkin(3, 0.2)`) and `bsHeader('')` (the clock and date; no tabs, as the plan is empty) with `NO SCREENS TO SHOW` (54 units, `soft`) and `CHOOSE SCREENS IN THE CONTROL PANEL` under it.
+**Notice:** `scanNotice`: the Scanlines frame (`scanSkin(3, 0.2)`) and `bsHeader('')` (the clock, the date and the plan's tabs: an empty plan can still hold selected tabs that are planned or unconfigured) with `NO SCREENS TO SHOW` (54 units, `soft`) and `CHOOSE SCREENS IN THE CONTROL PANEL` under it.
 
 **Harness words:** `LOOK_WORDS({}, { status: { ok: '', warn: '', crit: '' } })` (BS words; the frame has no worst-colour part, as Terminal), stale word `TELEMETRY STALE`.
 
@@ -118,9 +118,9 @@
 
 **Sessions** (`vfdSessionsV2`): rows `data-session`, name (25, amber waiting / dim idle / green), project (14), message for a waiting session (13, amber), the INPUT / WORK / SHELL / IDLE legend, tokens (`kioskTok`), agents (`--` for none), running time (first word of `sessAge`). Rows have a natural height (88 with a message line, 76 without) and a minimum (70 / 60). The row budget is `B = kioskH() − 108 − 12 − 30` (footer). The shown count is the largest `k` whose first `k` minimum heights sum to at most `B` (`+N MORE` lives in the footer, so it costs no row). If the natural heights of those rows fit, they are used; otherwise each row gets its minimum plus a share of the spare budget in proportion to `natural − minimum` (floored). At 576: `B = 426`, so even six message rows (6 × 70 = 420) show; seven all-message rows at 683 (`B = 533`) get 533 / 7 ≈ 76 each. footer `[+N MORE · ]FEED LIVE · HOST` and `N ACTIVE · n NEEDS INPUT`. States: offline (rows 0.45, footer `SESSION FEED OFFLINE · LAST UPDATE HH:MM` amber), pending, unconfigured, empty.
 
-**GPUs** (`vfdGpusV2`): one budget `B = kioskH() − 108 − 12 − 30 (footer) − (stale ? 30 : 0) (banner)`; `capAll = floor(B / 40)`, `capMore = floor((B − 24) / 40)` (24 = the `+N MORE` line); `kioskFit`; `rowH = min(104, floor((B − (more ? 24 : 0)) / shown))`, never under 40 by construction. Three row forms: **big** (`rowH ≥ 80`, the mockup's three-line name cell with the legend), **normal** (56–79: name, model, the lit state word), **compact** (40–55: one line `HOST i · STATE`, model hidden, bars 10 high, temperature 30, no MEM line). At 576 stale: `B = 396`, 9 rows of 44 all show. Rows `data-gpu-row="<host>|<index>"`: `HOST i` (+ short model, 13), the state (big rows: the BUSY / IDLE / THROT / HOT legend lit per state, critical lights HOT in red; states outside the four light their own `GPU_LABEL` word instead; normal and compact rows: only the lit word), LOAD and VRAM bars (`--` text and an empty bar when missing), temperature with `MEM n°` under it (`data-mem`), power `n W` and `OF n W` when the limit is known. A cached row (not fresh) dims to 0.6 and its state line adds `SEEN <age> AGO`. The footer `N GPUS · n BUSY · <gpuPowerText> · CHECKED <age>`, plus `NOT REACHED: …` when inventory is incomplete. Stale → a `TELEMETRY STALE · LAST UPDATE <age> AGO` line (amber) above the rows, counted in the height. Empty states from `gpuEmptyNote`, as a centred lit note.
+**GPUs** (`vfdGpusV2`): one budget `B = kioskH() − 108 − 12 − 30 (footer) − (stale ? 30 : 0) (banner)`; `capAll = floor(B / 40)`, `capMore = floor((B − 24) / 40)` (24 = the `+N MORE` line); `kioskFit`; `rowH = min(104, floor((B − (more ? 24 : 0)) / shown))`, never under 40 by construction. Three row forms: **big** (`rowH ≥ 80`, the mockup's three-line name cell with the legend), **normal** (56–79: name, model, the lit state word), **compact** (40–55: one line `HOST i · STATE`, model hidden, bars 10 high; the temperature cell keeps two lines, temperature 26 over `MEM n°` 11, which fits 40, so a valid MEM reading is never dropped; a cached row's `SEEN <age>` follows the state word). At 576 stale: `B = 396`, 9 rows of 44 all show. Rows `data-gpu-row="<host>|<index>"`: `HOST i` (+ short model, 13), the state (big rows: the BUSY / IDLE / THROT / HOT legend lit per state, critical lights HOT in red; states outside the four light their own `GPU_LABEL` word instead; normal and compact rows: only the lit word), LOAD and VRAM bars (`--` text and an empty bar when missing), temperature with `MEM n°` under it (`data-mem`), power `n W` and `OF n W` when the limit is known. A cached row (not fresh) dims to 0.6 and its state line adds `SEEN <age> AGO`. The footer `N GPUS · n BUSY · <gpuPowerText> · CHECKED <age>`, plus `NOT REACHED: …` when inventory is incomplete. Stale → a `TELEMETRY STALE · LAST UPDATE <age> AGO` line (amber) above the rows, counted in the height. Empty states from `gpuEmptyNote`, as a centred lit note.
 
-**Notice:** `vfdNotice`: the frame with `NO SCREENS TO SHOW` lit and the hint under it.
+**Notice:** `vfdNotice`: the frame (its menu from the plan's tabs, as on every screen) with `NO SCREENS TO SHOW` lit and the hint under it.
 
 **Harness words** (every Home Lab fixture mapped to its own condition):
 - `lit: true`: `has()` matches a word only inside a lit span (`data-lit[^>]*>[^<]*WORD`), so a ghost legend never satisfies it.
@@ -128,8 +128,14 @@
 - `gpuWord`: busy `BUSY`, idle `IDLE`, throttling `THROT`, hot and critical `HOT`, others `GPU_WORDS[st]`; `legend: ['BUSY', 'IDLE', 'THROT', 'HOT']`.
 - `status: { ok: '', warn: '', crit: '' }`; `memHas` on `data-mem`.
 
-**Harness changes for lit looks** (written first, and shown to fail against a deliberately wrong VFD row):
-- The GPU state sweep (`render_harness.js` ~750) for a `lit` look checks the one row's lit words: the expected `gpuWord(st)` is lit, and no other `legend` word is lit. Two negative self-tests run once: a hand-written row whose expected word is only a ghost, and one with the wrong legend word lit, must both be rejected by the same check.
+**State containers.** VFD marks where a state is shown, so the checks look only there: the Home Lab condition legend is `<div data-cond>`, each session row's legend `<div data-state>`, each GPU row's state cell `<div data-state>` (no nested divs inside them).
+
+**Harness changes for lit looks** (written first, and shown to fail against deliberately wrong markup):
+- One helper, `litIn(container, word)`: the container's markup (from its marker to its closing `</div>`) has `word` inside a `data-lit` span. `litOnly(container, word, legend)`: `word` is lit there and no other `legend` word is.
+- Home Lab: for `NORMAL` / `CAUTION` / `ALERT`, `W.lab[fx]` is checked with `litOnly` in the `data-cond` container (`condWords`); other lab words (`STALE · CHECKED`, `ACQUIRING TELEMETRY`, `HOME LAB NOT CONFIGURED`) with `has()`.
+- Sessions: in FULL, SESS_BUSY and SESS_MSG7, every `data-session` row's `data-state` container passes `litOnly` with the state's word (waiting `INPUT`, busy `WORK`, shell `SHELL`, idle `IDLE`).
+- GPUs: the state sweep (~750) checks the row's `data-state` container with `litOnly(gpuWord(st))`.
+- Negative self-tests, run once: a container where the expected word is only a ghost; one with the wrong legend word lit; one where the expected word is lit elsewhere in the row but not in the container. The same helpers must reject all three.
 - The cached-critical assertion (~478) uses `W.gpuWord('critical')` (unchanged for every existing look: `CRITICAL`, or `critical` case-insensitively).
 - Switch sequences: VFD → TNG → VFD, Scanlines → TOS → Scanlines and Scanlines lab → gpus → lab (the two raster variants) each equal a fresh render, and TOS stays golden.
 
@@ -143,9 +149,11 @@
 
 **Busy fixtures** (added in Task 2, `tests/js/fixtures.js`; new golden keys only):
 - `HL_LONG12`: 12 hosts with long neutral names (`build-runner-eleven`, …), 15 issues across them, stale.
-- `GPU_HOUSE_STALE9`: nine GPUs on four hosts, stale (`published_at` older than `stale_after`).
+- `GPU_HOUSE_STALE11`: eleven GPUs on four hosts, stale (`published_at` older than `stale_after`), so every look's stale overflow path runs.
 - `SESS_MSG7`: seven waiting sessions, each with a message.
-They join `fit_check`'s default case matrix for every Kiosk theme (phase 1 looks included), so visibility, not just marker counts, is checked in a real browser.
+They join `fit_check`'s default case matrix for every Kiosk theme (phase 1 looks included), so visibility is checked in a real browser, and the LOOKS block gains explicit assertions for them at 576, 600, 683 and 770: `HL_LONG12` shows all 12 hosts, at least 8 alerts in order and an exact `+N MORE`; `SESS_MSG7` at least 5 sessions in order and an exact count; `GPU_HOUSE_STALE11` at least 8 GPUs and an exact count.
+
+**Empty plans.** The PLAN block renders an empty plan with `plan.notice` (today it calls `kioskNotice` directly), for both an empty selection and a selection with no live screens (e.g. only planned tabs); the notice keeps those tabs.
 
 - [ ] `.venv/bin/ruff check` on changed Python files → clean.
 - [ ] `fit_check` full matrix for `THEMES=Vintage/Scanlines,Vintage/VFD` (shapes and cases as phase 1) → 0 fail; 1-tab and 7-tab runs → ok.
