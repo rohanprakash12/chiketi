@@ -1711,3 +1711,179 @@ Expected:
 - [ ] **Step 3: Commit**
 
 `git commit -am "docs: screen modes"`
+
+---
+
+## Revisions from review (binding: each overrides the task text it names)
+
+**R1 (Task 3, `state.py`).** Removing `_clean_rotation` also removes its call: delete
+`out["screen_rotation"] = _clean_rotation(raw.get("screen_rotation"))` from `_sanitize()`.
+Add `test_migrated_state_round_trips`: load an old file, `save_state(snapshot)`, then
+`load_state()` again. Devices (with `mode` and `screens`), `theme`, `kiosk_theme`,
+`brightness`, `output`, `width` and `height` all survive, and `save_state` returns True.
+
+**R2 (Task 4, harness: skins).** `const` bindings from the harness eval are invisible
+outside it. Append to the concatenated eval source:
+`'\nglobalThis.__HARNESS = { skins: [BS_SKIN_TOS, BS_SKIN_CLAUDE] };'`.
+The skin-role check then iterates `__HARNESS.skins`.
+
+**R3 (Tasks 4–6: an empty Kiosk plan).** `screenPlan` keeps `list: []` and sets
+`empty: true`; it never inserts a `none` entry. The consumers draw the notice:
+- **Display:** `enabledScreens = plan.empty ? [NOTICE] : plan.list`, with
+  `const NOTICE = { id: 'none', name: 'No screens', fn: kioskNotice, fluid: true };`.
+  `scheduleRotate` already stops at one screen, and `goToId` ignores IDs that are not
+  listed. A tab never names `none`.
+- **Previews:** `const shown = plan.empty ? [NOTICE] : plan.list;`, with the same
+  `NOTICE` defined in `control_app.js`.
+- **Harness:** draws `plan.empty ? kioskNotice : plan.list[0].fn`.
+
+**R4 (Task 4, harness: independent expectations).** Each fixture has a fixed set of
+ready screens: `{FULL: ['lab','sessions'], HL_UNCONFIGURED: ['sessions'],
+SESS_UNCONFIGURED: ['lab'], KIOSK_EMPTY: []}`. For each case,
+`expected = sel.filter(id => READY[fx].includes(id))`. The checks:
+- `plan.list` IDs equal `expected`;
+- the tappable `data-screen` IDs in the HTML equal `expected`;
+- `plan.empty === (expected.length === 0)`;
+- every tab whose ID is not in `expected` has `live === false`;
+- there is one `data-tab` per selected ID, in order.
+
+The FULL fixture must also produce `['lab','sessions']` for `sel = ['lab','sessions']`,
+which checks both screens positively.
+
+**R5 (Task 4, tab markup).** Every tab element (live or grey, header and column) carries
+`data-tab="<id>"`; only live tabs also carry `data-screen`. The harness and fit_check
+assert on `data-tab` for count and order.
+
+**R6 (Task 8, devices_check step 8).** New devices start in Kiosk on the dev server, so
+after approving `pid`, call `api('POST', /api/devices/${pid}, {mode: 'self'})` and
+`await panel.waitForFunction(() => document.querySelector('input[name=devMode][value=self]').checked)`
+before clicking TNG.
+
+**R7 (Task 8, step 17: a real stall).** `devices_check.mjs` starts its own
+`http.createServer` on `127.0.0.1:0` with two paths:
+- `/hold` never answers;
+- `/body` sends `200`, `Content-Type: application/json` and `{"cpu.usage":`, then holds
+  the socket open.
+
+Each stall phase routes `**/api/metrics` with `r.continue({ url: stallBase + '/hold' })`
+(then `/body`). The checks:
+1. Set `window.__marker = 1` before the first stall.
+2. During each stall (wait 9 s), `__chiketiPolls` must not increase: nothing is
+   committed.
+3. Then route metrics to `FIX.FULL` with `sys.hostname` set to `after-stall`. Assert
+   that `__chiketiPolls` increases and that `metrics['sys.hostname'].value === 'after-stall'`.
+4. Assert `window.__marker === 1` (no reload).
+
+Close the stall server at the end.
+
+**R8 (Task 8, the missing interactions).** Add these steps:
+
+**18. Control panel UI** on the device from step 13:
+1. Select it in `#deviceSelect`.
+2. Click the `self` mode radio. Expect the API to show `mode === 'self'` and the open
+   display to show `screen1`.
+3. Click `kiosk`.
+4. Untick Home Lab (`.pick-row[data-id=lab] .pick-on`).
+5. Click `.pick-row[data-id=sessions] .pick-up` until Sessions is first.
+6. Tick Overview, then click `#devSave`.
+7. Expect the API to show `screens === ['sessions','overview']`, the open display to
+   show `enabledScreens` IDs equal to `['sessions']`, and its `[data-tab]` order to be
+   `sessions,overview`.
+
+**Grey tab.** Tap the element `[data-tab=overview]` with `kp.tap`, and assert that the
+current screen ID is unchanged.
+
+**Same theme.** Set `{mode: 'self', theme: 'Sci-Fi/TOS'}` and wait for `screen1`. Then
+set `{mode: 'kiosk'}` and assert:
+- `activeVariant === 'TOS'`;
+- `enabledScreens[0].id` is a Kiosk ID;
+- `window.__marker === 1`.
+
+**Delayed device-status reply.** On page `op2`, hold the next `**/api/device/**` reply.
+To do it, fetch it, store `() => r.fulfill({ json: body })`, and continue every later
+one. Then:
+1. Post `{seconds: 88}`.
+2. Wait until `device.seconds === 88` (a later poll).
+3. Release the held reply, which carries the old seconds.
+4. Assert that `device.seconds` stays 88 after 500 ms.
+
+**R9 (Task 8, fit_check exactness).** Before measuring, wait for
+`enabledScreens[currentScreenIdx].id === sid`. For a Kiosk case, assert:
+- the `[data-tab]` IDs equal `screens`;
+- the `[data-screen]` IDs equal the ready subset in selection order. With `FULL`
+  metrics, that is `screens.filter(id => ['lab','sessions'].includes(id))`. With `LIVE`,
+  it is read from `/api/metrics` the same way.
+
+**R10 (Task 9, `check_js.sh`).** Add a second pass to `scripts/check_js.sh`:
+
+```bash
+tmp=$(mktemp -d)
+.venv/bin/python - "$tmp" <<'PY' || status=1
+import re, sys
+from chiketi import server
+out = sys.argv[1]
+bad = 0
+for name, html in (("display", server._build_display_html()), ("control", server._build_html())):
+    left = sorted(set(re.findall(r"__[A-Z][A-Z_]+__", html)))
+    if left:
+        print(f"FAIL {name}: placeholders left: {left}"); bad = 1
+    for i, block in enumerate(re.findall(r"<script>(.*?)</script>", html, re.S)):
+        open(f"{out}/{name}-{i}.js", "w").write(block)
+sys.exit(bad)
+PY
+for f in "$tmp"/*.js; do
+    if node --check "$f" 2>/dev/null; then echo "ok   built $(basename "$f")"
+    else echo "FAIL built $(basename "$f")"; node --check "$f" || true; status=1; fi
+done
+rm -rf "$tmp"
+```
+
+The python interpreter is `${CHIKETI_PYTHON:-.venv/bin/python}`, falling back to
+`python3`. CI installs the package, so use `PY=${CHIKETI_PYTHON:-python3}` there. The
+browser checks (Tasks 5 and 8) are the runtime smoke test. Each also fails on any
+`pageerror`: add `page.on('pageerror', e => fail('page error: ' + e.message))` to every
+page they open.
+
+**R11 (Task 3, a safe backup).** `migration_backup(path, blob: bytes) -> str | None`
+writes the bytes `load_state()` already read:
+
+```python
+    fd = os.open(bak, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(blob)
+```
+
+It catches `FileExistsError` and any other `OSError`, returning `None`, and never
+overwrites. `load_state` reads the file as bytes for this (decode with `errors="replace"`
+for parsing, exactly as today). Tests:
+- the backup equals the bytes read even if the file is replaced afterwards;
+- a symlink already at the backup path is left alone and not followed (its target is
+  unchanged);
+- an existing backup is never overwritten.
+
+**R12 (Task 2, `local` and the device cap).** `clean_devices` skips non-`local` entries
+beyond `MAX_DEVICES` (`continue`, not `break`), and always keeps `local`. `approve()`
+counts only non-`local` devices against `MAX_DEVICES`.
+`test_local_survives_full_registry`: 32 devices plus `local` with `seconds: 45` round-trip
+through `snapshot()` → `clean_devices()` → `load()`, and `local` keeps 45.
+
+**R13 (Task 3, persist the migration at start-up).**
+- `load_state()` adds `"migrated": True` to its result when `_needs_migration(raw)`
+  holds or `kiosk_theme` was missing. `_sanitize` does not keep it.
+- New `server.adopt_saved_state(saved: dict, own_screen: bool) -> None` does three
+  things:
+  1. calls `apply_saved_state(saved)`;
+  2. calls `ensure_local(socket.gethostname()[:40])` when `own_screen`;
+  3. calls `_persist()` if `saved.get("migrated")` or a local device was created.
+- `app.run` calls `adopt_saved_state(saved, own_screen=not no_kiosk)` instead of
+  `apply_saved_state` plus the Task 3 Step 5 block.
+- Tests:
+  - an old file with `own_screen=False` is rewritten (it reloads with `mode` present and
+    no `screen_rotation`);
+  - a second start makes no new backup and no write;
+  - with `own_screen=True`, `local` is created once.
+
+**R14 (Task 2, timing).** Update `tests/test_config.py`'s assertion to
+`Timing().rotate_interval_s == 30`. Add `test_rotate_interval_seeds_new_devices`: with
+`TIMING.rotate_interval_s` patched to 12, a newly approved device has `seconds == 12`,
+and a loaded saved device keeps its own seconds.
