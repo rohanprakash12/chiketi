@@ -306,6 +306,14 @@ if (await pp.isChecked('.pick-row[data-id="sessions"] .pick-on')) fail('switchin
 await pp.click('#variantRow button:has-text("House theme")');
 await pp.waitForTimeout(800);
 if (await pp.isChecked('.pick-row[data-id="sessions"] .pick-on')) fail('a theme change discarded the edit');
+// A refused mode change puts the radio back and keeps the edit.
+await pp.route(`**/api/devices/${other}`, r => r.request().method() === 'POST'
+  ? r.fulfill({ status: 403, body: 'Forbidden' }) : r.continue());
+await pp.click('input[name=devMode][value=self]');
+await pp.waitForTimeout(800);
+if (!(await pp.isChecked('input[name=devMode][value=kiosk]'))) fail('a refused mode change left the wrong radio selected');
+if (await pp.isChecked('.pick-row[data-id="sessions"] .pick-on')) fail('a refused mode change discarded the edit');
+await pp.unroute(`**/api/devices/${other}`);
 // A device list that arrives after a newer one is dropped, not applied over the edit.
 let holdList = null, listHeld = false;
 await pp.route('**/api/devices', async r => {

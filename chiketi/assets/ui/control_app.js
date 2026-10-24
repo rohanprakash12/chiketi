@@ -144,12 +144,13 @@ function applyDeviceScope() {
   // Rebuild the card from the server only for a different display or when its
   // mode or screens changed there; a theme change keeps unsaved edits.
   const fresh = !d || !pick || pickKey(d) !== pickBase;
+  // The mode radio always shows the stored mode (a refused change puts it back).
+  const radio = d && document.querySelector('input[name=devMode][value="' + d.mode + '"]');
+  if (radio) radio.checked = true;
   if (d && fresh) {
     document.getElementById('devAutoRotate').checked = d.auto_rotate;
     document.getElementById('devSeconds').value = d.seconds;
     document.getElementById('devGear').checked = d.gear;
-    const radio = document.querySelector('input[name=devMode][value="' + d.mode + '"]');
-    if (radio) radio.checked = true;
     pick = pickFrom(d);
     pickBase = pickKey(d);
     if (d.caps && d.caps.w && d.caps.h) updatePreviewAspectRatio(d.caps.w, d.caps.h);
