@@ -6,6 +6,8 @@ Every subprocess / filesystem probe is mocked at the call site.
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import threading
 import time
@@ -426,13 +428,15 @@ class TestRunRestoresSavedState:
     """run() resolves precedence: CLI flag > saved state > built-in default."""
 
     @staticmethod
-    def _run(monkeypatch, **kwargs) -> int:
-        """Call app.run() with every blocking/external piece stubbed out."""
+    def _run(monkeypatch, urls=None, **kwargs) -> int:
+        """Call app.run() with every blocking/external piece stubbed out.
+        `urls` collects the display URL the DisplayManager was given."""
         import chiketi.server as server_mod
 
         monkeypatch.setattr(app_mod, "MetricEngine", mock.MagicMock())
         monkeypatch.setattr(
-            app_mod, "DisplayManager", lambda url: mock.MagicMock(_chromium=None)
+            app_mod, "DisplayManager",
+            lambda url: (urls.append(url) if urls is not None else None) or mock.MagicMock(_chromium=None)
         )
         monkeypatch.setattr(server_mod, "start_server", lambda **kw: None)
         monkeypatch.setattr(app_mod.signal, "signal", lambda *a: None)
@@ -454,7 +458,7 @@ class TestRunRestoresSavedState:
         server_mod._display_output = ""
         server_mod._display_width = 1024
         server_mod._display_height = 600
-        server_mod._screen_rotation = {}
+        server_mod._kiosk_theme = "Sci-Fi/TOS"
         server_mod._persisted_theme = None
 
     def test_saved_state_is_applied(self, monkeypatch, restore_active_theme):
@@ -462,8 +466,7 @@ class TestRunRestoresSavedState:
         from chiketi.state import DEFAULT_STATE, save_state
 
         save_state(dict(DEFAULT_STATE, theme="Vintage/VFD", brightness=1.7,
-                        width=800, height=480, output="HDMI-1",
-                        screen_rotation={"cpu": {"enabled": False, "duration": 20}}))
+                        width=800, height=480, output="HDMI-1", kiosk_theme="Others/Claude"))
         themes.set_active_theme("Sci-Fi/TOS")
 
         assert self._run(monkeypatch) == 0
@@ -472,9 +475,41 @@ class TestRunRestoresSavedState:
         assert server_mod._display_brightness == 1.7
         assert server_mod._display_output == "HDMI-1"
         assert (server_mod._display_width, server_mod._display_height) == (800, 480)
-        assert server_mod._screen_rotation == {
-            "cpu": {"enabled": False, "duration": 20}
-        }
+        assert server_mod._kiosk_theme == "Others/Claude"
+
+    def test_own_screen_is_the_local_device(self, monkeypatch, restore_active_theme):
+        import chiketi.server as server_mod
+        from chiketi.devices import DeviceRegistry
+        monkeypatch.setattr(server_mod, "DEVICES", DeviceRegistry())
+        urls = []
+        assert self._run(monkeypatch, urls=urls, no_kiosk=False) == 0
+        assert urls == ["http://localhost:7777/display?device=local"]
+        local = server_mod.DEVICES.snapshot()["local"]
+        assert local["mode"] == "self" and local["auto_rotate"] is True
+
+    def test_no_kiosk_has_no_local_device(self, monkeypatch, restore_active_theme):
+        import chiketi.server as server_mod
+        from chiketi.devices import DeviceRegistry
+        monkeypatch.setattr(server_mod, "DEVICES", DeviceRegistry())
+        assert self._run(monkeypatch, no_kiosk=True) == 0
+        assert "local" not in server_mod.DEVICES.snapshot()
+
+    def test_old_file_is_migrated_and_saved_at_start(self, monkeypatch, restore_active_theme):
+        import chiketi.server as server_mod
+        from chiketi.devices import DeviceRegistry
+        from chiketi.state import load_state, state_path
+        monkeypatch.setattr(server_mod, "DEVICES", DeviceRegistry())
+        monkeypatch.setattr("chiketi.screens.kiosk_capable", lambda: True)
+        os.makedirs(os.path.dirname(state_path()), exist_ok=True)
+        with open(state_path(), "w") as fh:
+            json.dump({"version": 1, "screen_rotation": {"screen6": {"enabled": False}},
+                       "devices": {"tablet-1": {"name": "Tablet", "caps": {}}}}, fh)
+        assert self._run(monkeypatch, no_kiosk=True) == 0
+        again = load_state()
+        assert "migrated" not in again                      # saved in the new format
+        assert again["devices"]["tablet-1"]["mode"] == "kiosk"
+        assert again["devices"]["tablet-1"]["screens"] == ["lab", "sessions"]
+        assert len([f for f in os.listdir(os.path.dirname(state_path())) if ".bak-" in f]) == 1
 
     def test_cli_theme_beats_saved_theme(self, monkeypatch, restore_active_theme):
         import chiketi.server as server_mod

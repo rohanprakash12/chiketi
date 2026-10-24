@@ -37,6 +37,7 @@ function post(path, body) {
   });
 }
 const PANEL_SPEC = __PANEL_SPEC_JSON__;
+const SCREEN_SPEC = __SCREEN_SPEC_JSON__;   // assets/ui/screens.json
 let currentData = null, metrics = null;
 let selectedFamily = null, selectedVariant = null;
 /* The display this panel is editing: '' = the house defaults (server-wide). */

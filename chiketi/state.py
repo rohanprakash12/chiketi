@@ -1,6 +1,6 @@
 """Versioned settings persistence.
 
-Settings the control panel changes at runtime (theme, per-screen rotation,
+Settings the control panel changes at runtime (theme, Kiosk theme, devices,
 brightness, output, resolution) live here so they survive a restart. A
 missing, corrupt, or future-versioned file always degrades to DEFAULT_STATE:
 persistence is a convenience and must never be able to stop the dashboard
@@ -11,6 +11,7 @@ Precedence, resolved by the caller: CLI flag > saved state > built-in default.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -41,14 +42,12 @@ _BRIGHTNESS_MIN = 0.3
 _BRIGHTNESS_MAX = 2.0
 _WIDTH_MIN, _WIDTH_MAX = 320, 3840
 _HEIGHT_MIN, _HEIGHT_MAX = 200, 2160
-_DURATION_MIN, _DURATION_MAX = 3, 600
-_MAX_SCREEN_ROTATION = 32
 _MAX_KEY_LEN = 64
 
 DEFAULT_STATE: dict = {
     "version": STATE_VERSION,
     "theme": "Sci-Fi/TOS",
-    "screen_rotation": {},
+    "kiosk_theme": "Sci-Fi/TOS",
     "brightness": 1.0,
     "output": "",
     "width": 1024,
@@ -65,7 +64,6 @@ def _defaults() -> dict:
     rewrite everybody else's defaults.
     """
     out = dict(DEFAULT_STATE)
-    out["screen_rotation"] = {}
     out["devices"] = {}
     return out
 
@@ -95,30 +93,6 @@ def _clamp_number(value, lo: float, hi: float):
     return max(lo, min(hi, num))
 
 
-def _clean_rotation(raw) -> dict:
-    """Coerce a screen_rotation blob into {sid: {enabled, duration}}."""
-    if not isinstance(raw, dict):
-        return {}
-    clean: dict = {}
-    for sid, cfg in list(raw.items())[:_MAX_SCREEN_ROTATION]:
-        if not isinstance(sid, str) or len(sid) > _MAX_KEY_LEN:
-            continue
-        if not isinstance(cfg, dict):
-            continue
-        try:
-            duration = int(cfg.get("duration", 10))
-        except Exception:
-            # Broad on purpose: int() raises TypeError/ValueError on the
-            # obvious junk, but OverflowError on float('inf') (reachable via
-            # the JSON literal `Infinity`) -- and that is neither.
-            continue
-        clean[sid] = {
-            "enabled": bool(cfg.get("enabled", True)),
-            "duration": max(_DURATION_MIN, min(_DURATION_MAX, duration)),
-        }
-    return clean
-
-
 def _sanitize(raw: dict) -> dict:
     """Coerce a loaded blob into DEFAULT_STATE's shape, dropping anything else.
 
@@ -132,6 +106,17 @@ def _sanitize(raw: dict) -> dict:
         theme = _THEME_RENAMES.get(theme, theme)
     if isinstance(theme, str) and theme in THEMES:
         out["theme"] = theme
+
+    # The house theme for Kiosk displays. A file from before modes has none: it
+    # starts as the house theme if that is a Kiosk theme.
+    from chiketi import screens
+    kiosk_theme = raw.get("kiosk_theme")
+    if isinstance(kiosk_theme, str) and screens.theme_allowed("kiosk", kiosk_theme):
+        out["kiosk_theme"] = kiosk_theme
+    elif screens.theme_allowed("kiosk", out["theme"]):
+        out["kiosk_theme"] = out["theme"]
+    else:
+        out["kiosk_theme"] = screens.default_theme("kiosk")
 
     brightness = _clamp_number(raw.get("brightness"), _BRIGHTNESS_MIN, _BRIGHTNESS_MAX)
     if brightness is not None:
@@ -152,7 +137,6 @@ def _sanitize(raw: dict) -> dict:
     if isinstance(output, str) and len(output) <= _MAX_KEY_LEN:
         out["output"] = output
 
-    out["screen_rotation"] = _clean_rotation(raw.get("screen_rotation"))
     out["devices"] = clean_devices(raw.get("devices"))
     return out
 
@@ -190,24 +174,81 @@ def load_state() -> dict:
                 return _defaults()
             if st.st_size > _MAX_STATE_BYTES:
                 return _defaults()
-            with os.fdopen(fd, encoding="utf-8", errors="replace") as fh:
+            with os.fdopen(fd, "rb") as fh:
                 fd = None                      # fdopen owns it now
-                blob = fh.read(_MAX_STATE_BYTES + 1)
+                data = fh.read(_MAX_STATE_BYTES + 1)
         finally:
             if fd is not None:
                 os.close(fd)
-        if len(blob) > _MAX_STATE_BYTES:        # grew between fstat and read
+        if len(data) > _MAX_STATE_BYTES:        # grew between fstat and read
             return _defaults()
-        raw = json.loads(blob)
+        raw = json.loads(data.decode("utf-8", errors="replace"))
         if not isinstance(raw, dict):
             return _defaults()
         # Reject bool too: `{"version": true}` compares equal to 1.
         version = raw.get("version")
         if isinstance(version, bool) or version != STATE_VERSION:
             return _defaults()
-        return _sanitize(raw)
+        out = _sanitize(raw)
+        if _needs_migration(raw):
+            # The server backs these exact bytes up before its first write
+            # replaces them (server._persist), and saves the migrated file.
+            out["migrated"] = True
+            out["migration_blob"] = data
+        return out
     except Exception:
         return _defaults()
+
+
+def _needs_migration(raw: dict) -> bool:
+    """A file from before screen modes: a house-wide screen_rotation, or a
+    device without a mode."""
+    devices = raw.get("devices")
+    old_device = isinstance(devices, dict) and any(
+        isinstance(d, dict) and "mode" not in d for d in devices.values())
+    return "screen_rotation" in raw or old_device
+
+
+def migration_backup(path: str, blob: bytes) -> str | None:
+    """Keep the pre-migration file as state.json.bak-YYYYMMDD, once.
+
+    Writes the bytes load_state() actually read (not whatever is at the path
+    now), to a temp file that is fsynced and then linked into place, so the
+    backup is complete or absent and never overwrites anything. Returns "made",
+    "exists" (a regular backup is already there) or None (no usable backup:
+    a symlink or other non-file in the way, or a write failure)."""
+    import time
+    bak = f"{path}.bak-{time.strftime('%Y%m%d')}"
+
+    def existing():
+        try:
+            return "exists" if stat.S_ISREG(os.lstat(bak).st_mode) else None
+        except FileNotFoundError:
+            return "missing"
+        except OSError:
+            return None
+
+    state = existing()
+    if state != "missing":
+        return state
+    tmp = f"{bak}.tmp-{os.getpid()}"
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(blob)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.link(tmp, bak)
+        except FileExistsError:
+            state = existing()
+            return state if state != "missing" else None
+        return "made"
+    except OSError:
+        return None
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
 
 
 def save_state(state: dict) -> bool:

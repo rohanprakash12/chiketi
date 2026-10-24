@@ -112,13 +112,13 @@ class TestLoadDefaults:
     def test_result_does_not_alias_default_state(self):
         """Mutating a loaded state must not corrupt DEFAULT_STATE.
 
-        A shallow dict(DEFAULT_STATE) shares the nested screen_rotation dict,
-        so one caller's mutation would silently become everybody's default.
+        A shallow dict(DEFAULT_STATE) shares the nested devices dict, so one
+        caller's mutation would silently become everybody's default.
         """
         s = load_state()
-        s["screen_rotation"]["injected"] = {"enabled": False, "duration": 5}
+        s["devices"]["injected"] = {"name": "x"}
         s["theme"] = "Vintage/VFD"
-        assert DEFAULT_STATE["screen_rotation"] == {}
+        assert DEFAULT_STATE["devices"] == {}
         assert DEFAULT_STATE["theme"] == "Sci-Fi/TOS"
         assert load_state() == DEFAULT_STATE
 
@@ -163,12 +163,6 @@ class TestLoadHostileContent:
         b = load_state()["brightness"]
         assert 0.3 <= b <= 2.0
         assert b == b  # not NaN
-
-    def test_infinite_rotation_duration(self):
-        # int(float('inf')) raises OverflowError, not ValueError.
-        _write('{"version": 1, "screen_rotation": '
-               '{"a": {"enabled": true, "duration": Infinity}}}')
-        assert load_state()["screen_rotation"] in ({}, {"a": mock.ANY})
 
     def test_directory_instead_of_file(self):
         p = Path(state_path())
@@ -295,40 +289,6 @@ class TestSanitize:
         _write(json.dumps({"version": 1, "output": 12}))
         assert load_state()["output"] == ""
 
-    def test_rotation_kept_and_clamped(self):
-        _write(json.dumps({"version": 1, "screen_rotation": {
-            "cpu": {"enabled": False, "duration": 9999},
-            "net": {"enabled": True, "duration": 0},
-            "ok": {"enabled": True, "duration": 42},
-        }}))
-        assert load_state()["screen_rotation"] == {
-            "cpu": {"enabled": False, "duration": 600},
-            "net": {"enabled": True, "duration": 3},
-            "ok": {"enabled": True, "duration": 42},
-        }
-
-    def test_rotation_entry_cap(self):
-        _write(json.dumps({"version": 1, "screen_rotation": {
-            f"s{i}": {"enabled": True, "duration": 10} for i in range(200)
-        }}))
-        assert len(load_state()["screen_rotation"]) <= 32
-
-    def test_rotation_bad_entries_skipped(self):
-        _write(json.dumps({"version": 1, "screen_rotation": {
-            "good": {"enabled": True, "duration": 5},
-            "x" * 65: {"enabled": True, "duration": 5},
-            "notadict": 7,
-            "baddur": {"enabled": True, "duration": "soon"},
-        }}))
-        assert load_state()["screen_rotation"] == {
-            "good": {"enabled": True, "duration": 5}
-        }
-
-    def test_rotation_wrong_type_falls_back(self):
-        _write(json.dumps({"version": 1, "screen_rotation": [1, 2, 3]}))
-        assert load_state()["screen_rotation"] == {}
-
-
 class TestSave:
     def test_roundtrip(self):
         s = dict(DEFAULT_STATE, theme="Vintage/VFD", brightness=1.4)
@@ -337,13 +297,10 @@ class TestSave:
         assert loaded["theme"] == "Vintage/VFD"
         assert loaded["brightness"] == 1.4
 
-    def test_roundtrip_rotation(self):
-        s = dict(DEFAULT_STATE,
-                 screen_rotation={"cpu": {"enabled": False, "duration": 20}},
-                 output="HDMI-1", width=800, height=480)
+    def test_roundtrip_output_and_size(self):
+        s = dict(DEFAULT_STATE, output="HDMI-1", width=800, height=480)
         assert save_state(s) is True
         loaded = load_state()
-        assert loaded["screen_rotation"] == {"cpu": {"enabled": False, "duration": 20}}
         assert loaded["output"] == "HDMI-1"
         assert (loaded["width"], loaded["height"]) == (800, 480)
 
@@ -454,3 +411,83 @@ def test_state_without_devices_defaults_empty(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     from chiketi.state import load_state
     assert load_state()["devices"] == {}
+
+
+# ── Screen modes: kiosk_theme, no screen_rotation, the migration ──────────
+
+def test_kiosk_theme_and_no_screen_rotation():
+    p = _write(json.dumps({"version": 1, "theme": "Others/Claude",
+                           "screen_rotation": {"screen6": {"enabled": False, "duration": 10}}}))
+    s = load_state()
+    assert "screen_rotation" not in s and s["kiosk_theme"] == "Others/Claude"
+    p.write_text(json.dumps({"version": 1, "theme": "Terminal/hacker"}))
+    assert load_state()["kiosk_theme"] == "Sci-Fi/TOS"
+    p.write_text(json.dumps({"version": 1, "theme": "Terminal/hacker", "kiosk_theme": "Others/Claude"}))
+    assert load_state()["kiosk_theme"] == "Others/Claude"
+    p.write_text(json.dumps({"version": 1, "kiosk_theme": "Terminal/hacker"}))
+    assert load_state()["kiosk_theme"] == "Sci-Fi/TOS"
+
+
+def test_old_file_is_marked_for_migration_with_its_bytes():
+    old = json.dumps({"version": 1, "devices": {"go": {"name": "Go", "caps": {}}}})
+    _write(old)
+    s = load_state()
+    assert s["migrated"] is True and s["migration_blob"] == old.encode()
+    _write(json.dumps({"version": 1, "screen_rotation": {}}))
+    assert load_state()["migrated"] is True
+    _write(json.dumps({"version": 1, "devices": {"go": {"name": "Go", "mode": "kiosk", "caps": {}}}}))
+    s = load_state()
+    assert "migrated" not in s and "migration_blob" not in s
+
+
+def test_migrated_state_round_trips():
+    _write(json.dumps({"version": 1, "theme": "Others/Claude", "brightness": 1.3, "output": "HDMI-1",
+                       "width": 800, "height": 480, "screen_rotation": {"screen6": {"enabled": False}},
+                       "devices": {"go": {"name": "Go", "mode": "kiosk", "screens": ["sessions"], "caps": {}}}}))
+    first = load_state()
+    assert save_state(first) is True
+    on_disk = json.loads(Path(state_path()).read_text(encoding="utf-8"))
+    assert "migrated" not in on_disk and "migration_blob" not in on_disk and "screen_rotation" not in on_disk
+    again = load_state()
+    for key in ("theme", "kiosk_theme", "brightness", "output", "width", "height"):
+        assert again[key] == first[key], key
+    assert again["devices"]["go"]["mode"] == "kiosk" and again["devices"]["go"]["screens"] == ["sessions"]
+
+
+class TestMigrationBackup:
+    def _bak(self):
+        import time
+        return state_path() + ".bak-" + time.strftime("%Y%m%d")
+
+    def test_made_once_from_the_bytes_read(self):
+        from chiketi.state import migration_backup
+        p = _write("old bytes")
+        assert migration_backup(str(p), b"what was read") == "made"
+        p.write_text("replaced since")
+        assert Path(self._bak()).read_bytes() == b"what was read"
+        assert migration_backup(str(p), b"other") == "exists"
+        assert Path(self._bak()).read_bytes() == b"what was read"
+        assert not list(p.parent.glob("*.tmp-*"))
+
+    def test_symlink_at_backup_path_is_left_alone(self, tmp_path):
+        from chiketi.state import migration_backup
+        p = _write("old")
+        target = tmp_path / "elsewhere"
+        target.write_text("untouched")
+        os.symlink(target, self._bak())
+        assert migration_backup(str(p), b"x") is None
+        assert target.read_text() == "untouched" and os.path.islink(self._bak())
+        os.unlink(self._bak())
+        os.symlink(tmp_path / "missing", self._bak())                     # dangling
+        assert migration_backup(str(p), b"x") is None
+        assert not (tmp_path / "missing").exists()
+
+    def test_failed_write_leaves_nothing(self, monkeypatch):
+        from chiketi import state
+        p = _write("old")
+
+        def boom(fd):
+            raise OSError("disk full")
+        monkeypatch.setattr(state.os, "fsync", boom)
+        assert state.migration_backup(str(p), b"x") is None
+        assert not os.path.lexists(self._bak()) and not list(p.parent.glob("*.tmp-*"))

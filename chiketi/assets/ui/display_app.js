@@ -41,6 +41,7 @@ window.addEventListener('resize', function () {
 <script>
 const API = window.location.origin;
 const PANEL_SPEC = __PANEL_SPEC_JSON__;
+const SCREEN_SPEC = __SCREEN_SPEC_JSON__;   // assets/ui/screens.json
 let metrics = null;
 let activeFamily = null, activeVariant = null;
 let themeColors = null;

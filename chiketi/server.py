@@ -9,11 +9,13 @@ import json
 import math
 import os
 import subprocess
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from chiketi import screens
 from chiketi.config import TIMING
 from chiketi.devices import DeviceRegistry, clean_caps, valid_id
 from chiketi.panel_spec import web_spec
@@ -24,10 +26,6 @@ from chiketi.themes import (
 )
 
 CONTROL_PORT = 7777
-
-# Maximum number of screen-rotation entries accepted from a POST body.
-# Bounds memory growth from arbitrary client-supplied screen ids.
-_MAX_SCREEN_ROTATION = 32
 
 # Maximum accepted POST body. Control payloads are a few hundred bytes; this
 # ceiling stops an open-LAN client from forcing a large allocation, and the
@@ -99,9 +97,14 @@ _display_brightness: float = 1.0
 _display_width: int = 1024
 _display_height: int = 600
 
-# Per-screen rotation configuration: {screen_id: {enabled: bool, duration: int}}
-# Populated with defaults on first /api/display GET
-_screen_rotation: dict = {}
+# The house theme for Kiosk displays (the house theme proper, get_active_theme(),
+# is the Self displays'). Each display may override it with its own theme.
+_kiosk_theme: str = "Sci-Fi/TOS"
+
+# The bytes of a pre-modes state.json, kept until a backup of them exists:
+# _persist() makes the backup before its first write and will not replace the
+# old file without one. None once backed up (or nothing to migrate).
+_pending_backup: bytes | None = None
 
 # The theme value that should be written to the state file. Deliberately
 # distinct from the *active* theme: an explicit `--theme` flag is a one-off
@@ -286,23 +289,6 @@ def _validate_display_body(body: dict, current_brightness: float) -> dict:
         c["width"] = int(max(320, min(3840, _num(body["width"], "width"))))
         c["height"] = int(max(200, min(2160, _num(body["height"], "height"))))
 
-    if "screen_rotation" in body:
-        sr = body["screen_rotation"]
-        if not isinstance(sr, dict):
-            raise ValueError("screen_rotation must be an object")
-        clean: dict = {}
-        for sid, cfg in sr.items():
-            if not isinstance(sid, str) or not sid or len(sid) > 64:
-                raise ValueError("screen_rotation ids must be strings of 1-64 chars")
-            if not isinstance(cfg, dict):
-                raise ValueError(f"screen_rotation[{sid}] must be an object")
-            clean[sid] = {
-                "enabled": _flag(cfg.get("enabled", True), f"screen_rotation[{sid}].enabled"),
-                "duration": int(max(3, min(600, _num(cfg.get("duration", 10),
-                                                     f"screen_rotation[{sid}].duration")))),
-            }
-        c["screen_rotation"] = clean
-
     if "display_on" in body:
         c["display_on"] = _flag(body["display_on"], "display_on")
 
@@ -441,8 +427,6 @@ def _display_payload(display_on: bool) -> dict:
             "brightness": _display_brightness,
             "width": _display_width,
             "height": _display_height,
-            "screen_rotation": {k: dict(v) for k, v in _screen_rotation.items()},
-            "default_duration": TIMING.rotate_interval_s,
             "display_on": display_on,
             "build": _display_build(),
         }
@@ -458,7 +442,7 @@ def apply_saved_state(saved: dict) -> None:
     """
     global _display_output, _display_brightness
     global _display_width, _display_height
-    global _screen_rotation, _persisted_theme
+    global _kiosk_theme, _persisted_theme
     if not isinstance(saved, dict):
         return
     with _STATE_LOCK:
@@ -477,15 +461,29 @@ def apply_saved_state(saved: dict) -> None:
             # Composite write: both halves land under the same lock hold.
             _display_width = width
             _display_height = height
-        rotation = saved.get("screen_rotation")
-        if isinstance(rotation, dict):
-            # Detached copy: the caller keeps its own dict, and a later mutation
-            # of either side must not reach through into the other.
-            _screen_rotation = {
-                sid: dict(cfg) for sid, cfg in rotation.items()
-                if isinstance(sid, str) and isinstance(cfg, dict)
-            }
+        kiosk_theme = saved.get("kiosk_theme")
+        if isinstance(kiosk_theme, str) and screens.theme_allowed("kiosk", kiosk_theme):
+            _kiosk_theme = kiosk_theme
         DEVICES.load(saved.get("devices"))
+
+
+def adopt_saved_state(saved: dict, own_screen: bool) -> None:
+    """Start-up: adopt the saved state, make sure chiketi's own screen exists
+    when it drives one, and save at once if the file was migrated (so a restart
+    does not migrate it again) or the own screen was created."""
+    global _pending_backup
+    if not isinstance(saved, dict):
+        saved = {}
+    blob = saved.get("migration_blob")
+    with _PERSIST_LOCK:
+        _pending_backup = blob if isinstance(blob, bytes) else None
+    apply_saved_state(saved)
+    created = False
+    if own_screen:
+        import socket
+        created = DEVICES.ensure_local(socket.gethostname()[:40])
+    if saved.get("migrated") or created:
+        _persist()
 
 
 def _persist() -> None:
@@ -496,9 +494,16 @@ def _persist() -> None:
     500. save_state() already returns False rather than raising, but this runs
     on a request thread, so the guard covers the snapshot build too.
     """
+    global _pending_backup
     try:
-        from chiketi.state import save_state
+        from chiketi.state import migration_backup, save_state, state_path
         with _PERSIST_LOCK:
+            if _pending_backup is not None:
+                if migration_backup(state_path(), _pending_backup) is None:
+                    print("chiketi: could not back up state.json before migrating it; "
+                          "leaving it unchanged", file=sys.stderr)
+                    return
+                _pending_backup = None
             with _STATE_LOCK:
                 snapshot = {
                     # One object, not two calls: get_active_family() and
@@ -506,8 +511,7 @@ def _persist() -> None:
                     # separately, so a theme change landing between them
                     # yields a family and a variant from different themes.
                     "theme": _persisted_theme or _active_theme_key(),
-                    "screen_rotation": {k: dict(v)
-                                        for k, v in _screen_rotation.items()},
+                    "kiosk_theme": _kiosk_theme,
                     "brightness": _display_brightness,
                     "output": _display_output,
                     "width": _display_width,
@@ -629,9 +633,12 @@ class ControlHandler(BaseHTTPRequestHandler):
                     }
                     for t in themes
                 }
+            with _STATE_LOCK:
+                kiosk_theme = _kiosk_theme
             self._json_response({
                 "active_family": _theme.family,
                 "active_variant": _theme.name,
+                "kiosk_theme": kiosk_theme,
                 "families": families,
             })
         elif route == "/api/metrics":
@@ -692,6 +699,9 @@ class ControlHandler(BaseHTTPRequestHandler):
         if self_service or path.startswith("/api/devices/"):
             self._device_post(path)
             return
+        if path.startswith("/api/kiosk-theme/"):
+            self._set_kiosk_theme(path[len("/api/kiosk-theme/"):])
+            return
         if path.startswith("/api/theme/"):
             rest = path.split("/api/theme/", 1)[1]
             # Support both /api/theme/family/variant and /api/theme/variant
@@ -718,7 +728,7 @@ class ControlHandler(BaseHTTPRequestHandler):
             else:
                 self.send_error(400, f"Unknown theme: {key}")
         elif path == "/api/display":
-            global _display_width, _display_height, _screen_rotation
+            global _display_width, _display_height
             global _display_brightness
             body = self._read_body()
             if body is None:
@@ -741,9 +751,6 @@ class ControlHandler(BaseHTTPRequestHandler):
                     if output not in valid_outputs:
                         self.send_error(400, f"Unknown output: {output}")
                         return
-                    if (len(cand.get("screen_rotation", {})) > _MAX_SCREEN_ROTATION):
-                        self.send_error(400, "too many screen_rotation entries")
-                        return
                 # Everything validated: commit as one atomic step.
                 with _STATE_LOCK:
                     if "brightness" in body:
@@ -751,13 +758,6 @@ class ControlHandler(BaseHTTPRequestHandler):
                     if "width" in cand:
                         _display_width = cand["width"]
                         _display_height = cand["height"]
-                    if "screen_rotation" in cand:
-                        merged = dict(_screen_rotation)
-                        for sid, cfg in cand["screen_rotation"].items():
-                            if len(merged) >= _MAX_SCREEN_ROTATION and sid not in merged:
-                                continue
-                            merged[sid] = cfg
-                        _screen_rotation = merged
                 # Display power toggle. mgr.turn_on/turn_off/is_on all take
                 # DisplayManager._lock, so they stay outside _STATE_LOCK.
                 from chiketi.app import get_display_manager
@@ -785,6 +785,18 @@ class ControlHandler(BaseHTTPRequestHandler):
                 self.send_error(400, str(e))
         else:
             self.send_error(404)
+
+    def _set_kiosk_theme(self, key: str) -> None:
+        """POST /api/kiosk-theme/<family>/<variant>: the Kiosk house theme.
+        Token and Origin are checked by do_POST, as for /api/theme."""
+        global _kiosk_theme
+        if not screens.theme_allowed("kiosk", key):
+            self.send_error(400, f"Not a kiosk theme: {key}")
+            return
+        with _STATE_LOCK:
+            _kiosk_theme = key
+        _persist()
+        self._json_response({"kiosk_theme": key})
 
     def _device_post(self, path: str) -> None:
         body = self._read_body()
@@ -966,7 +978,7 @@ def _ui_asset(name: str) -> str:
 
 
 _DISPLAY_ASSETS = ("display.html", "display.css", "display_app.js", "shared_helpers.js",
-                   "fonts.css", "screen_functions.js", "pairing.js")
+                   "fonts.css", "screen_functions.js", "pairing.js", "screens.json")
 
 
 def _display_build() -> str:
@@ -997,6 +1009,7 @@ def _build_display_html() -> str:
     return (
         html
         .replace("__PANEL_SPEC_JSON__", json.dumps(spec))
+        .replace("__SCREEN_SPEC_JSON__", json.dumps(screens.SPEC))
         .replace("__PAUSE_S__", str(pause_s))
         .replace("__BUILD__", _display_build())
         .replace("__SCREEN_FUNCTIONS__", _screen_functions_js())
@@ -1023,5 +1036,6 @@ def _build_html() -> str:
     return (
         html
         .replace("__PANEL_SPEC_JSON__", json.dumps(spec))
+        .replace("__SCREEN_SPEC_JSON__", json.dumps(screens.SPEC))
         .replace("__SCREEN_FUNCTIONS__", _screen_functions_js())
     )

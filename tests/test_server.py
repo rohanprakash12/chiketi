@@ -200,7 +200,6 @@ class TestControlPlane:
         server._AUTH_TOKEN = None
         server._XRANDR_CACHE = []
         server._XRANDR_CACHE_TS = 0.0
-        server._screen_rotation = {}
         server._display_output = ""
 
     def _post(self, srv, path, body, headers=None):
@@ -234,7 +233,7 @@ class TestControlPlane:
                 with urllib.request.urlopen(srv.url("/api/display"), timeout=5) as resp:
                     data = json.loads(resp.read())
         assert "outputs" not in data          # kiosk path doesn't shell out
-        assert "default_duration" in data
+        assert "default_duration" not in data and "screen_rotation" not in data
 
     def test_display_get_includes_outputs_when_requested(self):
         with mock.patch.object(
@@ -276,26 +275,7 @@ class TestControlPlane:
                 data = json.loads(resp.read())
         assert data["applied"] is False
 
-    def test_rotation_duration_clamped(self):
-        with _LiveServer() as srv:
-            resp = self._post(
-                srv, "/api/display",
-                {"screen_rotation": {"screen1": {"enabled": True, "duration": 9999}}})
-            data = json.loads(resp.read())
-        assert data["screen_rotation"]["screen1"]["duration"] == 600
 
-    def test_rotation_long_key_rejected(self):
-        """Now a 400 rather than a silent drop.
-
-        Accepting the request and quietly discarding the entry told the client
-        its settings had been saved when they had not.
-        """
-        with _LiveServer() as srv:
-            with pytest.raises(urllib.error.HTTPError) as exc:
-                self._post(srv, "/api/display",
-                           {"screen_rotation": {"x" * 65: {"duration": 10}}})
-            assert exc.value.code == 400
-        assert server._screen_rotation == {}
 
 
 class TestXrandrCache:
@@ -379,7 +359,6 @@ class TestCsrfAndCors:
 
     def teardown_method(self):
         server._AUTH_TOKEN = None
-        server._screen_rotation = {}
 
     @pytest.mark.parametrize(
         "origin",
@@ -639,12 +618,35 @@ class TestOriginAllowed:
         assert server._origin_allowed("not-a-url", "host:7777") is False
 
 
+class TestScreenModesServer:
+    """Screen modes: the old house-wide list is gone; screens.json is in the pages."""
+
+    def test_display_post_ignores_old_screen_rotation(self):
+        with _LiveServer() as srv:
+            req = urllib.request.Request(
+                srv.url("/api/display"), method="POST",
+                data=json.dumps({"brightness": 1.2,
+                                 "screen_rotation": {"screen1": {"enabled": False}}}).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                data = json.loads(r.read())
+        assert "screen_rotation" not in data and data["brightness"] == 1.2
+
+    def test_screens_json_is_in_the_display_build(self, monkeypatch):
+        before = server._display_build()
+        monkeypatch.setitem(server._UI_ASSET_CACHE, "screens.json", server._ui_asset("screens.json") + " ")
+        assert server._display_build() != before
+
+    def test_pages_inline_the_screen_spec(self):
+        for html in (server._build_display_html(), server._build_html()):
+            assert "__SCREEN_SPEC_JSON__" not in html and '"sessions"' in html
+
+
 class TestConcurrentState:
     """ThreadingHTTPServer serves requests concurrently; shared display state
     must not be serialized while another thread mutates it."""
 
     def teardown_method(self):
-        server._screen_rotation = {}
         server._display_width = 1024
         server._display_height = 600
 
@@ -655,8 +657,6 @@ class TestConcurrentState:
             def hammer_post():
                 for i in range(60):
                     body = json.dumps({
-                        "screen_rotation": {
-                            f"s{i}": {"enabled": True, "duration": 5}},
                         "width": 1024 + (i % 3),
                         "height": 600 + (i % 3),
                     }).encode()
@@ -685,27 +685,6 @@ class TestConcurrentState:
                 t.join(timeout=60)
         assert not errors, f"concurrent access raised: {errors[:3]}"
 
-    def test_rotation_cap_holds_under_concurrency(self):
-        with _LiveServer(threaded=True) as srv:
-            def hammer():
-                for i in range(120):
-                    body = json.dumps({
-                        "screen_rotation": {
-                            f"k{i}": {"enabled": True, "duration": 5}},
-                    }).encode()
-                    req = urllib.request.Request(
-                        srv.url("/api/display"), data=body, method="POST",
-                        headers={"Content-Type": "application/json"},
-                    )
-                    urllib.request.urlopen(req, timeout=10).read()
-
-            threads = [threading.Thread(target=hammer) for _ in range(6)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join(timeout=60)
-        assert len(server._screen_rotation) <= server._MAX_SCREEN_ROTATION
-
     def _post_in_thread(self, srv, done, body):
         def run():
             try:
@@ -727,11 +706,11 @@ class TestConcurrentState:
             with server._STATE_LOCK:
                 t = self._post_in_thread(
                     srv, done,
-                    {"screen_rotation": {"lk": {"enabled": True, "duration": 7}}})
+                    {"brightness": 1.7})
                 assert not done.wait(1.0), "POST completed while lock was held"
             assert done.wait(10), "POST did not complete after lock release"
             t.join(timeout=5)
-        assert server._screen_rotation["lk"]["duration"] == 7
+        assert server._display_brightness == 1.7
 
     def test_get_read_path_takes_the_state_lock(self):
         """Holding _STATE_LOCK must block a concurrent /api/display GET."""
@@ -754,24 +733,11 @@ class TestConcurrentState:
 
 
 class TestDisplayPayloadSnapshot:
-    """Deterministic counterpart to the race test: the payload must be a
-    detached copy, so json.dumps never iterates the live dict."""
+    """The payload is built from values passed in and copied under the lock."""
 
-    def teardown_method(self):
-        server._screen_rotation = {}
-
-    def test_rotation_is_a_copy(self):
-        server._screen_rotation = {"s1": {"enabled": True, "duration": 5}}
+    def test_no_house_wide_screen_list(self):
         payload = server._display_payload(False)
-        assert payload["screen_rotation"] is not server._screen_rotation
-        assert payload["screen_rotation"]["s1"] is not server._screen_rotation["s1"]
-
-    def test_later_mutation_does_not_affect_snapshot(self):
-        server._screen_rotation = {"s1": {"enabled": True, "duration": 5}}
-        payload = server._display_payload(False)
-        server._screen_rotation["s2"] = {"enabled": False, "duration": 9}
-        server._screen_rotation["s1"]["duration"] = 99
-        assert payload["screen_rotation"] == {"s1": {"enabled": True, "duration": 5}}
+        assert "screen_rotation" not in payload and "default_duration" not in payload
 
     def test_display_on_is_passed_in_not_looked_up(self):
         assert server._display_payload(True)["display_on"] is True
@@ -849,7 +815,6 @@ class TestPersistence:
         server._display_brightness = 1.0
         server._display_width = 1024
         server._display_height = 600
-        server._screen_rotation = {}
         server._persisted_theme = None
         server._XRANDR_CACHE = []
         server._XRANDR_CACHE_TS = 0.0
@@ -872,14 +837,13 @@ class TestPersistence:
             with self._post(srv, "/api/display", {
                 "brightness": 1.6,
                 "width": 800, "height": 480,
-                "screen_rotation": {"cpu": {"enabled": False, "duration": 25}},
             }) as r:
                 assert r.status == 200
         saved = self._on_disk()
         assert saved["brightness"] == 1.6
         assert saved["width"] == 800
         assert saved["height"] == 480
-        assert saved["screen_rotation"] == {"cpu": {"enabled": False, "duration": 25}}
+        assert "screen_rotation" not in saved and saved["kiosk_theme"] == "Sci-Fi/TOS"
 
     def test_theme_post_writes_state_file(self, restore_active_theme):
         with _LiveServer() as srv:
@@ -907,8 +871,8 @@ class TestPersistence:
             self._post(srv, "/api/theme/Sci-Fi/DS9", {}).close()
             self._post(srv, "/api/display", {
                 "brightness": 1.9, "width": 1280, "height": 720,
-                "screen_rotation": {"net": {"enabled": True, "duration": 30}},
             }).close()
+            self._post(srv, "/api/kiosk-theme/Others/Claude", {}).close()
 
         # --- simulate the restart ---
         self.teardown_method()
@@ -923,13 +887,13 @@ class TestPersistence:
         assert server._display_brightness == 1.9
         assert server._display_width == 1280
         assert server._display_height == 720
-        assert server._screen_rotation == {"net": {"enabled": True, "duration": 30}}
+        assert server._kiosk_theme == "Others/Claude"
 
         with _LiveServer() as srv:
             with urllib.request.urlopen(srv.url("/api/display"), timeout=5) as r:
                 payload = json.loads(r.read())
         assert payload["brightness"] == 1.9
-        assert payload["screen_rotation"] == {"net": {"enabled": True, "duration": 30}}
+        assert "screen_rotation" not in payload
 
     def test_save_failure_does_not_fail_the_request(self):
         """A read-only HOME is supported: the panel keeps working."""
@@ -974,18 +938,13 @@ class TestPersistence:
         assert server._display_brightness == 1.0
         assert server._display_output == ""
         assert (server._display_width, server._display_height) == (1024, 600)
-        assert server._screen_rotation == {}
+        assert server._kiosk_theme == "Sci-Fi/TOS"
 
     @pytest.mark.parametrize("junk", [None, 5, "x", [], {"theme": 7, "width": "wide"}])
     def test_apply_saved_state_never_raises(self, junk):
         server.apply_saved_state(junk)
         assert server._display_width == 1024
 
-    def test_apply_saved_state_detaches_rotation(self):
-        saved = {"screen_rotation": {"cpu": {"enabled": True, "duration": 7}}}
-        server.apply_saved_state(saved)
-        server._screen_rotation["cpu"]["duration"] = 99
-        assert saved["screen_rotation"]["cpu"]["duration"] == 7
 
 
 class TestDisplayDimensionClamp:
@@ -1077,15 +1036,11 @@ class TestRejectedPostLeavesStateAlone:
 
     def _snapshot(self):
         return (server._display_brightness, server._display_width,
-                server._display_height, dict(server._screen_rotation))
+                server._display_height)
 
     @pytest.mark.parametrize("bad", [
         {"brightness": 1.7, "width": "abc", "height": 600},
-        {"brightness": 1.7, "screen_rotation": {"s": {"duration": "soon"}}},
         {"brightness": 1.7, "width": 800},                        # height missing
-        {"brightness": 1.7, "screen_rotation": {"s": "not-an-object"}},
-        {"brightness": 1.7, "screen_rotation": "not-an-object"},
-        {"brightness": 1.7, "screen_rotation": {"": {"duration": 5}}},
         {"brightness": 1.7, "display_on": "yes"},                 # string bool
         {"brightness": True},                                     # bool as number
         {"brightness": float("inf")},
@@ -1094,7 +1049,7 @@ class TestRejectedPostLeavesStateAlone:
     ])
     def test_bad_request_changes_nothing(self, bad):
         server._display_brightness, server._display_width = 1.0, 1024
-        server._display_height, server._screen_rotation = 600, {}
+        server._display_height = 600
         before = self._snapshot()
         with _LiveServer() as srv:
             body = json.dumps(bad).encode()
@@ -1108,11 +1063,9 @@ class TestRejectedPostLeavesStateAlone:
 
     def test_a_good_request_still_commits(self):
         server._display_brightness, server._display_width = 1.0, 1024
-        server._display_height, server._screen_rotation = 600, {}
+        server._display_height = 600
         with _LiveServer() as srv:
-            body = json.dumps({"brightness": 1.6, "width": 800, "height": 480,
-                               "screen_rotation": {"screen1": {"enabled": False,
-                                                               "duration": 30}}}).encode()
+            body = json.dumps({"brightness": 1.6, "width": 800, "height": 480}).encode()
             req = urllib.request.Request(
                 srv.url("/api/display"), data=body, method="POST",
                 headers={"Content-Type": "application/json"})
@@ -1120,7 +1073,6 @@ class TestRejectedPostLeavesStateAlone:
                 assert r.status == 200
         assert server._display_brightness == 1.6
         assert (server._display_width, server._display_height) == (800, 480)
-        assert server._screen_rotation["screen1"] == {"enabled": False, "duration": 30}
 
 
 class TestTokenHeaderCannotCrash:

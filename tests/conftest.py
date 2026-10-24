@@ -70,5 +70,6 @@ def isolate_state(tmp_path, monkeypatch):
     ):
         monkeypatch.setattr(_server, _name, _value, raising=False)
     # Mutable containers need a fresh object, not a shared one.
-    monkeypatch.setattr(_server, "_screen_rotation", {}, raising=False)
+    monkeypatch.setattr(_server, "_kiosk_theme", "Sci-Fi/TOS", raising=False)
+    monkeypatch.setattr(_server, "_pending_backup", None, raising=False)
     monkeypatch.setattr(_server, "_XRANDR_CACHE", [], raising=False)

@@ -531,13 +531,16 @@ def run(
     engine = MetricEngine()
     engine.start()
 
+    from chiketi.screens import kiosk_capable
     from chiketi.server import (
         CONTROL_PORT,
-        apply_saved_state,
+        DEVICES,
+        adopt_saved_state,
         set_metrics_source,
         start_server,
     )
-    display_url = f"http://localhost:{CONTROL_PORT}/display"
+    # chiketi's own screen is the device "local" (see DeviceRegistry.ensure_local).
+    display_url = f"http://localhost:{CONTROL_PORT}/display?device=local"
 
     # Restore what a previous run saved. load_state() never raises and always
     # degrades to defaults, so a corrupt file cannot stop the dashboard booting.
@@ -546,7 +549,10 @@ def run(
     if not theme_from_cli:
         from chiketi.themes import set_active_theme
         set_active_theme(saved.get("theme", ""))
-    apply_saved_state(saved)
+    # Before the devices load: new and migrated displays start in Kiosk when
+    # this house has Kiosk data (a sessions feed or a Home Lab).
+    DEVICES.kiosk_capable = kiosk_capable()
+    adopt_saved_state(saved, own_screen=not no_kiosk)
 
     # Create the display manager up front so start_server() adopts it instead
     # of constructing a second one (which would re-probe the session twice).

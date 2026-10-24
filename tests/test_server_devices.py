@@ -223,3 +223,112 @@ def test_change_during_write_gets_a_follow_up_flush(monkeypatch):
         gate.set()
         _time.sleep(0.4)
         assert saved == [40, 55]
+
+
+# ── Screen modes ──────────────────────────────────────────────────────────
+
+def test_kiosk_theme_route():
+    with _LiveServer() as srv:
+        with pytest.raises(urllib.error.HTTPError) as e:
+            call(srv, "POST", "/api/kiosk-theme/Others/Claude", {})
+        assert e.value.code == 403                                         # token configured
+        with pytest.raises(urllib.error.HTTPError) as e:
+            call(srv, "POST", "/api/kiosk-theme/Others/Claude", {}, token=True, origin="http://evil.example")
+        assert e.value.code == 403
+        with pytest.raises(urllib.error.HTTPError) as e:
+            call(srv, "POST", "/api/kiosk-theme/Terminal/hacker", {}, token=True)
+        assert e.value.code == 400
+        assert call(srv, "POST", "/api/kiosk-theme/Others/Claude", {}, token=True) == {"kiosk_theme": "Others/Claude"}
+        assert call(srv, "GET", "/api/themes")["kiosk_theme"] == "Others/Claude"
+
+
+def test_admin_mode_and_screens_over_http_self_service_cannot():
+    with _LiveServer() as srv:
+        call(srv, "POST", "/api/register", {"id": "kiosk-1", "caps": GO_CAPS})
+        call(srv, "POST", "/api/devices/kiosk-1/approve", {"name": "Go"}, token=True)
+        out = call(srv, "POST", "/api/devices/kiosk-1", {"mode": "kiosk", "screens": ["sessions"]}, token=True)
+        assert out["mode"] == "kiosk" and out["screens"] == ["sessions"]
+        out = call(srv, "POST", "/api/device/kiosk-1", {"mode": "self", "screens": ["screen1"]})
+        assert out["mode"] == "kiosk" and out["screens"] == ["sessions"]
+        assert call(srv, "GET", "/api/device/kiosk-1")["settings"]["screens"] == ["sessions"]
+        with pytest.raises(urllib.error.HTTPError) as e:
+            call(srv, "POST", "/api/devices/kiosk-1", {"screens": ["screen1"]}, token=True)
+        assert e.value.code == 400
+
+
+class TestMigrationAtStartup:
+    """The backup is a precondition of every save that would replace an old file."""
+
+    @pytest.fixture(autouse=True)
+    def real_persist(self, monkeypatch, tmp_path):
+        monkeypatch.undo()                       # the module fixture stubs _persist; use the real one
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr(server, "DEVICES", DeviceRegistry())
+        monkeypatch.setattr(server, "_pending_backup", None)
+        yield
+
+    OLD = json.dumps({"version": 1, "screen_rotation": {"screen6": {"enabled": False}},
+                      "devices": {"tablet-1": {"name": "Tablet", "caps": {}}}})
+
+    def _write_old(self):
+        import os
+
+        from chiketi.state import state_path
+        os.makedirs(os.path.dirname(state_path()), exist_ok=True)
+        with open(state_path(), "w") as fh:
+            fh.write(self.OLD)
+        return state_path()
+
+    def _bak(self, path):
+        import time
+        return f"{path}.bak-{time.strftime('%Y%m%d')}"
+
+    def test_migrated_once_with_one_backup(self):
+        from chiketi.state import load_state
+        path = self._write_old()
+        server.adopt_saved_state(load_state(), own_screen=False)
+        with open(self._bak(path)) as fh:
+            assert fh.read() == self.OLD
+        on_disk = json.load(open(path))
+        assert "screen_rotation" not in on_disk and on_disk["devices"]["tablet-1"]["mode"] == "self"
+        again = load_state()
+        assert "migration_blob" not in again
+        before = open(path).read()
+        server.adopt_saved_state(again, own_screen=False)              # second start: no write
+        assert open(path).read() == before
+
+    def test_dangling_symlink_at_backup_keeps_the_old_file(self, tmp_path):
+        import os
+
+        from chiketi.state import load_state
+        path = self._write_old()
+        os.symlink(tmp_path / "missing", self._bak(path))
+        server.adopt_saved_state(load_state(), own_screen=False)
+        assert open(path).read() == self.OLD
+        server.DEVICES.admin_update("tablet-1", {"seconds": 40})
+        server._persist()                                               # a later setting change
+        assert open(path).read() == self.OLD and os.path.islink(self._bak(path))
+
+    def test_failed_backup_blocks_every_write_until_it_succeeds(self, monkeypatch):
+        import os
+
+        from chiketi import state
+        from chiketi.devices import clean_caps
+        path = self._write_old()
+        real_fsync = os.fsync
+
+        def boom(fd):
+            raise OSError("disk full")
+        monkeypatch.setattr(state.os, "fsync", boom)
+        server.adopt_saved_state(state.load_state(), own_screen=True)   # local created -> wants a write
+        assert open(path).read() == self.OLD
+        assert not os.path.lexists(self._bak(path))
+        assert not [f for f in os.listdir(os.path.dirname(path)) if ".tmp-" in f]
+        _out, changed = server.DEVICES.register("local", clean_caps({"w": 1024, "h": 600}), "127.0.0.1")
+        assert changed
+        server._persist()                                               # what the coalesced flush calls
+        assert open(path).read() == self.OLD
+        monkeypatch.setattr(state.os, "fsync", real_fsync)
+        server._persist()
+        assert open(self._bak(path)).read() == self.OLD
+        assert "local" in json.load(open(path))["devices"]

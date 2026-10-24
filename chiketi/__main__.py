@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--rotate-interval",
         type=int,
         default=None,
-        help=f"Seconds between auto-rotation, {ROTATE_MIN_S}-{ROTATE_MAX_S} (default: 10)",
+        help=f"Seconds per screen a new display starts with, {ROTATE_MIN_S}-{ROTATE_MAX_S} (default: 30)",
     )
     parser.add_argument(
         "--theme",
