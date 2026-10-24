@@ -385,3 +385,228 @@ through `gq()`.
 6. Rohan's OK, then deploy the server.
 7. With his OK, `chiketi-site deploy probe <host>` for each GPU host.
 8. Tick GPUs on the displays.
+
+## 6. Amendment: what a real V100 showed (2026-10-24)
+
+The v2 probe, run by hand on a host with one V100-PCIE-32GB under full load, parsed correctly.
+Two things change as a result, both chosen by Rohan. Heat is still judged on the core
+temperature only. Where this section disagrees with §§1–4, this section wins.
+
+**Finding:**
+- `clocks_event_reasons.active` alternated between `0x0` and `0x20` (software thermal
+  slowdown) on successive manual samples two seconds apart.
+- The core read 69 °C while the HBM memory read 84–85 °C.
+
+What production polling (every `poll_seconds`) will see is not known. If it sees the same
+alternation, the row as built flips between BUSY and THROTTLING on every poll. The alert,
+which needs `HOLD_TEMP` (4) slowdowns in a row, never fires. Both are misleading: the row
+flickers, and a card that slows itself down half the time says nothing.
+
+**6.1 Throttle evidence (`poller.py`)**
+- **The history:** for each `(host, GPU index)`, the poller keeps the last 4 throttle
+  readings, newest last. Each reading is `(poll time, slowed: bool)`.
+  - The poll time is the poller's monotonic clock (`mono`), so a wall-clock change can
+    neither extend nor cut the age limit.
+  - The history also stores the card's identity: its UUID (§6.4), or its bus id when the
+    UUID is empty, or its name when both are.
+  - With the UUID, a replaced card is always told apart. Without it (an older v2 probe, or
+    a driver that does not report it), a card swapped into the same slot can inherit up to
+    3 polls of evidence for as long as that evidence is unexpired. That is a documented
+    limitation.
+- **What adds a reading:** only a v2 `ok` sample whose GPU has a throttle mask.
+- **What leaves the history as it was:**
+  - a missing mask (`N/A`);
+  - an `unreadable` or `offline` host;
+  - a remembered or cached reading.
+- **What drops a GPU's history:**
+  - an `ok` sample without that index;
+  - an `ok` sample at that index with a different identity (a swapped or renumbered card),
+    before its reading is added;
+  - a `legacy` (v1) sample, which can say nothing about throttling;
+  - an outcome of `none`.
+- **The age limit:** a reading older than `4 × cycle` is ignored, where
+  `cycle = 1.1 × poll_seconds + ceil(hosts / 8) × 40`. That is twice §3's `stale_after`,
+  about four polls. Old evidence never counts.
+- The history is memory-only: a restart starts it empty, and baselines are unchanged.
+
+From the current, non-expired readings:
+- **recent** = any of the last 3 readings slowed;
+- **qualifies** = at least 3 of the last 4 readings slowed.
+
+**6.2 The row** (`gpu_state(g, thr, outcome, throttled=None)`)
+- The THROTTLING test uses `throttled` when it is given, and the sample alone when it is
+  `None`, as before.
+- The poller passes `recent` when the history has a non-expired reading, and `None`
+  otherwise. So right after a restart, or with only expired readings, it judges the sample
+  alone. A sample without a mask then shows its BUSY/IDLE/UNKNOWN state, as before.
+- The bits that count (0x08, 0x20, 0x40, 0x80) and the order of states are unchanged.
+
+**6.3 The alert** (`gpu_condition(g, thr, throttled=None, fast=False)`)
+- There is one condition per GPU, under the same key `gpu_temp:<i>` as before.
+- **Its title and severity:**
+  - from heat if the core temperature is warn or crit (as before);
+  - otherwise warn `GPU <i> throttling`, when `throttled` is true;
+  - otherwise there is no condition.
+- **Its hold** is 1 when `fast` is true, and `HOLD_TEMP` otherwise. So whether throttling
+  qualifies is decided independently of which title wins: three slowdowns raise the alert
+  at once, even if the third sample is also hot.
+- **What the poller passes:**
+  - `throttled = qualifies or (raised and recent)`;
+  - `fast = throttled`;
+  - `raised` means the tracker already holds a raised `gpu_temp:<i>` for that host. A new
+    `IssueTracker.raised(host, key) -> Condition | None` answers it.
+  - Once raised, the alert therefore stays for as long as the row says THROTTLING. That is
+    the hysteresis.
+  - Heat that recovers while the row still says THROTTLING hands over to the throttle
+    title without dropping the alert, which keeps §2's guarantee.
+- **Who builds the conditions:**
+  - the poller replaces the `gpu_temp:` conditions from `evaluate_report` with its own, for
+    `ok` and `legacy` samples;
+  - for a legacy sample without unresolved throttling, it passes `throttled=False` and
+    `fast=False`: heat only, as before;
+  - `throttled=None` (the default) keeps the old per-sample rule for any other caller.
+- **Unresolved throttling:** the poller keeps a flag per `(host, index)`.
+  - It is set when a poll passes `throttled=True` and the key is raised after that update,
+    whichever title won.
+  - It is cleared only when the tracker no longer holds that key at all, that is, once
+    recovery has completed. It is also dropped with the GPU's history on a missing index,
+    an identity change, or `none`. A legacy sample does not drop it.
+  - While it is set, a sample that cannot show the throttling is over (a legacy sample, or a
+    v2 sample without a mask) passes `throttled=True, fast=True`. That puts the condition
+    back, so a recovery under way starts again. Only consecutive v2 readings that show it
+    is over (`CLEAR_AFTER` of them) can clear it. The alert stays, with
+    heat's title when hot and the throttling title otherwise, until a v2 reading clears it.
+    This keeps §2's rule that only a reading showing the problem is over clears it,
+    whatever title the alert had in between.
+  - Keep-keys (§2) are otherwise unchanged.
+- Swapping a card does not move its open issue. That is out of scope, as before.
+
+**Traces** (1 = slowed; one reading per poll, none expired, starting from no history and
+no issue). The core stays below warn unless a step says hot, and the card is under load
+(util ≥ 10 %), so a sample that is not throttling reads BUSY:
+- **`0,1,0,1,0,1,…`**:
+  - row: BUSY at poll 1, THROTTLING from poll 2 on;
+  - alert: never (2 of 4 at most).
+- **`1,1,1`**:
+  - row: THROTTLING from poll 1;
+  - alert raised at poll 3.
+- **`1,1,1,1` then `0,0,0,0,…`** (no heat): the alert is raised at poll 3, and then:
+
+  | Reading | Last 3 | Recent | Row | Condition | Tracker |
+  |---|---|---|---|---|---|
+  | 1st 0 | 1,1,0 | yes | THROTTLING | present | stays raised |
+  | 2nd 0 | 1,0,0 | yes | THROTTLING | present | stays raised |
+  | 3rd 0 | 0,0,0 | no | BUSY | absent | good 1 |
+  | 4th 0 | 0,0,0 | no | BUSY | absent | good 2: cleared |
+- **`1,1` then a hot sample with slowdown:** raised at poll 3, as hot (heat's title, hold 1).
+- **Hot ×4 (alert raised), then cool with `1,0,1,0`:** the condition continues as
+  throttling while the readings stay recent. It clears only after the row stops saying
+  THROTTLING, plus `CLEAR_AFTER`.
+- **Missing masks for longer than the age limit:** the history expires, and the row
+  judges the sample alone.
+- **`1,1,1`, then one hot legacy sample, then cool legacy samples:**
+  - the alert is raised at poll 3;
+  - it shows heat's title on the hot sample, then the throttling title;
+  - it stays until a v2 sample with a mask reads 0 and the row stops saying THROTTLING,
+    plus `CLEAR_AFTER`.
+- **`1,1,` then a hot sample with slowdown, then cool legacy samples:** the same; it is
+  never cleared by the legacy samples.
+- **Interrupted recovery: `1,1,1`, legacy, v2 `0`, legacy, v2 `0`, v2 `0`:**
+  - raised at poll 3;
+  - kept by the first legacy sample;
+  - good 1 at the first v2 `0` (the history was dropped, so it is not recent);
+  - the second legacy sample restarts it;
+  - good 1, then good 2 on the last two `0` samples: cleared, and the flag is cleared.
+- **An offline or unreadable poll in the middle of a recovery** freezes it rather than
+  restarting it (§2's partial update and keep-keys): `good 1`, offline, a v2 `0` clears.
+  Only a legacy or no-mask sample *restarts* it.
+
+**6.4 Memory temperature (probe, parser, screen)**
+- **The UUID:**
+  - The detailed query gains `uuid` as a twelfth field. The UUID has been in `nvidia-smi`
+    for as long as the rest of the list, so the query's compatibility does not change.
+  - `gpu=` lines have 12 fields. The last is the UUID, with `|`, `=` and spaces stripped, cut
+    to 64 characters, and empty if it is missing.
+  - The parser accepts 11 fields (an earlier v2 probe; no UUID) or 12. Any other count is
+    dropped, as before.
+  - `Gpu.uuid` is a string. It is remembered in the baseline and validated as a string, but
+    is not in the snapshot rows or on the screen.
+- **The probe:**
+  - When the detailed query succeeded, it runs one more query as **the probe's very last
+    step**, after SMART, systemd, apt and Unraid:
+    `nvidia-smi --query-gpu=pci.bus_id,temperature.memory --format=csv,noheader,nounits`.
+  - Each line with an integer-like temperature prints `gpu_mem_temp=<bus id>|<°C>`.
+  - A failure, or `N/A` on cards without a memory sensor, prints nothing.
+  - It is a separate, optional query, so a driver that does not know the field cannot
+    break the main sample.
+- **Its budget:**
+  - The query runs only where `timeout` exists, so no unbounded call is added. It is limited
+    to 3 s, with KILL 1 s later.
+  - It runs only if the probe has been running for 0–19 s at that point, by the monotonic
+    clock: the integer seconds of `/proc/uptime`, read at the probe's start and at that
+    point. A wall-clock change cannot move it. An unreadable or non-numeric
+    `/proc/uptime`, or a negative difference, skips the query.
+  - Since nothing follows it, the probe ends by 20 + 4 = 24 s after its start. That leaves
+    6 s of the 30 s SSH limit for connecting and starting. This is a conservative reserve,
+    not a proven bound: `run_probe()` does not separately bound SSH startup. A host whose
+    connection takes more than 6 s already risks the limit today.
+  - A probe that already takes 20 s or more without it is unaffected: the query is
+    skipped, and nothing is added.
+  - Hosts without `timeout`, and slow hosts, simply show no memory temperature.
+  - §1's "at most 17 s" for the GPU part is unchanged, because this query is budgeted
+    separately at the end. There are now three query forms: the detailed one with its one
+    retry, the process query, and this one.
+- **The parser:**
+  - `Gpu.mem_temp` (float or None) is matched by bus id, as the process counts are.
+  - A value outside −50…200 °C, a non-finite value, or no line gives None.
+- **The baseline** remembers `mem_temp` and validates it like the other floats. An older
+  baseline file without it loads with None.
+- **The snapshot row** gains `mem_temp`.
+- **The screen:**
+  - In the full layout, the TEMP cell keeps the core temperature as its main line. Under
+    it, a smaller line reads `MEM <t>°`, with `t` rounded to an integer, when the display
+    has a finite `mem_temp` within −50…200; otherwise there is no second line, never
+    `MEM --`.
+  - The cell keeps its fixed width and is never cut short (`data-fit`, checked by
+    fit_check).
+  - The strip layout is unchanged (core only).
+- **Not judged:** the memory temperature raises no state and no alert. Memory heat limits
+  differ between cards; that is a later decision.
+
+**6.5 Testing**
+- **Probe script (PATH fakes):**
+  - `gpu_mem_temp` lines are printed;
+  - `N/A` prints nothing;
+  - a failing memory query leaves the main sample and the process counts intact;
+  - no `timeout` means no memory query;
+  - the uptime file is injectable (`CHIKETI_PROBE_UPTIME`, tests only; the forced command
+    runs with a fixed environment):
+    - 19 s elapsed runs the query;
+    - 20 s skips it;
+    - a negative difference skips it;
+    - an unreadable or non-numeric file skips it;
+  - the query's lines come after every other probe line;
+  - the 12-field `gpu=` line carries the UUID, and an 11-field line still parses.
+- **Parser:**
+  - `mem_temp` is matched by bus id;
+  - absent gives None;
+  - non-finite or out-of-range values give None.
+- **Poller and rules:** every trace in §6.3, plus:
+  - a missing mask leaves the history alone;
+  - an unreadable host leaves it alone;
+  - expiry by age;
+  - an index that disappears drops its history;
+  - an identity change resets it: by UUID, by bus id when there is no UUID, and by name
+    last;
+  - age is measured on the monotonic clock: a fake wall clock jumping back does not extend
+    it;
+  - unresolved throttling survives legacy samples, including a heat title in between, and
+    is cleared only by a v2 reading of 0;
+  - the interrupted-recovery trace;
+  - a legacy sample drops the history;
+  - an empty history judges the sample;
+  - `throttled=None` keeps the old behaviour.
+- **Baseline:** `mem_temp` round-trips; an old file without it loads.
+- **Screen:**
+  - harness fixtures with and without `mem_temp`, plus hostile and out-of-range values;
+  - fit_check at 1800×1200, 1920×462 and 1024×600 with `MEM` lines present.
