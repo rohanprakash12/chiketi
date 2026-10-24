@@ -386,6 +386,7 @@ const GPU_STATES = ['idle', 'busy', 'unknown', 'nodetail', 'offline', 'unreadabl
 const GPU_HOUSE = gpuHouse(GPU_STATES.map(function (s, i) {
   const over = s === 'nodetail' ? { util: null, vram_used: null, vram_total: null, power: null, power_limit: null,
     procs: null, detail: false } : s === 'critical' ? { temp: 95 } : s === 'hot' ? { temp: 87 } : {};
+  if (s !== 'nodetail') over.mem_temp = i === 0 ? null : 84;    // the memory sensor, where a card has one
   return gpuRow(i < 5 ? 'gpubox' : 'devbox', i, s, over);
 }), [{ host: 'gpubox', outcome: 'ok' }, { host: 'devbox', outcome: 'ok' }]);
 const GPU_HOUSE_TIES = gpuHouse([gpuRow('devbox', 1, 'busy'), gpuRow('gpubox', 1, 'busy'), gpuRow('devbox', 0, 'hot', { temp: 87 }),
@@ -411,12 +412,16 @@ const GPU_HOUSE_OLD = gpuHouse([gpuRow('gpubox', 0, 'unreadable', { power: 231, 
 const GPU_HOUSE_LONG_HOSTS = gpuHouse([gpuRow('gpubox', 0, 'busy')], [{ host: 'gpubox', outcome: 'ok' },
   { host: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1', outcome: 'pending' }, { host: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2', outcome: 'pending' },
   { host: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3', outcome: 'pending' }]);
-const GPU_HOUSE_HOSTILE = gpuHouse([gpuRow(XSS, 0, 'busy', { name: XSS }), gpuRow('gpubox', 1, XSS)],
+const GPU_HOUSE_MEM_EDGE = gpuHouse([199.6, -49.6, 1e9, -80, NaN, '84'].map(function (t, i) {
+  return gpuRow('gpubox', i, 'busy', { mem_temp: t });
+}), [{ host: 'gpubox', outcome: 'ok' }]);
+const GPU_HOUSE_HOSTILE = gpuHouse([gpuRow(XSS, 0, 'busy', { name: XSS, mem_temp: XSS }), gpuRow('gpubox', 1, XSS)],
   [{ host: XSS, outcome: 'pending' }, { host: 'gpubox', outcome: 'ok' }]);
 
 module.exports = { GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
                    GPU_HOUSE_INCOMPLETE_WITH_ROWS, GPU_HOUSE_STALE, GPU_HOUSE_STALE_EMPTY, GPU_HOUSE_SPARSE,
                    GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE, GPU_HOUSE_OLD, GPU_HOUSE_LONG_HOSTS,
+                   GPU_HOUSE_MEM_EDGE,
                    KIOSK_EMPTY, HL_YELLOW, HL_RED, HL_STALE, HL_PENDING, HL_UNCONFIGURED, HL_HOSTILE,
                    SESS_EMPTY, SESS_MANY, SESS_OFFLINE, SESS_PENDING, SESS_UNCONFIGURED, SESS_HOSTILE,
                    FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA,

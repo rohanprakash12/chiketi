@@ -4154,7 +4154,7 @@ const GPU_COLS = [
   { key: 'state', label: 'STATE', w: 124 },
   { key: 'load', label: 'LOAD', w: 112 },
   { key: 'vram', label: 'VRAM', w: 168 },
-  { key: 'temp', label: 'TEMP', w: 52, align: 'right' },
+  { key: 'temp', label: 'TEMP', w: 72, align: 'right' },
   { key: 'power', label: 'POWER', w: 112, align: 'right' },
   { key: 'procs', label: 'PROCS', w: 60, align: 'right' },
 ];
@@ -4269,7 +4269,11 @@ function bsGpuRow(d, r, rowH, k, cols, compact) {
   const loadCell = compact ? (util === null ? '--' : Math.round(util) + '%')
     : bar(util, col === S.label ? S.a4 : col, 52) + (util === null ? '--' : Math.round(util) + '%');
   const vramCell = compact ? (v.pct === null ? '--' : Math.round(v.pct) + '%') : bar(v.pct, S.a2, 44) + v.text;
-  const tempCell = temp === null ? '--' : Math.round(temp) + '&deg;';
+  // The memory (HBM) temperature, under the core one in the full layout (spec §6.4).
+  const mt = gpuFin(r.mem_temp);
+  const memLine = !compact && mt !== null && mt >= -50 && mt <= 200
+    ? `<div style="color:${S.therm(mt)};font-size:${gq(11)};letter-spacing:0.04em">MEM ${Math.round(mt)}&deg;</div>` : '';
+  const tempCell = (temp === null ? '--' : Math.round(temp) + '&deg;') + memLine;
   const powerCell = pw === null ? '--' : Math.round(pw) + (lim !== null && !compact ? ' / ' + Math.round(lim) : '') + ' W';
   // data-fit: text that must never be cut (fit_check checks it); the name may be.
   const fit = function (col, inner, style) { return sessCell(col, inner, style).replace('<div ', '<div data-fit '); };

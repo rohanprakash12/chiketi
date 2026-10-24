@@ -69,7 +69,8 @@ def gpu_outcome(rep: ProbeReport, has_known: bool) -> str:
 def _row(host: str, g, state: str, seen_at: float) -> dict:
     return {"host": host, "index": g.index, "name": g.name, "util": g.util, "vram_used": g.vram_used,
             "vram_total": g.vram_total, "temp": g.temp, "power": g.power, "power_limit": g.power_limit,
-            "fan": g.fan, "procs": g.procs, "state": state, "detail": g.detail, "seen_at": seen_at}
+            "fan": g.fan, "procs": g.procs, "mem_temp": g.mem_temp, "state": state, "detail": g.detail,
+            "seen_at": seen_at}
 
 
 def baseline_path() -> str:

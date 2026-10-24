@@ -624,3 +624,9 @@ def test_none_drops_history(tmp_path):
     h = next(x for x in p._cfg.hosts if x.name == "gpubox")
     p._take_gpus(h, NOGPU, [], 0.0, 0.0, 0.0)
     assert p._gpu_outcome["gpubox"] == "none" and ("gpubox", 0) not in p._thr
+
+
+def test_rows_carry_mem_temp(tmp_path):
+    p = gmake(tmp_path, only_gpubox([v2([gpu(0, mem_temp=84.0), gpu(1)])]))
+    p.poll_once()
+    assert [r["mem_temp"] for r in p.snapshot()["gpus"]] == [84.0, None]

@@ -381,6 +381,16 @@ for (const fixtureName of Object.keys(FIX)) {
         if (fixtureName === 'GPU_HOUSE_SPARSE' && (/>\s*0%\s*</.test(html) || /NaN/.test(html))) fail(fixtureName, label, 'missing value shown as 0% or NaN');
         if (fixtureName === 'GPU_HOUSE_MANY' && !/\+\d+ MORE/.test(html)) fail(fixtureName, label, 'GPUs dropped silently');
         if (html.indexOf('screen-frame fluid') === -1) fail(fixtureName, label, 'GPUs must be fluid');
+        // Memory temperature: a second line in the full layout only, bounded, never "MEM --".
+        const strip = layoutClass() === 'strip';
+        if (strip && /MEM /.test(html)) fail(fixtureName, label, 'MEM line in the strip layout');
+        if (/MEM --|MEM NaN|MEM undefined/.test(html)) fail(fixtureName, label, 'MEM shown without a value');
+        if (!strip && fixtureName === 'GPU_HOUSE' && !/MEM 84&deg;/.test(html)) fail(fixtureName, label, 'MEM 84 missing');
+        if (!strip && fixtureName === 'GPU_HOUSE_MEM_EDGE') {
+          if (!/MEM 200&deg;/.test(html) || !/MEM -50&deg;/.test(html)) fail(fixtureName, label, 'edge MEM values not rounded');
+          if (/MEM (1000000000|-80|84)/.test(html)) fail(fixtureName, label, 'out-of-range or string MEM shown');
+        }
+        if (fixtureName === 'GPU_HOUSE_HOSTILE' && /MEM /.test(html)) fail(fixtureName, label, 'string MEM shown');
       }
 
       // The empty state has to say why it is empty.
