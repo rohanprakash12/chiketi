@@ -1436,3 +1436,108 @@ SHAPES=1800x1200,1920x462 node scripts/fit_check.mjs
 - [ ] `CHANGELOG.md`: a "GPUs screen" entry under Unreleased, plus "probe v2 (redeploy with `chiketi-site deploy probe`)".
 - [ ] `CLAUDE.md` Collectors/Home Lab paragraph: one sentence on GPU samples (outcomes, remembered GPUs in the baseline, alerts clear only on evidence).
 - [ ] Run the full gate (pytest, harness, check_js, ruff, site check, gen_site_assets with clean `docs/`, shellcheck), then commit `docs: GPUs screen`.
+
+---
+
+## Revisions from review (binding: each overrides the task text it names)
+
+**R1 (Task 5, harness).** Outside the eval, use `bsSkin(__HARNESS.skins[0])` (TOS) and
+`__HARNESS.skins[1]` (Claude); `BS_SKIN_TOS` is not visible there.
+
+**R2 (Task 2).** Add `import pytest` to `tests/test_homelab_rules.py`. The rules test imports become
+`from chiketi.collectors.homelab.rules import IssueTracker, gpu_condition, gpu_keep_keys, gpu_state, throttling`
+plus `from chiketi.collectors.homelab.config import DEFAULT_THRESHOLDS`.
+
+**R3 (Task 1, timeout test).**
+- `NEEDED` gains `sleep` and `date`.
+- `_controlled_probe` asserts the probe exited 0 (`check=True`).
+- The hang test's fake does `echo started >> "$ARGLOG"; sleep 30`. The test asserts:
+  - `gpu_query == ["fail|124"]` (timeout's status);
+  - `started` is in the arg log;
+  - the whole probe took under 20 s (measure with `time.monotonic()`).
+
+**R4 (Task 3, start-up).**
+- **Remembered hosts start as `offline`:** `self._gpu_outcome[h] = "offline" if h in self._gpu_mem else "pending"`.
+- **The initial snapshot's rows come from memory:** `"gpus": self._gpu_rows()`, built after `_gpu_mem` and `_gpu_outcome` are set, with `seen_at` preserved.
+- **Metric availability stays gated:** `published_at` is None until the first poll, and the collector marks both metrics unavailable until then.
+- **`_gpu_rows`** maps outcome `pending` to `offline` only for safety. With R4 a remembered host is never pending.
+- `test_restart_during_outage` asserts that **before** the first poll `gpu_hosts[0].outcome == "offline"` and `gpus == [remembered row, offline]`, and that after the poll it is the same.
+
+**R5 (Task 5, prototype-safe maps).** In `gpuHouseData` and `gpuFooterText`, use `new Set()` for
+row hosts and `new Map()` for host order. `GPU_HOUSE_INCOMPLETE_WITH_ROWS` gains a second
+incomplete host named `constructor` (outcome `unreadable`), and the harness asserts that this
+fixture's status is **warn** (an unreadable host is incomplete). The plain pending-host fixture
+`GPU_HOUSE_PENDING_WITH_ROWS` (healthy row + pending host) must stay calm (edge).
+
+**R6 (Task 5, strip ages).** A compact row that is not fresh shows `SEEN <age>` after the state word
+(`OFFLINE · 5m`). The strip state column widens to 150 and the name column absorbs it. Harness:
+for `offline`, `unreadable` and `GPU_HOUSE_STALE` at h=246, the html contains `SEEN` or `· <age>`.
+To make that checkable, the compact form is literally `SEEN 5m`.
+
+**R7 (Task 5, a stale empty snapshot).** The stale banner (full) and the `TELEMETRY STALE` lead
+(strip) are drawn whatever the body is. In the full layout, the banner sits above the empty note
+too. New fixture `GPU_HOUSE_STALE_EMPTY` (no rows, stale): the html contains both `TELEMETRY STALE`
+and `NO GPUS REPORTED`.
+
+**R8 (Task 3, real tests).** Replace `test_slow_polls_are_not_stale` and strengthen the alert tests:
+
+```python
+def test_slow_polls_are_not_stale_through_the_poller(tmp_path, monkeypatch):
+    """12 hosts, 10 s polls, every check takes 30 s of (fake) time: the published
+    snapshot's age stays under stale_after until the next publication."""
+    from chiketi.collectors.homelab import poller as P
+    hosts = tuple(Host(f"h{i}", "linux", address="a", user="u") for i in range(12))
+    t = {"now": 0.0, "mono": 0.0}
+    monkeypatch.setattr(P.time, "monotonic", lambda: t["mono"])
+
+    def slow(h, c):
+        t["mono"] += 30.0 / 8          # 12 checks in two batches of eight: ~2 x 30 s
+        return v2([], tool="absent", query=None)
+    cfg = HomelabConfig(hosts=hosts, poll_seconds=10)
+    p = HomelabPoller(cfg, Baseline(str(tmp_path / "b.json")), clock=lambda: t["now"], probe=slow)
+    c = HomelabCollector.__new__(HomelabCollector)
+    c._poller = p
+    p.poll_once()
+    first = c.collect()["homelab.gpus"].extra
+    gap = (t["mono"] - 0) + 1.1 * 10 + 60          # this poll's length + max wait + next poll's length
+    assert first["published_at"] + gap - first["published_at"] < first["stale_after"]
+    assert first["published_at"] > 0             # stamped at the END of the poll, not its start
+```
+
+Also add, through the real poller with `gmake`:
+- **Throttle mask lost:** a raised throttling issue stays while `throttle=None` (temperature fine), and clears after two readings with `throttle=0`. Assert after **every** cycle.
+- **One GPU unknown, one recovers:** GPU 0 and GPU 1 both alerted. Then GPU 0 reads `temp=None` and GPU 1 reads healthy. After two cycles GPU 1's issue is gone and GPU 0's remains.
+- **Unreadable keeps GPU alerts, clears other issues:** an alerted GPU plus a memory issue on the same host. Then `gpu_query=fail` with healthy memory. After two cycles memory is gone and the GPU issue remains.
+- **Oscillation:** temp 86, 84, 86, 84 … for eight cycles. Assert no flapping: once raised, it stays raised while it alternates (the tracker clears only after 2 good in a row).
+- **Offline cycle:** an alerted GPU, then a probe failure (partial), then healthy. The alert stays through the offline cycle and clears after two healthy ones.
+- **Legacy end to end:** feed `parse_probe("probe_version=1\nkind=linux\ngpu_temp_c=88\n")` through a probe stub, then the poller, then the collector. Assert the row is `nodetail`, temp 88, and that after `HOLD_TEMP` polls a `GPU 0 88°C` warn issue is raised.
+- `test_two_gpus_one_alerted_both_recover` asserts that the issue **is** raised after the fourth poll before asserting that it clears.
+
+**R9 (Task 6, browser).**
+- Update `devices_check.mjs` step 13. After `{mode: 'kiosk'}` the expected list is `lab,sessions,gpus` (the page routes metrics to `FULL`, so GPUs is ready). The "same theme" check expects `enabledScreens[0].id === 'lab'` as before.
+- Add a restart round trip in pytest (not the browser): `tests/test_server.py`. Start with a device saved as kiosk `["lab","sessions"]` in `state.json`, run `apply_saved_state(load_state())` with `kiosk_capable=True`, and assert the screens are unchanged.
+- Run the full matrix:
+  - `TABS=2`, `TABS=5` and `TABS=7`, each with `CASES=gpus:FULL,gpus:GPU_HOUSE,gpus:GPU_HOUSE_MANY`;
+  - then the default `CASES` with `TABS=2`.
+
+**R10 (Task 5, exact order).**
+- Every row gets `data-gpu-row="<host>|<index>"`, with the host escaped.
+- The harness computes the expected sorted list itself, from the fixture: state order, then the fixture's `gpu_hosts` order, then index.
+- For `GPU_HOUSE` (and a `GPU_HOUSE_TIES` fixture with two hosts and two indices per state for `busy` and `hot`), it asserts:
+  - the rendered `data-gpu-row` sequence equals the expected list's first `shown` entries;
+  - `shown ≥ 1`;
+  - `+N MORE` equals `total − shown` (or is absent when `shown == total`).
+- These checks run for both skins at h = 600, 683 and 246.
+
+**R11 (Task 2, baseline validation).** `gpu_memory()` validates each record:
+- `rec` is a dict;
+- `seen_at` is a finite number;
+- `gpus` is a list of at most `MAX_GPUS` dicts;
+- each has `index` an int (not a bool) and ≥ 0;
+- numeric fields are finite numbers or None;
+- `name` and `bus_id` are strings;
+- `throttle` and `procs` are ints or None;
+- `detail` is a bool.
+
+Any violation drops that host's record. `test_baseline_ignores_bad_gpu_memory` adds `gpus: [null]`,
+`seen_at: NaN`, and `{"index": true}`.
