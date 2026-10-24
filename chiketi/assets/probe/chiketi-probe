@@ -9,7 +9,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LC_ALL=C
 export PATH LC_ALL
 
-echo "probe_version=1"
+echo "probe_version=2"
 if [ -r /var/local/emhttp/var.ini ]; then KIND=unraid; else KIND=linux; fi
 echo "kind=$KIND"
 
@@ -35,11 +35,48 @@ for d in /sys/class/hwmon/hwmon*; do
 done
 [ -n "$best" ] && echo "cpu_temp_c=$((best / 1000))"
 
+# GPUs (NVIDIA): one sample, its outcome, and a process COUNT per card. No names,
+# no PIDs. Each call is time-boxed where timeout(1) exists.
+nv() {
+  nv_s=$1; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$nv_s" nvidia-smi "$@"; else nvidia-smi "$@"; fi
+}
 if command -v nvidia-smi >/dev/null 2>&1; then
-  nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null |
-  while read -r t; do
-    case "$t" in ''|*[!0-9]*) ;; *) echo "gpu_temp_c=$t" ;; esac
-  done
+  F=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,fan.speed
+  out=$(nv 5 --query-gpu="$F,clocks_throttle_reasons.active,pci.bus_id" --format=csv,noheader,nounits 2>/dev/null)
+  rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'valid field'; then
+    out=$(nv 5 --query-gpu="$F,clocks_event_reasons.active,pci.bus_id" --format=csv,noheader,nounits 2>/dev/null)
+    rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo "gpu_query=fail|$rc"
+  else
+    echo "gpu_query=ok|$(printf '%s\n' "$out" | grep -c .)"
+    printf '%s\n' "$out" | awk -F', ' '
+      function num(x) { gsub(/^ +| +$/, "", x); return (x ~ /^-?[0-9]+(\.[0-9]+)?$/) ? x : "" }
+      NF {
+        if (NF != 11) next
+        idx = num($1); if (idx == "" || idx ~ /[.-]/) next
+        name = $2; gsub(/[|=]/, "", name); name = substr(name, 1, 40)
+        thr = $10; gsub(/ /, "", thr); if (thr !~ /^0x[0-9A-Fa-f]+$/) thr = ""
+        bus = $11; gsub(/[|= ]/, "", bus)
+        t = num($6)
+        print "gpu=" idx "|" name "|" num($3) "|" num($4) "|" num($5) "|" t "|" num($7) "|" num($8) "|" num($9) "|" thr "|" bus
+        if (t != "") print "gpu_temp_c=" int(t)
+      }'
+    pout=$(nv 4 --query-compute-apps=gpu_bus_id --format=csv,noheader 2>/dev/null)
+    prc=$?
+    if [ "$prc" -ne 0 ]; then
+      echo "gpu_procs_query=fail|$prc"
+    else
+      echo "gpu_procs_query=ok"
+      printf '%s\n' "$pout" | awk 'NF { b = $0; gsub(/[|= ]/, "", b); if (b != "") c[b]++ }
+        END { for (b in c) print "gpu_procs=" b "|" c[b] }'
+    fi
+  fi
+else
+  echo "gpu_tool=absent"
 fi
 
 HELPER=/usr/local/lib/chiketi-probe/smart-read
