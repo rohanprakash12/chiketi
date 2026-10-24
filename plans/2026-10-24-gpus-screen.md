@@ -1605,3 +1605,7 @@ Tests:
 - a version-2 report with no markers is `unreadable`, both for an unknown host and for a remembered host;
 - for the unknown host, `gpu_hosts` lists it as `unreadable` with no rows, so the screen's inventory warns (assert this through the collector's metrics plus the harness fixture `GPU_HOUSE_INCOMPLETE` semantics);
 - every Task 3 test helper that means "no GPUs" uses `tool="absent"` explicitly.
+
+**R16 (Task 5, staleness at the boundary).** The harness builds two fixtures from `FULL`:
+`published_at = now − stale_after + 5` and `now − stale_after − 5`. It asserts
+`gpuHouseData().stale` is false for the first and true for the second.
