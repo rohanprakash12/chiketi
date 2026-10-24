@@ -399,3 +399,28 @@ def test_collector_gpu_metrics_wait_for_first_poll(tmp_path):
     m = c.collect()
     assert m["homelab.gpus"].available and m["homelab.gpu_hosts"].available
     assert m["homelab.gpus"].extra["warn_c"] == 85.0 and m["homelab.gpus"].extra["crit_c"] == 92.0
+
+
+def test_check_crash_after_a_good_probe_still_uses_the_sample(tmp_path, monkeypatch):
+    from chiketi.collectors.homelab import poller as P
+
+    def boom(*a, **k):
+        raise RuntimeError("rule bug")
+    p = gmake(tmp_path, only_gpubox([v2([gpu(0, power=25.0)]), v2([gpu(0, power=40.0)])]))
+    p.poll_once()
+    monkeypatch.setattr(P, "evaluate_report", boom)
+    p.poll_once()
+    s = p.snapshot()
+    assert s["gpus"][0]["power"] == 40.0 and s["gpus"][0]["state"] == "busy"
+    assert s["gpus"][0]["seen_at"] == s["checked_at"]
+
+
+def test_probe_crash_marks_gpus_unreadable(tmp_path):
+    p = gmake(tmp_path, only_gpubox([v2([gpu(0)]), RuntimeError("unexpected"), RuntimeError("unexpected")]))
+    p.poll_once()
+    seen = p.snapshot()["gpus"][0]["seen_at"]
+    for _ in range(2):
+        p.poll_once()
+        s = p.snapshot()
+        assert s["gpu_hosts"][0]["outcome"] == "unreadable"
+        assert s["gpus"][0]["state"] == "unreadable" and s["gpus"][0]["seen_at"] == seen

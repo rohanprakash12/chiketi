@@ -36,10 +36,11 @@ done
 [ -n "$best" ] && echo "cpu_temp_c=$((best / 1000))"
 
 # GPUs (NVIDIA): one sample, its outcome, and a process COUNT per card. No names,
-# no PIDs. Each call is time-boxed where timeout(1) exists.
+# no PIDs. Each call is time-boxed where timeout(1) exists: TERM at the limit, KILL
+# one second later for a call that ignores TERM (at most 6 + 6 + 5 s in all).
 nv() {
   nv_s=$1; shift
-  if command -v timeout >/dev/null 2>&1; then timeout "$nv_s" nvidia-smi "$@"; else nvidia-smi "$@"; fi
+  if command -v timeout >/dev/null 2>&1; then timeout -k 1 "$nv_s" nvidia-smi "$@"; else nvidia-smi "$@"; fi
 }
 if command -v nvidia-smi >/dev/null 2>&1; then
   F=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,fan.speed

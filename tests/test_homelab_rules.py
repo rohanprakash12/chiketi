@@ -275,3 +275,13 @@ def test_baseline_ignores_bad_gpu_memory(tmp_path, gpus):
     p = tmp_path / "b.json"
     p.write_text('{"smart": {}, "sec": {}, "gpus": ' + gpus + '}')
     assert Baseline(str(p)).gpu_memory() == {}
+
+
+@pytest.mark.parametrize("gpus", [
+    '{"x": {"seen_at": 1' + '0' * 400 + ', "gpus": [{"index": 0}]}}',
+    '{"x": {"seen_at": 1, "gpus": [{"index": 0, "temp": 1' + '0' * 400 + '}]}}',
+])
+def test_baseline_ignores_huge_numbers(tmp_path, gpus):
+    p = tmp_path / "b.json"
+    p.write_text('{"smart": {}, "sec": {}, "gpus": ' + gpus + '}')
+    assert Baseline(str(p)).gpu_memory() == {}

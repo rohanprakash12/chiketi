@@ -101,7 +101,9 @@ class HomelabPoller(threading.Thread):
     def _check(self, h: Host, now: float) -> tuple[list[Condition], bool, object]:
         """(conditions, partial, gpu). partial=True leaves the host's other issues as they
         were. gpu: the probe report of a probed host that answered, "offline" if its probe
-        failed, None otherwise (and for a crashing rule: GPU state is left as it was)."""
+        failed, "error" if it crashed before a report, None for other kinds. A rule that
+        crashes after a good probe still hands back the report: the sample is real."""
+        rep = None
         try:
             if h.kind in _PROBED:
                 try:
@@ -121,14 +123,16 @@ class HomelabPoller(threading.Thread):
             return self._http(h), False, None
         except Exception as exc:  # noqa: BLE001 - a rule bug skips this host for one cycle
             print(f"chiketi: homelab check {h.name} failed: {exc!r}", file=sys.stderr)
-            return [], True, None
+            if h.kind not in _PROBED:
+                return [], True, None
+            return [], True, (rep if rep is not None else "error")
 
     def _take_gpus(self, h: Host, rep, conds: list[Condition], now: float):
         """Record what a probed host said about its GPUs. Returns (conds, keep) for the
         tracker: an unreadable sample is never used, and a GPU alert is only cleared by
         a reading that shows it is over."""
-        if rep == "offline":
-            self._gpu_outcome[h.name] = "offline"
+        if rep in ("offline", "error"):
+            self._gpu_outcome[h.name] = "offline" if rep == "offline" else "unreadable"
             return conds, None
         known = self._gpu_mem.get(h.name)
         outcome = gpu_outcome(rep, bool(known and known[0]))

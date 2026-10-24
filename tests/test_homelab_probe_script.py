@@ -190,3 +190,13 @@ def test_hostile_name_is_stripped(tmp_path):
 def test_no_nvidia_smi(tmp_path):
     keys, _ = _controlled_probe(tmp_path, None)
     assert keys["gpu_tool"] == ["absent"] and "gpu_query" not in keys
+
+
+def test_query_ignoring_term_is_killed(tmp_path):
+    import time
+    if not shutil.which("timeout"):
+        pytest.skip("no timeout(1)")
+    t0 = time.monotonic()
+    keys, _ = _controlled_probe(tmp_path, 'trap "" TERM\necho started >> "$ARGLOG"\nexec sleep 30\n')
+    assert time.monotonic() - t0 < 20
+    assert keys["gpu_query"][0] in ("fail|124", "fail|137")

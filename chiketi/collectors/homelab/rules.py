@@ -129,7 +129,12 @@ _GPU_FLOATS = ("util", "vram_used", "vram_total", "temp", "power", "power_limit"
 
 
 def _finite(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return math.isfinite(v)
+    except OverflowError:              # an int too large for a float
+        return False
 
 
 def _gpus_from_json(rec) -> list[Gpu] | None:

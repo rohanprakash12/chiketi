@@ -107,7 +107,7 @@ gpu_procs=<pci bus id>|<count>
   - On failure, `gpu_procs_query=fail|<rc>` and every count is unknown.
   - Process names and PIDs are never printed.
 - **Time limits:** where `timeout` exists, the detailed query and its one retry are each
-  limited to 5 s, and the process query to 4 s, so the GPU part takes at most 14 s. Where it
+  limited to 5 s, and the process query to 4 s. A call that ignores TERM is killed one second later (`timeout -k 1`), so the GPU part takes at most 17 s. Where it
   does not, there is no per-call bound, and the poller's SSH limit is the only one.
   - That limit (`run_probe`) rises from 20 s to 30 s.
   - A poll finishes after all hosts have been checked, with at most eight checks running at
