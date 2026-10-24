@@ -1,6 +1,8 @@
 # tests/test_homelab_collector.py
 from __future__ import annotations
 
+import pytest
+
 from chiketi.collectors.homelab.checks import CheckError
 from chiketi.collectors.homelab.collector import HomelabCollector
 from chiketi.collectors.homelab.config import HomelabConfig, Host
@@ -119,10 +121,12 @@ from chiketi.collectors.homelab.rules import HOLD_TEMP  # noqa: E402
 GPU_HOSTS = (Host("gpubox", "linux", address="g", user="u"), Host("devbox", "linux", address="w", user="u"))
 
 
-def gmake(tmp_path, probe, hosts=GPU_HOSTS, poll=30, **kw):
+def gmake(tmp_path, probe, hosts=GPU_HOSTS, poll=30, clock=None, **kw):
     cfg = HomelabConfig(hosts=hosts, poll_seconds=poll)
-    clock = iter(range(0, 100000, 30))
-    return HomelabPoller(cfg, Baseline(str(tmp_path / "b.json")), clock=lambda: next(clock), probe=probe, **kw)
+    if clock is None:
+        it = iter(range(0, 100000, 30))
+        clock = lambda: next(it)  # noqa: E731
+    return HomelabPoller(cfg, Baseline(str(tmp_path / "b.json")), clock=clock, probe=probe, **kw)
 
 
 def v2(gpus, query="ok", rows=None, tool=None, mem_avail=80):
@@ -288,16 +292,16 @@ def test_gpu_alert_survives_unreadable_and_na(tmp_path):
 
 
 def test_throttle_mask_lost_keeps_throttling_alert(tmp_path):
-    seq = [v2([gpu(0, throttle=0x20)])] * 4 + [v2([gpu(0, throttle=None)])] * 3 + [v2([gpu(0, throttle=0)])] * 2
+    # Spec §6.3: the history keeps 1,1,1,1 through the N/A readings, so the zeros are
+    # still "recent" for two polls, then CLEAR_AFTER more: the clear is on the 4th zero.
+    seq = [v2([gpu(0, throttle=0x20)])] * 4 + [v2([gpu(0, throttle=None)])] * 3 + [v2([gpu(0, throttle=0)])] * 4
     p = gmake(tmp_path, only_gpubox(seq))
     for _ in range(4):
         p.poll_once()
     assert [i["title"] for i in gpu_issue(p)] == ["GPU 0 throttling"]
-    for _ in range(3):
+    for _ in range(3 + 3):
         p.poll_once()
         assert gpu_issue(p)
-    p.poll_once()
-    assert gpu_issue(p)
     p.poll_once()
     assert not gpu_issue(p)
 
@@ -424,3 +428,199 @@ def test_probe_crash_marks_gpus_unreadable(tmp_path):
         s = p.snapshot()
         assert s["gpu_hosts"][0]["outcome"] == "unreadable"
         assert s["gpus"][0]["state"] == "unreadable" and s["gpus"][0]["seen_at"] == seen
+
+
+# --- throttle history (spec §6.1-6.3) ---
+
+T, H = "GPU 0 throttling", "GPU 0 90°C"
+
+
+def s1(m=0x20, **kw):
+    """One v2 sample of GPU 0 under load; m is the throttle mask (None: N/A)."""
+    return v2([gpu(0, throttle=m, **kw)])
+
+
+def hot(m=0):
+    return s1(m, temp=90.0)
+
+
+def leg1(temp=60.0):
+    r = ProbeReport(version=1, kind="linux", mem_total_kb=100, mem_avail_kb=80)
+    r.gpus = [Gpu(index=0, temp=temp, detail=False)]
+    r.gpu_query = "legacy"
+    return r
+
+
+OFF = CheckError("ssh: timed out")
+
+
+def trace(tmp_path, seq, **kw):
+    """(row state, GPU 0 issue title or None) after each poll."""
+    p = gmake(tmp_path, only_gpubox(seq), **kw)
+    out = []
+    for _ in seq:
+        p.poll_once()
+        rows = [r for r in p.snapshot()["gpus"] if r["index"] == 0]
+        iss = gpu_issue(p)
+        out.append((rows[0]["state"] if rows else None, iss[0]["title"] if iss else None))
+    return out, p
+
+
+def issues_of(tr):
+    return [i for _, i in tr]
+
+
+def rows_of(tr):
+    return [r for r, _ in tr]
+
+
+def test_alternating_throttle_is_steady_and_raises_nothing(tmp_path):
+    tr, _ = trace(tmp_path, [s1(0), s1(), s1(0), s1(), s1(0), s1()])
+    assert rows_of(tr) == ["busy"] + ["throttling"] * 5
+    assert issues_of(tr) == [None] * 6
+
+
+def test_three_slowdowns_raise_on_the_third(tmp_path):
+    tr, _ = trace(tmp_path, [s1(), s1(), s1()])
+    assert rows_of(tr) == ["throttling"] * 3
+    assert issues_of(tr) == [None, None, T]
+
+
+def test_recovery_clears_on_the_fourth_zero(tmp_path):
+    tr, _ = trace(tmp_path, [s1()] * 4 + [s1(0)] * 4)
+    assert rows_of(tr) == ["throttling"] * 6 + ["busy"] * 2
+    assert issues_of(tr) == [None, None] + [T] * 5 + [None]
+
+
+def test_hot_third_slowdown_raises_at_once(tmp_path):
+    tr, _ = trace(tmp_path, [s1(), s1(), hot(0x20)])
+    assert rows_of(tr) == ["throttling", "throttling", "hot"]
+    assert issues_of(tr) == [None, None, H]
+
+
+def test_heat_hands_over_to_throttling(tmp_path):
+    seq = [hot()] * 4 + [s1(), s1(0), s1(), s1(0), s1(0), s1(0), s1(0)]
+    tr, _ = trace(tmp_path, seq)
+    assert rows_of(tr) == ["hot"] * 4 + ["throttling"] * 5 + ["busy"] * 2
+    assert issues_of(tr) == [None] * 3 + [H] + [T] * 6 + [None]
+
+
+def test_legacy_samples_never_clear_throttling(tmp_path):
+    seq = [s1()] * 3 + [leg1(90.0)] + [leg1()] * 3 + [s1(0)] * 2
+    tr, _ = trace(tmp_path, seq)
+    assert issues_of(tr) == [None, None, T, H, T, T, T, T, None]
+    assert rows_of(tr)[3:7] == ["hot", "nodetail", "nodetail", "nodetail"]
+
+
+def test_legacy_after_a_heat_titled_raise(tmp_path):
+    seq = [s1(), s1(), hot(0x20)] + [leg1()] * 3 + [s1(0)] * 2
+    tr, _ = trace(tmp_path, seq)
+    assert issues_of(tr) == [None, None, H, T, T, T, T, None]
+
+
+def test_interrupted_recovery_restarts(tmp_path):
+    seq = [s1()] * 3 + [leg1(), s1(0), leg1(), s1(0), s1(0)]
+    tr, p = trace(tmp_path, seq)
+    assert issues_of(tr) == [None, None, T, T, T, T, T, None]
+    assert not p._thr.get(("gpubox", 0)) or not p._thr[("gpubox", 0)].unresolved
+
+
+def test_missing_mask_restarts_recovery(tmp_path):
+    seq = [s1()] * 3 + [leg1(), s1(0), s1(None), s1(0), s1(0)]
+    tr, p = trace(tmp_path, seq)
+    assert issues_of(tr) == [None, None, T, T, T, T, T, None]
+    assert not p._thr[("gpubox", 0)].unresolved
+
+
+def test_offline_freezes_recovery(tmp_path):
+    seq = [s1()] * 4 + [s1(0)] * 3 + [OFF, s1(0)]
+    tr, _ = trace(tmp_path, seq)
+    assert issues_of(tr) == [None, None] + [T] * 6 + [None]
+    assert rows_of(tr)[7] == "offline"
+
+
+def test_missing_mask_and_unreadable_leave_history(tmp_path):
+    tr, _ = trace(tmp_path, [s1(), s1(), s1(None), s1()])
+    assert rows_of(tr)[2] == "throttling" and issues_of(tr) == [None, None, None, T]
+    (tmp_path / "u").mkdir()
+    tr, _ = trace(tmp_path / "u", [s1(), s1(), v2([], query="fail"), s1()])
+    assert issues_of(tr) == [None, None, None, T]
+
+
+def test_two_gpus_decide_separately(tmp_path):
+    def two(m0, m1, t0=60.0):
+        return v2([gpu(0, throttle=m0, temp=t0), gpu(1, throttle=m1)])
+
+    def leg2():
+        r = leg1()
+        r.gpus = [Gpu(index=0, temp=60.0, detail=False), Gpu(index=1, temp=60.0, detail=False)]
+        return r
+    seq = [two(0x20, 0), two(0x20, 0), two(0x20, 0, 90.0), leg2(), leg2()]
+    p = gmake(tmp_path, only_gpubox(seq))
+    for _ in seq:
+        p.poll_once()
+    assert [i["title"] for i in gpu_issue(p, 0)] == [T] and gpu_issue(p, 1) == []
+
+
+class Mono:
+    """A fake monotonic clock: two reads per poll, (start, end) from the list."""
+    def __init__(self, pairs):
+        self.vals = [v for pr in pairs for v in pr]
+
+    def __call__(self):
+        return self.vals.pop(0)
+
+
+AGE = 4 * (1.1 * 30 + 40)        # 2 hosts, poll 30: 292 s
+
+
+def test_evidence_expires_on_the_monotonic_clock(tmp_path):
+    back = iter(range(10000, 0, -30))
+    tr, _ = trace(tmp_path, [s1(), s1(0)], mono=Mono([(0, 1), (AGE + 2, AGE + 3)]),
+                  clock=lambda: next(back))
+    assert rows_of(tr) == ["throttling", "busy"]
+    (tmp_path / "n").mkdir()
+    tr, _ = trace(tmp_path / "n", [s1(), s1(None)], mono=Mono([(0, 1), (AGE + 2, AGE + 3)]))
+    assert rows_of(tr) == ["throttling", "busy"]
+
+
+def test_evidence_expiring_during_a_slow_poll_never_counts(tmp_path):
+    pairs = [(0, 1), (30, 31), (AGE - 1, AGE + 31)]
+    tr, _ = trace(tmp_path, [s1(), s1(), s1()], mono=Mono(pairs))
+    assert issues_of(tr) == [None, None, None] and rows_of(tr)[2] == "throttling"
+    (tmp_path / "n").mkdir()
+    tr, _ = trace(tmp_path / "n", [s1(), s1(), s1(None)], mono=Mono(pairs))
+    assert issues_of(tr) == [None, None, None] and rows_of(tr)[2] == "busy"
+
+
+@pytest.mark.parametrize("a, b", [
+    (dict(uuid="GPU-a"), dict(uuid="GPU-b")),
+    (dict(bus_id="b0"), dict(bus_id="b9")),
+    (dict(bus_id="", name="A"), dict(bus_id="", name="B")),
+])
+def test_a_different_card_starts_fresh(tmp_path, a, b):
+    tr, _ = trace(tmp_path, [s1(**a), s1(**a), s1(**b)])
+    assert issues_of(tr) == [None, None, None] and rows_of(tr)[2] == "throttling"
+
+
+def test_same_uuid_new_bus_keeps_history(tmp_path):
+    tr, _ = trace(tmp_path, [s1(uuid="GPU-a", bus_id="b0"), s1(uuid="GPU-a", bus_id="b0"),
+                             s1(uuid="GPU-a", bus_id="b5")])
+    assert issues_of(tr)[2] == T
+
+
+def test_missing_index_drops_history(tmp_path):
+    seq = [s1(), s1(), v2([gpu(1)]), s1()]
+    tr, _ = trace(tmp_path, seq)
+    assert issues_of(tr) == [None, None, None, None]
+
+
+def test_none_drops_history(tmp_path):
+    p = gmake(tmp_path, only_gpubox([s1(), s1()]))
+    p.poll_once()
+    p.poll_once()
+    assert ("gpubox", 0) in p._thr
+    p._gpu_mem.pop("gpubox", None)                 # nothing remembered: absent means none
+    h = next(x for x in p._cfg.hosts if x.name == "gpubox")
+    p._take_gpus(h, NOGPU, [], 0.0, 0.0, 0.0)
+    assert p._gpu_outcome["gpubox"] == "none" and ("gpubox", 0) not in p._thr
