@@ -694,7 +694,8 @@ __HARNESS.skins.forEach(function (skin) {
         (a.index - b.index);
     }).map(function (r) { return esc(String(r.host)) + '|' + r.index; });
   };
-  KIOSK_THEMES.map(function (fv) { return [fv[0], fv[1], screenRenderer('gpus', fv[0], fv[1]).fn]; }).forEach(function (t) {
+  KIOSK_THEMES.filter(function (fv) { return screenRenderer('gpus', fv[0], fv[1]) && wordsFor(fv[0], fv[1]); })
+    .map(function (fv) { return [fv[0], fv[1], screenRenderer('gpus', fv[0], fv[1]).fn]; }).forEach(function (t) {
     activeFamily = t[0];
     const W = wordsFor(t[0], t[1]);
     const colors = FAMILIES[t[0]][t[1]];
