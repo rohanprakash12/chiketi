@@ -201,7 +201,7 @@ const GPU_SPARSE = (function () {
 // top-level HOSTILE sweep cannot reach these -- gpu.cards is a list of
 // objects, not a string -- and card names come from pci.ids and process
 // names from the OS, so neither is ours to trust.
-const XSS = '<img src=x onerror=alert(1)>';
+const XSS = '<video src=x onerror=alert(1)>';
 const GPU_HOSTILE = (function () {
   return withCards([
     gpuCard({ name: XSS, short_name: XSS, vendor: XSS, driver: XSS, bus_id: XSS,
@@ -267,7 +267,7 @@ const HOSTILE = (function () {
   for (const k of Object.keys(FULL)) {
     const v = FULL[k];
     o[k] = typeof v.value === 'string'
-      ? { value: '<img src=x onerror=alert(1)>', unit: v.unit, available: true, extra: v.extra }
+      ? { value: XSS, unit: v.unit, available: true, extra: v.extra }
       : v;
   }
   return o;

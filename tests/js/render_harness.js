@@ -19,7 +19,30 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+
+/* Deterministic renders (the golden hashes and the theme-switch comparisons need
+   them): one fixed instant and UTC, set before the fixtures read the clock, and a
+   seeded Math.random that each compared render resets. */
+process.env.TZ = 'UTC';
+const HARNESS_NOW_MS = Date.UTC(2026, 9, 24, 14, 3, 0);
+const RealDate = Date;
+class FrozenDate extends RealDate {
+  constructor(...a) { if (a.length === 0) super(HARNESS_NOW_MS); else super(...a); }
+  static now() { return HARNESS_NOW_MS; }
+}
+globalThis.Date = FrozenDate;
+function seedRandom(n) {
+  let a = n >>> 0;
+  Math.random = function () {        // mulberry32
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+seedRandom(1);
 const FIX = require('./fixtures.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -70,7 +93,8 @@ eval(
   fs.readFileSync(path.join(UI, 'shared_helpers.js'), 'utf8') + '\n' +
   fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8') +
   // const bindings stay inside this eval; hand out what the checks below need.
-  '\nglobalThis.__HARNESS = { skins: [BS_SKIN_TOS, BS_SKIN_CLAUDE] };'
+  '\nglobalThis.__HARNESS = { skins: [BS_SKIN_TOS, BS_SKIN_CLAUDE],' +
+  ' resetState: function () { for (const k of Object.keys(DISTRO_HIST)) delete DISTRO_HIST[k]; } };'
 );
 
 // Every theme with every screen its modes offer, from the one resolver the
@@ -237,10 +261,10 @@ const CLEAN_TAGS = {};
    detection silently degrades for that renderer -- so assert it. */
 (function () {
   for (const fnName of Object.keys(CLEAN_TAGS)) {
-    if (CLEAN_TAGS[fnName].has('img')) {
+    if (CLEAN_TAGS[fnName].has('video')) {
       console.error(
-        'HARNESS BROKEN: ' + fnName + ' legitimately emits <img>, so the '
-        + 'hostile payload <img ...> can no longer be distinguished from '
+        'HARNESS BROKEN: ' + fnName + ' legitimately emits <video>, so the '
+        + 'hostile payload <video ...> can no longer be distinguished from '
         + 'normal output. Change PAYLOAD to a tag no renderer emits.'
       );
       process.exit(2);
@@ -450,7 +474,7 @@ for (const fixtureName of Object.keys(FIX)) {
 // the code path under test: terminalScreen2 only renders llama.health when
 // llama.status reads "Running", so a HOSTILE llama.status hides a real raw
 // leak in llama.health. Mutating one key at a time is strictly more thorough.
-const PAYLOAD = '<img src=x onerror=alert(1)>';
+const PAYLOAD = '<video src=x onerror=alert(1)>';
 const STRING_KEYS = Object.keys(FIX.FULL).filter(function (k) {
   return typeof FIX.FULL[k].value === 'string';
 });
@@ -656,6 +680,68 @@ __HARNESS.skins.forEach(function (skin) {
   metrics = withRows(FIX.FULL['homelab.gpus'].value, { published_at: nowS - after - 5 });
   if (!gpuHouseData().stale) fail('GPUS', 'boundary', 'not stale after stale_after');
   metrics = FIX.FULL;
+})();
+
+/* ── Golden: today's screens stay byte-identical ─────────────────────────
+   Every Self renderer of every theme and today's Kiosk renderers (TOS, Claude),
+   for every fixture, at three heights, with and without a tab plan. A new key is
+   only added by GOLDEN=update; a changed hash for an existing key always fails.
+   Deterministic: frozen clock, seeded random reset per render, no history. */
+(function () {
+  const file = path.join(__dirname, 'golden.json');
+  const old = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  const got = {};
+  const PLAN3 = ['lab', 'sessions', 'gpus'].map(function (id) {
+    const s = SCREEN_SPEC.screens[id];
+    return { id: id, label: s.label, color: s.color, built: s.built, live: true };
+  });
+  const GOLDEN_KIOSK = ['Sci-Fi/TOS', 'Others/Claude'];
+  const render = function (fn, colors) {
+    __HARNESS.resetState();
+    seedRandom(1);
+    return fn(colors);
+  };
+  for (const fx of Object.keys(FIX)) {
+    metrics = FIX[fx];
+    [600, 683, 246].forEach(function (h) {
+      setFrameH(h);
+      [['none', null], ['plan3', PLAN3]].forEach(function (pl) {
+        setTabPlan(pl[1]);
+        THEME_LIST.forEach(function (fv) {
+          const key = fv[0] + '/' + fv[1];
+          activeFamily = fv[0];
+          const colors = FAMILIES[fv[0]][fv[1]];
+          const ids = SCREEN_SPEC.modes.self.screens.concat(GOLDEN_KIOSK.indexOf(key) !== -1 ? ['lab', 'sessions', 'gpus'] : []);
+          ids.forEach(function (id) {
+            const r = screenRenderer(id, fv[0], fv[1]);
+            if (!r) return;
+            if (id.indexOf('screen') === 0 && pl[0] !== 'none') return;   // Self screens draw no tabs
+            let html;
+            try { html = render(r.fn, colors); } catch (e) { html = 'THREW ' + e.message; }
+            got[[fx, h, pl[0], key, id].join('|')] = crypto.createHash('sha1').update(html).digest('hex').slice(0, 16);
+          });
+        });
+        if (pl[0] === 'plan3') {
+          [['Sci-Fi', 'TOS'], ['Others', 'Claude']].forEach(function (fv) {
+            activeFamily = fv[0];
+            got[[fx, h, pl[0], fv.join('/'), 'notice'].join('|')] =
+              crypto.createHash('sha1').update(render(kioskNotice, FAMILIES[fv[0]][fv[1]])).digest('hex').slice(0, 16);
+          });
+        }
+      });
+    });
+  }
+  setTabPlan(null); setFrameH(600); metrics = FIX.FULL;
+  if (process.env.GOLDEN === 'update') {
+    const merged = Object.assign({}, got);
+    Object.keys(old).forEach(function (k) { if (k in got && old[k] !== got[k]) merged[k] = old[k]; });
+    fs.writeFileSync(file, JSON.stringify(merged, Object.keys(merged).sort(), 0).replace(/,"/g, ',\n"') + '\n');
+    console.log('golden: ' + Object.keys(got).filter(function (k) { return !(k in old); }).length + ' keys added');
+  }
+  Object.keys(got).forEach(function (k) {
+    if (k in old && old[k] !== got[k]) fail('GOLDEN', k, 'output changed from the golden render');
+    else if (!(k in old) && process.env.GOLDEN !== 'update') fail('GOLDEN', k, 'no golden hash (run GOLDEN=update for new keys only)');
+  });
 })();
 
 if (failures.length) {
