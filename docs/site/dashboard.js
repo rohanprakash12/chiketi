@@ -4259,13 +4259,14 @@ const GPU_LABEL = { critical: 'CRITICAL', hot: 'HOT', throttling: 'THROTTLING', 
                     offline: 'OFFLINE', nodetail: 'NO DETAIL', unknown: 'UNKNOWN', busy: 'BUSY', idle: 'IDLE' };
 const GPU_COLS = [
   { key: 'name', label: 'GPU', w: null },
-  { key: 'state', label: 'STATE', w: 132 },
-  { key: 'load', label: 'LOAD', w: 128 },
-  { key: 'vram', label: 'VRAM', w: 160 },
-  { key: 'temp', label: 'TEMP', w: 62, align: 'right' },
-  { key: 'power', label: 'POWER', w: 112, align: 'right' },
-  { key: 'procs', label: 'PROCS', w: 56, align: 'right' },
+  { key: 'state', label: 'STATE', w: 108 },
+  { key: 'load', label: 'LOAD', w: 112 },
+  { key: 'vram', label: 'VRAM', w: 168 },
+  { key: 'temp', label: 'TEMP', w: 52, align: 'right' },
+  { key: 'power', label: 'POWER', w: 104, align: 'right' },
+  { key: 'procs', label: 'PROCS', w: 60, align: 'right' },
 ];
+const GPU_GAP = 12;   // tighter than Sessions: seven columns
 
 function gpuFin(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 function gpuStateColor(st) {
@@ -4329,7 +4330,10 @@ function gpuFooterText(d) {
                  'CHECKED ' + (d.pub ? sessAge(d.pub) + ' AGO' : 'NEVER')];
   const old = new Set();
   d.rows.forEach(function (r) { if (r.state === 'nodetail') old.add(r.host); });
-  if (old.size) parts.push(gpuHostList(Array.from(old).map(function (h) { return { host: h }; })) + ' NEED THE NEW PROBE');
+  if (old.size) {
+    parts.push(gpuHostList(Array.from(old).map(function (h) { return { host: h }; })) +
+               (old.size === 1 ? ' NEEDS' : ' NEED') + ' THE NEW PROBE');
+  }
   if (d.incomplete.length) parts.push('NOT REACHED: ' + gpuHostList(d.incomplete));
   return parts.join(' · ');
 }
@@ -4353,9 +4357,11 @@ function bsGpuRow(d, r, rowH, k, cols, compact) {
   const nameCell = compact
     ? `<span style="color:${S.bright};font-size:${gq(17 * k)};font-weight:${S.fw}">${title}</span>` +
       `<span style="color:${S.label};font-size:${gq(13 * k)}"> · ${esc(r.host)}</span>`
-    : `<div style="color:${fresh ? S.bright : S.label};font-size:${gq(22 * k)};font-weight:${S.fw};overflow:hidden;` +
-        `text-overflow:ellipsis">${title}</div><div style="color:${S.label};font-size:${gq(14 * k)};overflow:hidden;` +
-        `text-overflow:ellipsis">${esc(r.host)}</div>`;
+    // Full rows lead with which card and where; the model (often the same on
+    // every card) goes underneath, where it can be cut short without loss.
+    : `<div style="color:${fresh ? S.bright : S.label};font-size:${gq(20 * k)};font-weight:${S.fw};overflow:hidden;` +
+        `text-overflow:ellipsis">GPU ${r.index} · ${esc(r.host)}</div><div style="color:${S.label};font-size:${gq(14 * k)};` +
+        `overflow:hidden;text-overflow:ellipsis">${r.name ? esc(String(r.name)) : '--'}</div>`;
   const seen = 'SEEN ' + (r.seen_at ? sessAge(r.seen_at) : '--');
   const stateCell = compact
     ? `<span style="color:${col};letter-spacing:0.12em;font-size:${gq(13 * k)};${bsGlow(8, col)}">${GPU_LABEL[r.state]}</span>` +
@@ -4366,27 +4372,27 @@ function bsGpuRow(d, r, rowH, k, cols, compact) {
     return `<span style="display:inline-flex;vertical-align:middle;margin-right:${gq(8)}">${bsSegBar(pct === null ? 0 : pct, color, w, 12 * k, 10, 2)}</span>`;
   };
   const loadCell = compact ? (util === null ? '--' : Math.round(util) + '%')
-    : bar(util, col === S.label ? S.a4 : col, 64) + (util === null ? '--' : Math.round(util) + '%');
-  const vramCell = compact ? (v.pct === null ? '--' : Math.round(v.pct) + '%') : bar(v.pct, S.a2, 56) + v.text;
+    : bar(util, col === S.label ? S.a4 : col, 52) + (util === null ? '--' : Math.round(util) + '%');
+  const vramCell = compact ? (v.pct === null ? '--' : Math.round(v.pct) + '%') : bar(v.pct, S.a2, 44) + v.text;
   const tempCell = temp === null ? '--' : Math.round(temp) + '&deg;';
   const powerCell = pw === null ? '--' : Math.round(pw) + (lim !== null && !compact ? ' / ' + Math.round(lim) : '') + ' W';
   const cells = {
     name: sessCell(C.name, nameCell),
     state: sessCell(C.state, stateCell),
-    load: sessCell(C.load, loadCell, `color:${S.soft};font-size:${gq(17 * k)};font-variant-numeric:tabular-nums`),
-    vram: sessCell(C.vram, vramCell, `color:${S.soft};font-size:${gq(17 * k)};font-variant-numeric:tabular-nums`),
+    load: sessCell(C.load, loadCell, `color:${S.soft};font-size:${gq(16 * k)};font-variant-numeric:tabular-nums`),
+    vram: sessCell(C.vram, vramCell, `color:${S.soft};font-size:${gq((compact ? 16 : 15) * k)};font-variant-numeric:tabular-nums`),
     temp: sessCell(C.temp, tempCell, `color:${temp === null ? S.dim : S.therm(temp)};font-size:${gq(19 * k)};font-variant-numeric:tabular-nums`),
-    power: sessCell(C.power, powerCell, `color:${S.soft};font-size:${gq(17 * k)};font-variant-numeric:tabular-nums`),
+    power: sessCell(C.power, powerCell, `color:${S.soft};font-size:${gq(16 * k)};font-variant-numeric:tabular-nums`),
     procs: C.procs ? sessCell(C.procs, procs === null ? '--' : String(procs), `color:${procs ? S.a2 : S.dim};font-size:${gq(17 * k)}`) : '',
   };
-  return `<div data-gpu-row="${esc(r.host)}|${r.index}" style="display:flex;align-items:center;gap:${gq(SESS_GAP)};height:${gq(rowH)};flex-shrink:0;` +
+  return `<div data-gpu-row="${esc(r.host)}|${r.index}" style="display:flex;align-items:center;gap:${gq(GPU_GAP)};height:${gq(rowH)};flex-shrink:0;` +
       `padding:0 ${gq(16)};border-bottom:${gq(1)} solid ${S.edge};${fresh ? '' : 'opacity:0.6;'}">` +
     `<span style="display:flex;width:${gq(SESS_LAMP * 1.5)};flex-shrink:0">${bsTabIcon('gpus', col, SESS_LAMP * 1.4 * Math.min(1, k + 0.2))}</span>` +
     cols.map(function (c) { return cells[c.key]; }).join('') + `</div>`;
 }
 function bsGpuHeadings(cols, h, px) {
   const S = bsS();
-  return `<div style="display:flex;align-items:center;gap:${gq(SESS_GAP)};padding:0 ${gq(16)};height:${gq(h)};` +
+  return `<div style="display:flex;align-items:center;gap:${gq(GPU_GAP)};padding:0 ${gq(16)};height:${gq(h)};` +
       `flex-shrink:0;color:${S.label};font-size:${gq(px)};letter-spacing:${S.ls}">` +
     `<span style="width:${gq(SESS_LAMP * 1.5)};flex-shrink:0"></span>` +
     cols.map(function (c) { return sessCell(c, c.label); }).join('') + `</div>`;

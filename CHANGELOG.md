@@ -6,6 +6,18 @@ All notable changes to chiketi. Dates are the tag date.
 
 Chiketi grows from one dashboard on one panel into a server for several displays.
 
+### GPUs screen
+- A Kiosk **GPUs** screen: every NVIDIA GPU on the Home Lab hosts, worst first, with
+  load, VRAM, temperature, power, process count and a one-word state. Readings that
+  are old (host offline, driver unreadable, poller stalled) say so, with their age;
+  the last readings are remembered across restarts.
+- **Probe v2** (`chiketi-probe`): one time-boxed `nvidia-smi` sample with an explicit
+  outcome, and a per-card process count (never names or PIDs). Redeploy it with
+  `chiketi-site deploy probe <host>`; hosts on the old probe show temperatures only.
+- Home Lab raises one issue per GPU for heat or throttling, cleared only by a
+  reading that shows it is over.
+- New Kiosk displays get Home Lab, Sessions and GPUs; saved displays are unchanged.
+
 ### Screen modes
 - Each display has a **mode** — **Kiosk** (the house: Home Lab, Sessions, and tabs for
   Overview, My Day, My Home, AI Harness and GPUs to come; Sci-Fi / TOS and Others /

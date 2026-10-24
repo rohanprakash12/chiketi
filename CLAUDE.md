@@ -82,7 +82,11 @@ Home Lab (`collectors/homelab/`): probe output parser, rules with hold/clear cou
 and SMART baselines, checks (SSH forced-command probe, gateway TCP/DNS, HTTP,
 backup JSON), poller. The probe (`assets/probe/chiketi-probe`, POSIX sh) is
 read-only and never wakes sleeping disks (`smartctl -n standby`). Unraid space is
-judged on the whole array (`unraid_array_pct`), not each `/mnt/diskN`.
+judged on the whole array (`unraid_array_pct`), not each `/mnt/diskN`. GPUs (probe v2)
+come with an explicit outcome per host (`ok`, `legacy`, `none`, `unreadable`, `offline`,
+`pending`); each host's last GPUs are remembered in the baseline file, an unreadable
+sample is never used, and a GPU alert clears only on a reading that shows it is over
+(`IssueTracker.update(keep=...)`).
 
 ## Devices and pairing
 
