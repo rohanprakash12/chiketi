@@ -391,6 +391,9 @@ for (const fixtureName of Object.keys(FIX)) {
           if (/MEM (1000000000|-80|84)/.test(html)) fail(fixtureName, label, 'out-of-range or string MEM shown');
         }
         if (fixtureName === 'GPU_HOUSE_HOSTILE' && /MEM /.test(html)) fail(fixtureName, label, 'string MEM shown');
+        if (!strip && fixtureName === 'GPU_HOUSE_MEM_NULL' && (html.match(/MEM /g) || []).length !== 1) {
+          fail(fixtureName, label, 'a missing memory temperature drew a MEM line');
+        }
       }
 
       // The empty state has to say why it is empty.

@@ -415,13 +415,15 @@ const GPU_HOUSE_LONG_HOSTS = gpuHouse([gpuRow('gpubox', 0, 'busy')], [{ host: 'g
 const GPU_HOUSE_MEM_EDGE = gpuHouse([199.6, -49.6, 1e9, -80, NaN, '84'].map(function (t, i) {
   return gpuRow('gpubox', i, 'busy', { mem_temp: t });
 }), [{ host: 'gpubox', outcome: 'ok' }]);
+const GPU_HOUSE_MEM_NULL = gpuHouse([gpuRow('gpubox', 0, 'busy', { mem_temp: null }), gpuRow('gpubox', 1, 'busy'),
+  gpuRow('gpubox', 2, 'busy', { mem_temp: 84 })], [{ host: 'gpubox', outcome: 'ok' }]);
 const GPU_HOUSE_HOSTILE = gpuHouse([gpuRow(XSS, 0, 'busy', { name: XSS, mem_temp: XSS }), gpuRow('gpubox', 1, XSS)],
   [{ host: XSS, outcome: 'pending' }, { host: 'gpubox', outcome: 'ok' }]);
 
 module.exports = { GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
                    GPU_HOUSE_INCOMPLETE_WITH_ROWS, GPU_HOUSE_STALE, GPU_HOUSE_STALE_EMPTY, GPU_HOUSE_SPARSE,
                    GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE, GPU_HOUSE_OLD, GPU_HOUSE_LONG_HOSTS,
-                   GPU_HOUSE_MEM_EDGE,
+                   GPU_HOUSE_MEM_EDGE, GPU_HOUSE_MEM_NULL,
                    KIOSK_EMPTY, HL_YELLOW, HL_RED, HL_STALE, HL_PENDING, HL_UNCONFIGURED, HL_HOSTILE,
                    SESS_EMPTY, SESS_MANY, SESS_OFFLINE, SESS_PENDING, SESS_UNCONFIGURED, SESS_HOSTILE,
                    FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA,
