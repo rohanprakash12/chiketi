@@ -330,12 +330,12 @@ function homelab(status, issues, hostStates, checkedAgo) {
 }
 const NOW_S = Math.floor(Date.now() / 1000);
 const HL_YELLOW = homelab('warn', [
-  { host: 'gpubox', severity: 'warn', title: '/ 88% full', detail: 'filesystem space', since: NOW_S - 600 },
+  { host: 'gpubox', key: 'fs:/', severity: 'warn', title: '/ 88% full', detail: 'filesystem space', since: NOW_S - 600 },
 ], ['ok', 'ok', 'ok', 'warn']);
 const HL_RED = homelab('crit', (function () {
-  const out = [{ host: 'Atlas', severity: 'crit', title: 'disk2 DISK_DSBL', detail: 'Unraid disk status', since: NOW_S - 3600 }];
+  const out = [{ host: 'Atlas', key: 'unraid_disk:disk2', severity: 'crit', title: 'disk2 DISK_DSBL', detail: 'Unraid disk status', since: NOW_S - 3600 }];
   for (let i = 0; i < 11; i++) {
-    out.push({ host: 'devbox', severity: 'warn', title: 'Issue ' + i, detail: 'detail ' + i, since: NOW_S - i * 60 });
+    out.push({ host: 'devbox', key: 'x:' + i, severity: 'warn', title: 'Issue ' + i, detail: 'detail ' + i, since: NOW_S - i * 60 });
   }
   return out;
 })(), ['crit', 'ok', 'warn']);
@@ -363,9 +363,50 @@ const KIOSK_EMPTY = (function () {
 })();
 const HL_HOSTILE = (function () {
   const f = homelab('crit', [
-    { host: XSS, severity: 'crit', title: XSS, detail: XSS, since: NOW_S },
+    { host: XSS, key: XSS, severity: 'crit', title: XSS, detail: XSS, since: NOW_S },
   ]);
   f['homelab.hosts'] = mval([{ name: XSS, state: 'crit' }, { name: 'ok', state: XSS }]);
+  return f;
+})();
+
+/* A busy day, as the server sends it: critical first, then oldest. Vesta's probe
+   fails (down), pfSense's gateway port is shut (gw), Home Assistant answers 500
+   (api: reachable but unhealthy). Nine hosts, fifteen issues. */
+const HL_BUSY = (function () {
+  const I = function (host, key, sev, title, detail, ago) {
+    return { host: host, key: key, severity: sev, title: title, detail: detail, since: NOW_S - ago };
+  };
+  const issues = [
+    I('Atlas', 'unraid_disk:disk3', 'crit', 'disk3 DISK_DSBL', 'Unraid disk status', 5400),
+    I('Vesta', 'down', 'crit', 'Unreachable', 'ssh: connect timed out', 1260),
+    I('gpubox', 'gpu_temp:1', 'crit', 'GPU 1 92°C', '', 300),
+    I('pfSense', 'gw', 'crit', 'Gateway unreachable', '192.0.2.1 not answering', 200),
+    I('Home Assistant', 'api', 'crit', 'API answered 500', 'http://192.0.2.20/api', 120),
+    I('buildbox', 'updates', 'warn', '14 security updates', 'apt', 172800),
+    I('devbox', 'updates', 'warn', '6 security updates', 'apt', 90000),
+    I('Atlas', 'unraid_array', 'warn', 'Array 91% full', 'Unraid array space', 86000),
+    I('Lcdhost', 'units', 'warn', '2 failed units', 'lcd-snap.service, apt-daily.service', 7200),
+    I('devbox', 'fs:/', 'warn', '/ 88% full', 'filesystem space', 3600),
+    I('Atlas', 'smart:sda:5', 'warn', 'Disk sda: reallocated 32216→32296', 'SMART attribute 5', 2640),
+    I('Atlas', 'disk_temp:sdc', 'warn', 'Disk sdc 52°C', 'drive temperature', 1800),
+    I('chiketi-server', 'backup_api', 'warn', 'Backup status unavailable', 'HTTP 504 from backup API', 900),
+    I('gpubox', 'gpu_throttle:0', 'warn', 'GPU 0 throttling', 'clock slowdown reported by the driver', 660),
+    I('gpubox', 'mem', 'warn', 'Memory 9% available', 'memory', 420),
+  ];
+  const names = ['Atlas', 'Vesta', 'devbox', 'gpubox', 'Lcdhost', 'chiketi-server', 'pfSense', 'Home Assistant', 'buildbox'];
+  const f = homelab('crit', issues);
+  f['homelab.hosts'] = mval(names.map(function (n) {
+    const mine = issues.filter(function (i) { return i.host === n; });
+    return { name: n, state: mine.some(function (i) { return i.severity === 'crit'; }) ? 'crit' : mine.length ? 'warn' : 'ok' };
+  }));
+  return f;
+})();
+/* A host whose check has not produced a result yet. */
+const HL_UNKNOWN = (function () {
+  const f = homelab('ok', []);
+  f['homelab.hosts'] = mval(FULL['homelab.hosts'].value.map(function (h, i) {
+    return { name: h.name, state: i === 2 ? 'unknown' : 'ok' };
+  }));
   return f;
 })();
 
@@ -420,7 +461,33 @@ const GPU_HOUSE_MEM_NULL = gpuHouse([gpuRow('gpubox', 0, 'busy', { mem_temp: nul
 const GPU_HOUSE_HOSTILE = gpuHouse([gpuRow(XSS, 0, 'busy', { name: XSS, mem_temp: XSS }), gpuRow('gpubox', 1, XSS)],
   [{ host: XSS, outcome: 'pending' }, { host: 'gpubox', outcome: 'ok' }]);
 
-module.exports = { GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
+/* Eight and nine GPUs on four hosts (the busy GPU screens). */
+function gpuBusy(n) {
+  const hosts = ['gpubox', 'devbox', 'buildbox', 'labbox'];
+  const st = ['throttling', 'hot', 'busy', 'busy', 'idle', 'busy', 'idle', 'busy', 'idle'];
+  return gpuHouse(Array.from({ length: n }, function (_, i) {
+    return gpuRow(hosts[i % 4], Math.floor(i / 4), st[i], {
+      temp: st[i] === 'hot' ? 87 : 50 + i * 3, mem_temp: i % 3 ? 70 + i : null, util: st[i] === 'idle' ? 0 : 40 + i * 6,
+      procs: st[i] === 'idle' ? 0 : 1, name: i % 2 ? 'NVIDIA GeForce RTX 3090 Ti' : 'Tesla V100-PCIE-32GB' });
+  }), hosts.map(function (h) { return { host: h, outcome: 'ok' }; }));
+}
+const GPU_HOUSE_BUSY = gpuBusy(8);
+const GPU_HOUSE_BUSY9 = gpuBusy(9);
+
+/* Six sessions, two asking for input with a message. */
+const SESS_BUSY = sessionsFixture('ok', [
+  { name: 'nfs2seredux-e0', project: 'nfs2seredux', state: 'waiting', since: NOW_S - 240, message: 'Claude needs your permission to use Bash', tokens: 8847279, agents: 0 },
+  { name: 'site-config-77', project: 'chiketi', state: 'waiting', since: NOW_S - 90, message: 'Approve the dry run?', tokens: 1204511, agents: 1, tool: 'codex' },
+  { name: 'kiosk-deploy-ef', project: 'kiosk-deploy', state: 'busy', since: NOW_S - 6, message: null, tokens: 4105932, agents: 2 },
+  { name: 'tests-a1', project: 'chiketi', state: 'shell', since: NOW_S - 75, message: null, tokens: 23410, agents: 1 },
+  { name: 'ai-fabric-5f', project: 'ai-fabric', state: 'idle', since: NOW_S - 10680, message: null, tokens: 148943157, agents: 0 },
+  { name: 'home-b0', project: '~', state: 'idle', since: NOW_S - 25200, message: null, tokens: 1175947, agents: 0 },
+]);
+
+/* Every Kiosk screen calm: Home Lab nominal, nobody waiting, GPUs fine. */
+const KIOSK_CALM = sessionsFixture('ok', FULL['sessions.list'].value.filter(function (s) { return s.state !== 'waiting'; }));
+
+module.exports = { HL_BUSY, HL_UNKNOWN, GPU_HOUSE_BUSY, GPU_HOUSE_BUSY9, SESS_BUSY, KIOSK_CALM, GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
                    GPU_HOUSE_INCOMPLETE_WITH_ROWS, GPU_HOUSE_STALE, GPU_HOUSE_STALE_EMPTY, GPU_HOUSE_SPARSE,
                    GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE, GPU_HOUSE_OLD, GPU_HOUSE_LONG_HOSTS,
                    GPU_HOUSE_MEM_EDGE, GPU_HOUSE_MEM_NULL,
