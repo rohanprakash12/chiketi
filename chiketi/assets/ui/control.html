@@ -20,6 +20,12 @@
 <div id="pendingList" class="pending-list"></div>
 <div id="deviceSettings" class="settings-section" hidden>
   <h3>This display</h3>
+  <div class="setting-row"><span class="setting-label">Mode</span>
+    <label><input type="radio" name="devMode" value="kiosk"> Kiosk (house screens)</label>
+    <label><input type="radio" name="devMode" value="self"> Self (this machine's stats)</label></div>
+  <div class="setting-row" style="align-items:flex-start"><span class="setting-label">Screens</span>
+    <div id="devScreens" class="screen-pick"></div></div>
+  <div id="devWarn" class="device-warn"></div>
   <label class="setting-row"><input type="checkbox" id="devAutoRotate"> Auto-rotate</label>
   <label class="setting-row">Seconds per screen
     <input type="number" id="devSeconds" min="3" max="600" step="5" style="width:72px"></label>
@@ -35,6 +41,9 @@
 
 <div id="tab-themes" class="tab-content active">
   <div class="theme-controls">
+    <div id="houseModeRow" class="setting-row">House theme for
+      <label><input type="radio" name="houseMode" value="kiosk"> Kiosk displays</label>
+      <label><input type="radio" name="houseMode" value="self" checked> Self displays</label></div>
     <select id="categorySelect" class="category-select"></select>
     <div class="variant-row" id="variantRow"></div>
   </div>
@@ -43,7 +52,7 @@
 
 <div id="tab-settings" class="tab-content">
   <div class="settings-section">
-    <h3>Display</h3>
+    <h3>This machine's screen</h3>
     <div class="setting-row">
       <span class="setting-label">Dashboard</span>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;min-height:44px">
@@ -67,10 +76,6 @@
       <span class="setting-label">Resolution</span>
       <span id="resDisplay" style="color:#0f0;font-size:13px">--</span>
     </div>
-  </div>
-  <div class="settings-section">
-    <h3>Screen Rotation</h3>
-    <div id="screenRotationList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
   <div class="setting-row" style="margin-top:16px">
     <button id="applySettings" class="setting-btn" style="padding:8px 24px">Apply Settings</button>

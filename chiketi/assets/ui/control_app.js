@@ -43,6 +43,14 @@ let selectedFamily = null, selectedVariant = null;
 /* The display this panel is editing: '' = the house defaults (server-wide). */
 let selectedDevice = '';
 let devices = { devices: [], pending: [], now: 0 };
+/* Which house theme the picker sets with no display selected: 'self' is the
+   house theme proper, 'kiosk' the Kiosk displays' (POST /api/kiosk-theme). */
+let houseMode = 'self';
+/* The selected display's screens being edited: [{id, on}] in display order,
+   and the server state it was built from (device id|mode|screens), so a
+   refresh only replaces an edit when that display changed on the server. */
+let pick = null, pickBase = null;
+let activeFamily = null;   // kioskNotice() picks its skin from it in the previews
 
 function ago(t, now) {
   if (!t) return 'never seen';
@@ -65,11 +73,14 @@ async function loadDevices() {
     return;
   }
   renderDeviceBar();
+  const d = currentDevice();
+  if (!currentData) return;
+  // Mode or screens changed on the server (elsewhere, or just now by this
+  // panel): rebuild the display's card from the server.
+  if (d && pickKey(d) !== pickBase) { applyDeviceScope(); return; }
   // Keep "(live)" current, but redraw only when it moved: replacing the
   // buttons every poll would steal keyboard focus.
-  const d = currentDevice();
-  const liveKey = d ? d.theme : null;
-  if (selectedDevice && currentData && liveKey !== lastLiveKey) renderVariantRow();
+  if (selectedDevice && liveThemeKey() !== lastLiveKey) renderVariantRow();
 }
 let lastLiveKey = null;
 function renderDeviceBar() {
@@ -119,23 +130,85 @@ function renderDeviceBar() {
 /* Point the theme picker, preview shape and display settings at the selection. */
 function applyDeviceScope() {
   const d = currentDevice();
-  const box = document.getElementById('deviceSettings');
-  box.hidden = !d;
+  document.getElementById('deviceSettings').hidden = !d;
+  document.getElementById('houseModeRow').hidden = !!d;
+  if (!currentData) { renderDeviceBar(); return; }
   if (d) {
     document.getElementById('devAutoRotate').checked = d.auto_rotate;
     document.getElementById('devSeconds').value = d.seconds;
     document.getElementById('devGear').checked = d.gear;
-    const [fam, variant] = (d.theme || '').split('/');
-    if (d.theme && currentData.families[fam]) { selectedFamily = fam; selectedVariant = variant; }
-    else { selectedFamily = currentData.active_family; selectedVariant = currentData.active_variant; }
+    const radio = document.querySelector('input[name=devMode][value="' + d.mode + '"]');
+    if (radio) radio.checked = true;
+    pick = pickFrom(d);
+    pickBase = pickKey(d);
     if (d.caps && d.caps.w && d.caps.h) updatePreviewAspectRatio(d.caps.w, d.caps.h);
-  } else if (currentData) {
-    selectedFamily = currentData.active_family; selectedVariant = currentData.active_variant;
+  } else {
+    pick = null;
+    pickBase = null;
     loadSettings();
   }
+  const fv = liveThemeKey().split('/');
+  selectedFamily = fv[0]; selectedVariant = fv[1];
   renderDeviceBar();
-  renderCategoryDropdown(); renderVariantRow(); renderScreens(); renderScreenRotationUI();
+  renderCategoryDropdown(); renderVariantRow(); renderScreens(); renderPick();
 }
+
+/* ── Modes: what the selection may show ── */
+function scopeMode() { const d = currentDevice(); return d ? d.mode : houseMode; }
+function houseThemeKey(mode) {
+  return mode === 'kiosk' ? currentData.kiosk_theme : currentData.active_family + '/' + currentData.active_variant;
+}
+/* The theme the selection actually shows (the display's own rules). */
+function liveThemeKey() {
+  const d = currentDevice(), mode = scopeMode();
+  if (d && d.theme && themeAllowed(mode, d.theme)) return d.theme;
+  const h = houseThemeKey(mode);
+  return themeAllowed(mode, h) ? h : SCREEN_SPEC.modes[mode].default_theme;
+}
+function allowedVariants(fam) {
+  return Object.keys(currentData.families[fam] || {}).filter(function (v) { return themeAllowed(scopeMode(), fam + '/' + v); });
+}
+function pickKey(d) { return d.id + '|' + d.mode + '|' + d.screens.join(); }
+/* Ticked screens first in the display's order, then the rest in set order. */
+function pickFrom(d) {
+  const all = SCREEN_SPEC.modes[d.mode].screens;
+  const on = d.screens.filter(function (id) { return all.indexOf(id) !== -1; });
+  return on.map(function (id) { return { id: id, on: true }; })
+    .concat(all.filter(function (id) { return on.indexOf(id) === -1; }).map(function (id) { return { id: id, on: false }; }));
+}
+function pickedIds() { return pick ? pick.filter(function (p) { return p.on; }).map(function (p) { return p.id; }) : null; }
+function screenStatus(id) {
+  const s = SCREEN_SPEC.screens[id];
+  if (!s.built) return 'coming soon';
+  if (!screenReady(id)) return 'not set up';
+  if (!screenRenderer(id, selectedFamily, selectedVariant)) return 'not in this theme';
+  return 'ready';
+}
+function renderPick() {
+  const box = document.getElementById('devScreens');
+  const warnBox = document.getElementById('devWarn');
+  const d = currentDevice();
+  if (!d || !pick) { box.innerHTML = ''; warnBox.textContent = ''; return; }
+  box.innerHTML = pick.map(function (p, i) {
+    return `<div class="pick-row" data-id="${esc(p.id)}"><label><input type="checkbox" class="pick-on"${p.on ? ' checked' : ''}> ` +
+      `${esc(SCREEN_SPEC.screens[p.id].name)}</label><span class="pick-status">${screenStatus(p.id)}</span>` +
+      `<button class="setting-btn pick-up" aria-label="Move up"${i ? '' : ' disabled'}>↑</button>` +
+      `<button class="setting-btn pick-down" aria-label="Move down"${i < pick.length - 1 ? '' : ' disabled'}>↓</button></div>`;
+  }).join('');
+  box.querySelectorAll('.pick-row').forEach(function (row, i) {
+    row.querySelector('.pick-on').onchange = function (e) { pick[i].on = e.target.checked; pickChanged(); };
+    row.querySelector('.pick-up').onclick = function () { pick.splice(i - 1, 0, pick.splice(i, 1)[0]); pickChanged(); };
+    row.querySelector('.pick-down').onclick = function () { pick.splice(i + 1, 0, pick.splice(i, 1)[0]); pickChanged(); };
+  });
+  const warn = [];
+  const plan = screenPlan({ mode: d.mode, screens: pickedIds(), family: selectedFamily, variant: selectedVariant });
+  if (d.mode === 'kiosk' && d.caps && d.caps.layout === 'strip' && pickedIds().length > 5) {
+    warn.push('The side column fits 5 at full size; icons will shrink.');
+  }
+  if (plan.empty) warn.push("This display will show 'No screens to show'.");
+  warnBox.textContent = warn.join(' ');
+}
+function pickChanged() { renderPick(); renderScreens(); }
 
 /* ── Data helpers ── */
 function m(key) {
@@ -166,12 +239,13 @@ async function loadThemes() {
     ]);
     currentData = await tr.json();
     metrics = await mr.json();
-    if (!selectedFamily) selectedFamily = currentData.active_family;
-    if (!selectedVariant) selectedVariant = currentData.active_variant;
+    if (!selectedFamily) {
+      const fv = liveThemeKey().split('/');
+      selectedFamily = fv[0]; selectedVariant = fv[1];
+    }
     renderCategoryDropdown();
     renderVariantRow();
     renderScreens();
-    renderScreenRotationUI();
     setStatus('Connected', true);
   } catch(e) { setStatus('Connection failed', false); }
 }
@@ -179,7 +253,13 @@ async function loadThemes() {
 function renderCategoryDropdown() {
   const sel = document.getElementById('categorySelect');
   sel.innerHTML = '';
-  for (const fam of Object.keys(currentData.families)) {
+  // Only the families with a theme this selection's mode allows.
+  const fams = Object.keys(currentData.families).filter(function (f) { return allowedVariants(f).length; });
+  if (fams.indexOf(selectedFamily) === -1) {
+    selectedFamily = fams[0];
+    selectedVariant = allowedVariants(fams[0])[0];
+  }
+  for (const fam of fams) {
     const opt = document.createElement('option');
     opt.value = fam;
     opt.textContent = fam;
@@ -188,7 +268,7 @@ function renderCategoryDropdown() {
   }
   sel.onchange = () => {
     selectedFamily = sel.value;
-    selectedVariant = Object.keys(currentData.families[selectedFamily])[0];
+    selectedVariant = allowedVariants(selectedFamily)[0];
     renderVariantRow();
     renderScreens();
   };
@@ -196,11 +276,11 @@ function renderCategoryDropdown() {
 
 function renderVariantRow() {
   const el = document.getElementById('variantRow'); el.innerHTML = '';
-  lastLiveKey = currentDevice() ? currentDevice().theme : null;   // what this drawing shows
+  lastLiveKey = liveThemeKey();   // what this drawing shows
   const variants = currentData.families[selectedFamily] || {};
-  const d = currentDevice();
-  const liveKey = d && d.theme ? d.theme : currentData.active_family + '/' + currentData.active_variant;
-  for (const [name, c] of Object.entries(variants)) {
+  const liveKey = lastLiveKey;
+  for (const name of allowedVariants(selectedFamily)) {
+    const c = variants[name];
     const btn = document.createElement('button');
     const active = name === selectedVariant;
     const live = liveKey === selectedFamily + '/' + name;
@@ -227,6 +307,7 @@ function renderVariantRow() {
     };
     el.appendChild(hb);
   }
+  renderPick();   // the screens' statuses depend on the theme
 }
 
 /* ═══════════════════════════════════════
@@ -236,89 +317,38 @@ __SHARED_HELPERS__
 __SCREEN_FUNCTIONS__
 
 
-/* ── Screen registry for current theme ──────────────────────────────────
-   Every family names all five of its own screens. Nothing falls through to
-   another family's renderer any more: screen 3 was one generic board serving
-   all sixteen themes, and screen 4 handed the Terminal palettes the Sci-Fi
-   TOS panel -- which is how a green-on-black tty rotated into gold LCARS
-   every fourth screen and took itself back afterwards. */
-function getScreenRegistry(c) {
-  const fam = selectedFamily, v = selectedVariant;
-  let fns, second;
-  if (fam === 'Sci-Fi') {
-    second = 'NPU';
-    fns = v === 'DS9' ? [sfDs9Screen1, sfDs9NpuScreen, sfDs9ClaudeScreen, sfDs9GpuScreen, sfDs9Screen2]
-        : v === 'TNG' ? [sfTngScreen1, sfTngNpuScreen, sfTngClaudeScreen, sfTngGpuScreen, sfTngScreen2]
-                      : [sfTosScreen1, sfTosNpuScreen, sfTosClaudeScreen, sfTosGpuScreen, sfTosScreen2];
-  } else if (fam === 'Vintage') {
-    second = 'NPU';
-    fns = v === 'Tubes' ? [tubeScreen1, tubeNpuScreen, tubeClaudeScreen, tubeGpuScreen, tubeScreen2]
-        : v === 'VFD'   ? [vfdScreen1, vfdNpuScreen, vfdClaudeScreen, vfdGpuScreen, vfdScreen2]
-                        : [scanScreen1, scanNpuScreen, scanClaudeScreen, scanGpuScreen, scanScreen2];
-  } else if (fam === 'Others') {
-    second = 'NPU';
-    fns = [claudeScreen1, claudeNpuScreen, claudeClaudeScreen, claudeGpuScreen, claudeClockScreen];
-  } else if (DISTRO_SCREENS[v]) {
-    // The distro boards draw the time in block characters on screen 1, so the
-    // family has no separate clock screen to toggle.
-    second = 'AI Monitor';
-    fns = [DISTRO_SCREENS[v], DISTRO_AI_SCREENS[v], DISTRO_CLAUDE_SCREENS[v],
-           DISTRO_GPU_SCREENS[v], null];
-  } else {
-    second = 'AI Monitor';
-    fns = [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen, null];
-  }
-  const screens = [
-    {id: 'screen1', name: 'System Stats', fn: fns[0], fluid: false},
-    {id: 'screen2', name: second, fn: fns[1], fluid: false},
-    {id: 'screen3', name: 'Claude Usage', fn: fns[2], fluid: false},
-    // Adaptive: the GPU screen picks its own density from the card count, so a
-    // single-card box and a four-card rig both read correctly with no
-    // configuration. Switch it off in Settings on a machine with no GPU.
-    {id: 'screen4', name: 'GPU', fn: fns[3], fluid: false},
-  ];
-  // The Sci-Fi clock is fluid: it fills any landscape shape.
-  if (fns[4]) screens.push({id: 'screen5', name: 'Clock', fn: fns[4], fluid: fam === 'Sci-Fi' || fam === 'Others'});
-  // Live Claude Code sessions: Sci-Fi and Others only for now, and only on a chiketi
-  // that has a session feed configured -- a stock install gains no empty screen.
-  const sess = fam === 'Sci-Fi' ? (v === 'DS9' ? sfDs9Sessions : v === 'TNG' ? sfTngSessions : sfTosSessions)
-    : fam === 'Others' ? claudeSessions : null;
-  const ss = m('sessions.status');
-  if (sess && ss.available && ss.value !== 'unconfigured') {
-    screens.push({id: 'screen7', name: 'Claude Sessions', fn: sess, fluid: true});
-  }
-  // Home Lab: Sci-Fi and Others for now, and only on a chiketi that has a
-  // homelab.toml -- a stock install gains no empty screen. After Sessions, in
-  // the same order as the tabs.
-  const hl = fam === 'Sci-Fi' ? (v === 'DS9' ? sfDs9Homelab : v === 'TNG' ? sfTngHomelab : sfTosHomelab)
-    : fam === 'Others' ? claudeHomelab : null;
-  if (hl && hlConfigured()) {
-    screens.push({id: 'screen6', name: 'Home Lab', fn: hl, fluid: true});
-  }
-  return screens;
-}
-
+/* Previews: what the selection would show, from the same plan as the display
+   (the display's draft screens, or the whole set of the house mode). */
+const NOTICE = { id: 'none', name: 'No screens', fn: kioskNotice, fluid: true };
 function renderScreens() {
   const el = document.getElementById('screens'); el.innerHTML = '';
   const c = (currentData.families[selectedFamily] || {})[selectedVariant];
   if (!c) return;
-  const screens = getScreenRegistry(c);
-  for (const s of screens) {
+  const mode = scopeMode();
+  const d = currentDevice();
+  const plan = screenPlan({ mode: mode, screens: d ? pickedIds() : SCREEN_SPEC.modes[mode].screens,
+                            family: selectedFamily, variant: selectedVariant });
+  activeFamily = selectedFamily;
+  for (const s of (plan.empty ? [NOTICE] : plan.list)) {
+    setTabPlan(plan.mode === 'kiosk' ? plan.tabs : null);
     const div = document.createElement('div');
-    div.innerHTML = `<div class="screen-label">${s.name}</div>${s.fn(c)}`;
+    div.innerHTML = `<div class="screen-label">${esc(s.name)}</div>${s.fn(c)}`;
     el.appendChild(div);
   }
+  setTabPlan(null);
   applyPreviewAspect();
 }
 
 async function selectTheme(family, variant) {
   try {
-    const res = selectedDevice
-      ? await post(`/api/devices/${selectedDevice}`, { theme: family + '/' + variant })
-      : await post('/api/theme/' + family + '/' + variant);
+    const key = family + '/' + variant;
+    const res = selectedDevice ? await post(`/api/devices/${selectedDevice}`, { theme: key })
+      : houseMode === 'kiosk' ? await post('/api/kiosk-theme/' + key)
+      : await post('/api/theme/' + key);
     if (res.ok) {
       if (selectedDevice) await loadDevices(); else await loadThemes();
-      setStatus((selectedDevice ? currentDevice().name : 'House') + ' theme: ' + family + '/' + variant, true);
+      setStatus((selectedDevice ? currentDevice().name : houseMode === 'kiosk' ? 'Kiosk house' : 'House') +
+        ' theme: ' + family + '/' + variant, true);
     }
   } catch(e) { setStatus('Failed to set theme', false); }
 }
@@ -341,9 +371,6 @@ async function loadSettings() {
     populateOutputs(_outputsCache, data.current_output);
     document.getElementById('brightnessSlider').value = data.brightness || 1.0;
     document.getElementById('brightnessVal').textContent = (data.brightness || 1.0).toFixed(1);
-    _serverScreenRotation = data.screen_rotation || {};
-    _serverDefaultDuration = data.default_duration || 10;
-    renderScreenRotationUI();
     updatePowerToggle(data.display_on || false);
     updateResDisplay();
     updatePreviewAspectRatio(data.width || 1024, data.height || 600);
@@ -374,44 +401,6 @@ function parseResolution(res) {
   if (!res) return null;
   const m = res.match(/^(\d+)x(\d+)/);
   return m ? { w: parseInt(m[1]), h: parseInt(m[2]) } : null;
-}
-let _serverScreenRotation = {};
-let _serverDefaultDuration = 10;
-function renderScreenRotationUI() {
-  const el = document.getElementById('screenRotationList');
-  el.innerHTML = '';
-  const c = (currentData && currentData.families[selectedFamily] || {})[selectedVariant];
-  if (!c) return;
-  const screens = getScreenRegistry(c);
-  if (selectedDevice) {
-    const note = document.createElement('div');
-    note.style.cssText = 'color:#9aa0a6;font-size:12px';
-    note.textContent = 'Screens: all displays';
-    el.appendChild(note);
-  }
-  for (const s of screens) {
-    const cfg = _serverScreenRotation[s.id] || { enabled: true, duration: _serverDefaultDuration };
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 0;min-height:44px';
-    row.innerHTML =
-      `<label style="display:flex;align-items:center;gap:10px;color:#ccc;flex:1;cursor:pointer;min-height:44px">` +
-        `<input type="checkbox" data-screen="${s.id}" class="sr-enable" ${cfg.enabled ? 'checked' : ''} style="accent-color:#0f0;width:22px;height:22px;flex-shrink:0">` +
-        `${s.name}` +
-      `</label>` +
-      `<input type="number" data-screen="${s.id}" class="sr-duration" value="${cfg.duration}" min="3" max="600" ` +
-        `style="width:64px;min-height:44px;background:#111;border:1px solid #333;color:#0f0;padding:6px;border-radius:4px;font-size:14px;text-align:center">` +
-      `<span style="color:#9aa0a6;font-size:12px">sec</span>`;
-    el.appendChild(row);
-  }
-}
-function getScreenRotationFromUI() {
-  const result = {};
-  document.querySelectorAll('.sr-enable').forEach(cb => {
-    const id = cb.dataset.screen;
-    const dur = document.querySelector(`.sr-duration[data-screen="${id}"]`);
-    result[id] = { enabled: cb.checked, duration: parseInt(dur.value) || _serverDefaultDuration };
-  });
-  return result;
 }
 let _displayOn = false;
 function updatePowerToggle(isOn) {
@@ -474,7 +463,6 @@ document.getElementById('applySettings').addEventListener('click', async functio
   const body = {
     output: document.getElementById('outputSelect').value,
     brightness: parseFloat(document.getElementById('brightnessSlider').value),
-    screen_rotation: getScreenRotationFromUI(),
   };
   if (dims) { body.width = dims.w; body.height = dims.h; }
   try {
@@ -510,10 +498,22 @@ document.getElementById('devSave').addEventListener('click', async () => {
     auto_rotate: document.getElementById('devAutoRotate').checked,
     seconds: parseInt(document.getElementById('devSeconds').value, 10) || 30,
     gear: document.getElementById('devGear').checked,
+    screens: pickedIds(),
   };
   const res = await post(`/api/devices/${selectedDevice}`, body);
   document.getElementById('devStatus').textContent = res.ok ? 'Saved' : 'Failed to save';
   await loadDevices();
+});
+document.querySelectorAll('input[name=devMode]').forEach(function (r) {
+  r.addEventListener('change', async function () {
+    if (!selectedDevice) return;
+    const res = await post(`/api/devices/${selectedDevice}`, { mode: r.value });
+    document.getElementById('devStatus').textContent = res.ok ? 'Mode: ' + r.value : 'Failed to change mode';
+    await loadDevices(); applyDeviceScope();
+  });
+});
+document.querySelectorAll('input[name=houseMode]').forEach(function (r) {
+  r.addEventListener('change', function () { houseMode = r.value; applyDeviceScope(); });
 });
 document.getElementById('renameDevice').addEventListener('click', async () => {
   const d = currentDevice(); if (!d) return;

@@ -214,3 +214,11 @@ __FONTS_CSS__  * { margin: 0; padding: 0; box-sizing: border-box; }
 .pending-card{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid #ffaa00;
   border-radius:6px;padding:8px 12px;color:#ccc}
 .pending-card .code{font-size:22px;font-weight:700;letter-spacing:.12em;color:#ffaa00}
+/* A display's screens: tick, name, status, reorder. */
+.screen-pick { display: flex; flex-direction: column; gap: 4px; }
+.pick-row { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.pick-row label { flex: 1; display: flex; align-items: center; gap: 8px; color: #ccc; }
+.pick-status { color: #9aa0a6; font-size: 12px; min-width: 110px; }
+.pick-row button:disabled { opacity: 0.3; }
+.device-warn { color: #ffaa00; font-size: 12px; min-height: 16px; }
+.setting-row[hidden] { display: none; }
