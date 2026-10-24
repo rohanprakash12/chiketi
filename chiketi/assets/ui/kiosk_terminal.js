@@ -285,6 +285,13 @@ function tdsFrame(S, v, active, body) {
     `<div style="position:absolute;left:${kq(8)};right:${kq(8)};top:${kq(80)};bottom:${kq(8)};border:1px solid ${S.dim};border-radius:${kq(8)};` +
       `padding:${kq(12)} ${kq(16)};overflow:hidden">${body}</div></div>`, 'landscape', 'Terminal/' + v);
 }
+/* The summary line: 19 units while it fits the board (84 columns), smaller when a
+   busy day makes it longer, never clipped. */
+function tdsLine(html) {
+  const n = Array.from(html.replace(/<[^>]*>/g, '').replace(/&[a-z]+;|&#\d+;/g, 'x')).length;
+  const px = n > 84 ? Math.floor(19 * 84 / n * 10) / 10 : 19;
+  return `<div style="white-space:pre;font-size:${kq(px)};overflow:hidden">${html}</div>`;
+}
 function tdsSkin(v) {
   _distroName = v;
   const S = distroSkin();
@@ -323,10 +330,10 @@ function tdsHomelab(v) {
   const bar = tw(S.dim, '│');
   const status = `condition ${cond}  ${bar} hosts ${tw(S.accent, L.hosts.length)}  healthy ${tw(OK, K.ok)}  warn ${tw(W, K.warn)}  ` +
     `alert ${tw(K.crit + K.down ? B : S.dim, K.crit + K.down)}  ${bar} ${n} issues  ${bar} ` +
-    (L.checkedAt !== null ? (L.stale ? tw(W, 'telemetry stale · checked ' + tAgo(L.checkedAt)) : 'checked ' + tAgo(L.checkedAt)) : 'acquiring telemetry');
+    (L.checkedAt !== null ? (L.stale ? tw(W, 'stale · ' + tAgo(L.checkedAt)) : 'checked ' + tAgo(L.checkedAt)) : 'acquiring telemetry');
   if (L.mode === 'unconfigured') return tdsFrame(S, v, 'lab', tw(S.dim, 'home lab not configured'));
   return tdsFrame(S, v, 'lab', `<div style="font-size:${kq(big ? 21 : 19)};line-height:${kq(lh)}">` +
-    `<div style="white-space:pre;font-size:${kq(19)};overflow:hidden">${status}</div>` +
+    tdsLine(status) +
     `<div style="white-space:pre;margin-top:${kq(12)}">${tbl}</div>` +
     (det ? `<div style="white-space:pre;margin-top:${kq(12)}">${tw(S.accent, 'detail')}\n${det}</div>` : '') + `</div>`);
 }
@@ -369,7 +376,7 @@ function tdsSessions(v) {
           (s.message && msgRoom-- > 0 ? '\n' + tw(W, '└─ ' + esc(s.message)) : '');
       }).join('\n') + `</span>` + (f.more ? '\n' + tw(S.label, `+${f.more} more`) : '');
   }
-  return tdsFrame(S, v, 'sessions', `<div style="white-space:pre;overflow:hidden">${status}</div>` +
+  return tdsFrame(S, v, 'sessions', tdsLine(status) +
     `<div style="white-space:pre;margin-top:${kq(12)}">${body}</div>`);
 }
 
@@ -410,7 +417,7 @@ function tdsGpus(v) {
       `     util ${tgrad(S, u === null ? null : u / 100, 24)} ${klpad(u === null ? '--' : Math.round(u), 3)}%   vram ${tgrad(S, vv.pct === null ? null : vv.pct / 100, 14)} ` +
       `${vu !== null && vt ? klpad((vu / 1024).toFixed(1), 4) + '/' + Math.round(vt / 1024) + 'G' : '--'}</span>`;
   }).join(tight ? '\n' : '\n\n') + (f.more ? '\n' + tw(S.label, `+${f.more} more`) : '');
-  return tdsFrame(S, v, 'gpus', `<div style="white-space:pre;overflow:hidden">${status}</div>` +
+  return tdsFrame(S, v, 'gpus', tdsLine(status) +
     `<div style="white-space:pre;margin-top:${kq(12)};${tight ? `font-size:${kq(17)};line-height:${kq(21)}` : ''}">${blk}</div>`);
 }
 
