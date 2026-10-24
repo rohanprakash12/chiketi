@@ -981,6 +981,23 @@ __HARNESS.skins.forEach(function (skin) {
     metrics = Object.assign({}, FIX.GPU_HOUSE_BUSY, { 'homelab.gpus': Object.assign({}, FIX.GPU_HOUSE_BUSY['homelab.gpus'], {
       value: FIX.GPU_HOUSE_BUSY['homelab.gpus'].value.map(function (r, i) { return Object.assign({}, r, { host: 'box' + (i % 5) }); }) }) });
     if (attrs(R('gpus')(colors), 'data-gpu-row').length !== 8) fail('LOOKS', key + ' h=576', '8 GPUs on 5 hosts do not all show');
+    // Codex build r2: stale data (a banner) with nine GPUs on four hosts, and eight GPUs on
+    // eight hosts (eight headings): still eight rows, and the rest counted exactly.
+    [[FIX.GPU_HOUSE_BUSY9, function (r) { return r; }, { published_at: Date.now() / 1000 - 1000 }, 9],
+     [FIX.GPU_HOUSE_BUSY, function (r, i) { return Object.assign({}, r, { host: 'node' + i }); }, {}, 8]].forEach(function (c, ci) {
+      const g = c[0]['homelab.gpus'];
+      metrics = Object.assign({}, c[0], { 'homelab.gpus': Object.assign({}, g, { value: g.value.map(c[1]), extra: Object.assign({}, g.extra, c[2]) }) });
+      const html = R('gpus')(colors);
+      const got = attrs(html, 'data-gpu-row').length, more = W.more.exec(html);
+      if (got < 8) fail('LOOKS', key + ' h=576 GPU case ' + ci, 'only ' + got + ' GPUs');
+      if (c[3] - got ? !(more && Number(more[1]) === c[3] - got) : !!more) fail('LOOKS', key + ' h=576 GPU case ' + ci, 'MORE ' + (more && more[1]));
+      // Every row still says which host it is on.
+      html.split('data-gpu-row="').slice(1).forEach(function (r) {
+        const host = r.slice(0, r.indexOf('|'));
+        const low = html.toLowerCase(), h = host.toLowerCase();
+        if (r.slice(r.indexOf('"') + 1).toLowerCase().indexOf(h) === -1 && low.indexOf('>' + h) === -1) fail('LOOKS', key + ' GPU case ' + ci, 'row without its host ' + host);
+      });
+    });
     metrics = Object.assign({}, FIX.GPU_HOUSE_BUSY, { 'homelab.gpus': Object.assign({}, FIX.GPU_HOUSE_BUSY['homelab.gpus'], {
       value: FIX.GPU_HOUSE_BUSY['homelab.gpus'].value.map(function (r) { return Object.assign({}, r, { state: 'offline', seen_at: Date.now() / 1000 - 90000 }); }) }) });
     {

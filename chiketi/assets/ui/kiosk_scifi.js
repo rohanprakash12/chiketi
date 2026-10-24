@@ -215,9 +215,13 @@ function tngGpus(c) {
   let capAll = 0, capMore = 0;
   while (capAll < n && fits(capAll + 1, 0)) capAll++;
   while (capMore < n && fits(capMore + 1, 26)) capMore++;
+  // When the headings would leave fewer than eight rows (many hosts, or the stale
+  // banner), drop them: each row then names its host under the GPU number.
+  const inline = (capAll < n ? capMore : capAll) < Math.min(8, n);
+  if (inline) { capAll = Math.floor(room / 42); capMore = Math.floor((room - 26) / 42); }
   const f = kioskFit(n, capAll, capMore);
   const vis = ordered.slice(0, f.shown);
-  const budget = room - groupsIn(f.shown) * 34;
+  const budget = room - (inline ? 0 : groupsIn(f.shown) * 34);
   const rowH = Math.max(42, Math.min(78, Math.floor((budget - (f.more ? 26 : 0)) / Math.max(1, f.shown))));
   const big = rowH >= 62;
   const bar = function (pct, color) {
@@ -236,7 +240,7 @@ function tngGpus(c) {
     return `<div data-gpu-row="${esc(g.host)}|${g.index}" style="display:grid;grid-template-columns:${kq(big ? 120 : 104)} ${kq(128)} minmax(0,1fr) minmax(0,1fr) ${kq(84)} ${kq(140)};` +
         `gap:0 ${kq(14)};align-items:center;height:${kq(rowH)};${g.fresh ? '' : 'opacity:.6'}">` +
       `<div style="min-width:0"><div style="font-size:${kq(big ? 26 : 22)};color:${K.text};line-height:1">GPU ${g.index}</div>` +
-        `<div style="font-size:${kq(14)};color:${K.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(g.short)}</div></div>` +
+        `<div style="font-size:${kq(14)};color:${K.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${inline ? esc(g.host) + ' · ' : ''}${esc(g.short)}</div></div>` +
       `<div>${tngPill(col, GPU_LABEL[g.state], 24)}${seen}</div>` +
       `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};color:${K.dim};letter-spacing:.1em"><span>LOAD</span>` +
         `<span style="color:${K.gold};font-size:${kq(19)}">${util === null ? '--' : Math.round(util) + '%'}</span></div>${bar(util, col)}</div>` +
@@ -254,13 +258,13 @@ function tngGpus(c) {
       tngNote(empty[0], empty[1] === bsS().warn ? K.peach : K.dim);
   } else {
     body = (G.stale ? `<div style="height:${kq(banner)};font-size:${kq(18)};color:${K.peach};letter-spacing:.08em">TELEMETRY STALE · LAST UPDATE ${G.checked}</div>` : '') +
-      hosts.map(function (h, k) {
+      (inline ? vis.map(row).join('') : hosts.map(function (h, k) {
         const gs = vis.filter(function (r) { return r.host === h; });
         if (!gs.length) return '';
         const all = G.rows.filter(function (r) { return r.host === h; }).length;
         return `<div style="margin-top:${kq(k ? 6 : 0)}">${tngSec(hc[k % hc.length], esc(h).toUpperCase(), `${all} ${all > 1 ? 'CARDS' : 'CARD'}`)}</div>` +
           gs.map(row).join('');
-      }).join('') +
+      }).join('')) +
       (f.more ? `<div style="height:${kq(26)};display:flex;align-items:center;font-size:${kq(18)};color:${K.dim};letter-spacing:.12em">+${f.more} MORE</div>` : '');
   }
   const summary = [];

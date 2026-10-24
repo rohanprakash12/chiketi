@@ -212,7 +212,7 @@ function tclGpus(v, C) {
     return `${kpad(g.host + ':' + g.index, 11)} ${tBlocks(u === null ? null : u / 100, 22, sc(g.state))} ${klpad(u === null ? '--' : Math.round(u), 3)}%  ${tail}`;
   }).join('\n') + (fl.more ? '\n' + tw(C.dim, `and ${fl.more} below` + (ft.more ? '' : ' (all in the table)')) : '');
   const stale = G.stale ? tw(C.accent, `telemetry stale · last update ${G.checked.toLowerCase()}`) + '  ' : '';
-  const nr = G.incomplete.length ? '\n' + tw(C.accent, 'not reached: ' + gpuHostList(G.incomplete)) : '';
+  const nr = G.incomplete.length ? `<div style="color:${C.accent};overflow:hidden;text-overflow:ellipsis">not reached: ${gpuHostList(G.incomplete)}</div>` : '';
   return tclFrame(v, C, 'gpus',
     tclPanel(C, 8, 42, 1008, th, 'GPUS', stale + right(),
       `${Lrule}\n${head}\n${rows}\n${Lrule}` + (ft.more ? '\n' + tw(C.dim, `+${ft.more} more`) : '') + nr) +
@@ -289,11 +289,11 @@ function tdsFrame(S, v, active, body) {
     `<div style="position:absolute;left:${kq(8)};right:${kq(8)};top:${kq(80)};bottom:${kq(8)};border:1px solid ${S.dim};border-radius:${kq(8)};` +
       `padding:${kq(12)} ${kq(16)};overflow:hidden">${body}</div></div>`, 'landscape', 'Terminal/' + v);
 }
-/* The summary line: 19 units while it fits the board (84 columns), smaller when a
+/* The summary line: 19 units while it fits the board (85 columns), smaller when a
    busy day makes it longer, never clipped. */
 function tdsLine(html) {
   const n = Array.from(html.replace(/<[^>]*>/g, '').replace(/&[a-z]+;|&#\d+;/g, 'x')).length;
-  const px = n > 84 ? Math.floor(19 * 84 / n * 10) / 10 : 19;
+  const px = n > 85 ? Math.floor(19 * 85 / n * 10) / 10 : 19;
   return `<div style="white-space:pre;font-size:${kq(px)};overflow:hidden">${html}</div>`;
 }
 function tdsSkin(v) {
@@ -407,7 +407,7 @@ function tdsGpus(v) {
   const status = `gpus ${tw(S.accent, n)}  ${bar} busy ${tw(S.accent, G.busy)}  hot/throttling ${tw(W, G.hot)}  idle ${tw(S.label, G.idle)}  ${bar} ` +
     `${tw(S.accent, low(G.powerText))}  ${bar} checked ${G.checked.toLowerCase()}` +
     (G.stale ? '  ' + tw(W, 'telemetry stale') : '');
-  const nr = G.incomplete.length ? `<div style="white-space:pre;overflow:hidden;text-overflow:ellipsis">${tw(W, 'not reached: ' + gpuHostList(G.incomplete))}</div>` : '';
+  const nr = G.incomplete.length ? `<div style="white-space:pre;overflow:hidden;text-overflow:ellipsis;color:${W}">not reached: ${gpuHostList(G.incomplete)}</div>` : '';
   if (empty) {
     return tdsFrame(S, v, 'gpus', (G.stale ? `<div style="white-space:pre">${tw(W, 'telemetry stale · last update ' + G.checked.toLowerCase())}</div>` : '') +
       `<div style="white-space:pre;margin-top:${kq(12)}">${tw(empty[1] === bsS().warn ? W : S.label, empty[0].toLowerCase())}</div>`);
