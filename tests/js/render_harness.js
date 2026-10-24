@@ -682,7 +682,7 @@ __HARNESS.skins.forEach(function (skin) {
         [600, 683, 246].forEach(function (h) {
           setFrameH(h);
           setTabPlan(plan.tabs);
-          const fn = plan.empty ? kioskNotice : plan.list[0].fn;
+          const fn = plan.empty ? plan.notice : plan.list[0].fn;
           let html;
           try { html = fn(FAMILIES[fv[0]][fv[1]]); } catch (e) { fail('PLAN', label, 'threw ' + e.message); return; }
           if (ids(html, 'data-screen').join() !== expected.join()) {
@@ -979,6 +979,28 @@ __HARNESS.skins.forEach(function (skin) {
         const hidden = c[1] - got.length;
         if (hidden ? !(more && Number(more[1]) === hidden) : !!more) fail('LOOKS', where + ' ' + c[0], 'MORE ' + (more && more[1]) + ' for ' + hidden + ' hidden');
       });
+      // Phase 2 busy cases, in every new look: twelve long-named hosts with fifteen
+      // stale alerts; seven sessions all with messages; eleven stale GPUs.
+      {
+        metrics = FIX.HL_LONG12;
+        const html = R('lab')(colors);
+        const hosts = attrs(html, 'data-host');
+        if (W.hostCap !== undefined ? hosts.length < 12 : hosts.length !== 12) fail('LOOKS', where + ' HL_LONG12', 'shows ' + hosts.length + ' of 12 hosts');
+        if (!W.alertsByHost) {
+          const got = attrs(html, 'data-alert').map(Number), more = W.more.exec(html);
+          if (got.length < 8 || got.join() !== got.map(function (_, i) { return i; }).join()) fail('LOOKS', where + ' HL_LONG12', 'alerts ' + got.join());
+          const hidden = 15 - got.length;
+          if (hidden ? !(more && Number(more[1]) === hidden) : !!more) fail('LOOKS', where + ' HL_LONG12', 'MORE ' + (more && more[1]) + ' for ' + hidden);
+        }
+        metrics = FIX.SESS_MSG7;
+        const sh = R('sessions')(colors), sg = attrs(sh, 'data-session').map(Number), sm = W.more.exec(sh);
+        if (sg.length < 5 || sg.join() !== sg.map(function (_, i) { return i; }).join()) fail('LOOKS', where + ' SESS_MSG7', 'sessions ' + sg.join());
+        if (7 - sg.length ? !(sm && Number(sm[1]) === 7 - sg.length) : !!sm) fail('LOOKS', where + ' SESS_MSG7', 'MORE ' + (sm && sm[1]));
+        metrics = FIX.GPU_HOUSE_STALE11;
+        const gh = R('gpus')(colors), gg = attrs(gh, 'data-gpu-row'), gm = W.more.exec(gh);
+        if (gg.length < 8) fail('LOOKS', where + ' GPU_HOUSE_STALE11', 'only ' + gg.length + ' GPUs');
+        if (11 - gg.length ? !(gm && Number(gm[1]) === 11 - gg.length) : !!gm) fail('LOOKS', where + ' GPU_HOUSE_STALE11', 'MORE ' + (gm && gm[1]));
+      }
       // No wasted space (the Go's 683, and 770): a taller frame shows more sessions, not
       // the design height's five over a blank band.
       if (h >= 683) {
