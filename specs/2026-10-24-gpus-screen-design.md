@@ -161,7 +161,7 @@ gpu_procs=<pci bus id>|<count>
   | `ok` | `gpu_query=ok`, and every returned line was accepted |
   | `legacy` | a version-1 probe that reported at least one temperature (a successful, temperature-only sample) |
   | `none` | `gpu_tool=absent`, or a version-1 probe with no temperatures, *and* no GPUs known for the host |
-  | `unreadable` | `gpu_query=fail`; or fewer lines accepted than `nvidia-smi` returned; or `gpu_tool=absent` for a host whose GPUs are known |
+  | `unreadable` | any of: `gpu_query=fail`; fewer lines accepted than `nvidia-smi` returned (the whole sample is then discarded, accepted lines included); `gpu_tool=absent` for a host whose GPUs are known; or a version-1 probe with no temperatures for a host whose GPUs are known |
   | `offline` | the probe failed |
   | `pending` | not reached since start-up, and nothing remembered |
 
@@ -177,16 +177,19 @@ After each poll the snapshot gains:
   `{host, index, name, util, vram_used, vram_total, temp, power, power_limit, fan, procs, state, detail, seen_at}`.
   - With outcome `offline` or `unreadable`, the host's known GPUs stay, with that state
     and their `seen_at`.
-  - With `unreadable` because some lines were rejected, the accepted GPUs are fresh, and
-    known GPUs missing from them stay as `unreadable`.
-  - Only `ok` with every line accepted confirms the inventory: a known GPU missing from it
-    is removed (a pulled card does not linger).
+  - An `unreadable` sample is never used, not even partly, so every GPU on such a host is
+    either remembered (UNREADABLE, with its age) or absent. Since no GPU of that host has
+    fresh evidence, preserving all its `gpu_temp:` keys (`keep_prefixes`) is exact.
+  - Only a full `ok` confirms the inventory: a known GPU missing from it is removed (a
+    pulled card does not linger).
+  - A `legacy` sample replaces that host's rows entirely with its temperature list. A
+    version-1 probe cannot say which card is which, so its rows are approximate by design.
   - With `none` or `pending`, there are no rows.
 - `"gpu_hosts"`: `[{host, outcome}]` for every linux/unraid host.
 
 **`collector.py`** adds `homelab.gpus` and `homelab.gpu_hosts`.
 - Both become available once the first poll has finished.
-- `homelab.gpus` carries `extra = {"warn_c", "crit_c"}` from the thresholds.
+- `homelab.gpus` carries `extra = {"warn_c", "crit_c", "published_at", "stale_after"}`.
 
 ## 3. The screen
 
@@ -197,8 +200,14 @@ After each poll the snapshot gains:
   `bsGpusScreen(c)`.
 
 **Freshness:**
-- The snapshot is stale when `checked_at` is older than `3 × poll_seconds + 30` s. That
-  allows for slow polls (§1); Home Lab's own screen keeps its rule.
+- **Staleness** is judged on `homelab.gpus`' own `extra.published_at` (when the snapshot
+  was published, i.e. the poll *finished*) and `extra.stale_after` (seconds). Both are set
+  by the collector, which knows the schedule:
+  `stale_after = 2 × (1.1 × poll_seconds + ceil(hosts / 8) × 30)`.
+  - That is two full cycles at the worst case: the 10 % jitter, the 30 s SSH limit, and
+    eight hosts at a time.
+  - The display marks the GPU data stale when `now − published_at > stale_after`.
+  - Home Lab's own screen keeps its rule; `checked_at` (the poll start) stays as it is.
 - **When stale:**
   - every row counts as not fresh;
   - the status bar and the tab are warn, even over a cached CRITICAL (each row keeps its
@@ -206,10 +215,11 @@ After each poll the snapshot gains:
   - the strip lead and the full banner say `TELEMETRY STALE`.
 - **A row that is not fresh** (state `OFFLINE` or `UNREADABLE`, or a stale snapshot) shows
   `SEEN <age>` under its state, and is left out of the power total.
-- **Power:**
-  - `<W> W NOW` only when the snapshot is fresh and every fresh row has a power reading;
-  - `<W> W FROM a OF n GPUS` when only some do;
-  - `-- W` when none do, or the snapshot is stale.
+- **Power.** `n` counts every GPU row (cached ones included), and `a` the rows that are
+  fresh and have a finite power reading:
+  - `<W> W NOW` when the snapshot is fresh and `a = n`;
+  - `<W> W FROM a OF n GPUS` when `0 < a < n`;
+  - `-- W` when `a = 0` or the snapshot is stale.
 
 **Full layout** (Sessions' frame: status bar, `bsHeader('gpus')`, body, footer):
 - **Columns:**
@@ -230,7 +240,7 @@ After each poll the snapshot gains:
 - **Status bar colour,** in this order:
   1. warn if the snapshot is stale;
   2. crit if any GPU is CRITICAL;
-  3. warn if any GPU is HOT, THROTTLING, UNREADABLE or OFFLINE, or a host is incomplete
+  3. warn if any GPU is HOT, THROTTLING, UNREADABLE or OFFLINE, or **the inventory warns**
      (below);
   4. otherwise the calm edge colour.
 - **Incomplete inventory** comes from `gpu_hosts`, whatever the row count. It is the
@@ -240,8 +250,12 @@ After each poll the snapshot gains:
   - These hosts get a footer note `NOT REACHED: <hosts>` (strip: in the lead after the
     counts). Host names are escaped, the list is cut to 3 names plus `+N`, and the line to
     the footer width.
-  - They make the status bar warn only while there are no GPU rows at all. A house whose
-    one GPU host is known never warns because a GPU-less host is off.
+  - **The inventory warns** (one predicate, used by both layouts and by the tab) when there
+    are incomplete hosts and either there are no GPU rows at all, or one of the incomplete
+    hosts is `unreadable` (it has `nvidia-smi` and the query failed, so it matters). An
+    `offline` or `pending` host that chiketi has never seen a GPU on only gets the note.
+    A house whose one GPU host is known therefore never warns because a GPU-less host is
+    off.
 - **Footer**, cut to fit: `N GPUS · B BUSY · <power> · CHECKED <age>`. Two notes may
   follow, when they apply:
   - `<hosts> NEED THE NEW PROBE` when there are NO DETAIL rows;
@@ -301,16 +315,21 @@ through `gq()`.
   - order;
   - offline and unreadable keep their rows and `seen_at`;
   - a removed card disappears only after a full `ok`;
-  - a rejected line keeps the known GPU as `unreadable`;
+  - a rejected line discards the whole sample: known GPUs go to `unreadable`; on first
+    discovery the host is incomplete and the inventory warns;
+  - version 1 going from temperatures to none (known GPUs: `unreadable`) and back;
   - `gpu_tool=absent` for a known GPU host (unreadable) and for a host without GPUs (none);
   - version-1 rows (`legacy`), through parser, poller and collector, before any probe is
     redeployed;
   - `pending` at start;
   - a restart during an outage, which shows the remembered rows as `offline`.
 - **Alerts survive an unreadable query:** a raised GPU issue stays through `unreadable`
-  cycles, while the same host's other issues clear. It clears normally after a good `ok`.
-- **Slow polls:** a fake clock with a 10 s poll and a 30 s collection is not stale; a
-  stalled poller is.
+  cycles, while the same host's other issues clear. It clears normally after good `ok`
+  polls, including when one of two GPUs was alerted and both now read healthy.
+- **Slow polls:** with a fake clock, a 10 s poll, 30 s collections and 12 hosts (two
+  batches), the published snapshot is never stale between two consecutive publications,
+  including just before the second one. A poller that stops publishing is stale after
+  `stale_after`.
 - **Collector:** the metrics.
 
 **Harness:**
@@ -321,7 +340,8 @@ through `gq()`.
   - `GPU_HOUSE_INCOMPLETE`;
   - `GPU_HOUSE_STALE` (with a cached CRITICAL row: warn chrome, CRITICAL word kept);
   - `GPU_HOUSE_MIXED_POWER` (fresh rows with and without power, plus an offline row:
-    `FROM a OF n`);
+    `FROM a OF n`), and `GPU_HOUSE_ONE_OFFLINE` (one fresh 100 W GPU and one offline GPU:
+    `100 W FROM 1 OF 2 GPUS`, never `W NOW`);
   - `GPU_HOUSE_INCOMPLETE_WITH_ROWS` (a healthy GPU host and a never-reached host, with a
     long hostile name);
   - `GPU_HOUSE_SPARSE`: nulls and a total of 0;
