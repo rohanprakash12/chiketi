@@ -89,12 +89,15 @@ function cleanModel() {
 
 // shared_helpers.js reads PANEL_SPEC at load time, so it must already be bound
 // (it is, above). Concatenated into a single eval -- see the note at the top.
+// The Kiosk looks follow screen_functions.js, as server.py inlines them.
+const KIOSK_JS = ['kiosk_looks.js', 'kiosk_scifi.js', 'kiosk_terminal.js'];
 eval(
   fs.readFileSync(path.join(UI, 'shared_helpers.js'), 'utf8') + '\n' +
-  fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8') +
+  fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8') + '\n' +
+  KIOSK_JS.map(function (f) { return fs.readFileSync(path.join(UI, f), 'utf8'); }).join('\n') +
   // const bindings stay inside this eval; hand out what the checks below need.
   '\nglobalThis.__HARNESS = { skins: [BS_SKIN_TOS, BS_SKIN_CLAUDE],' +
-  ' resetState: function () { for (const k of Object.keys(DISTRO_HIST)) delete DISTRO_HIST[k]; } };'
+  ' distroSkins: DISTRO_SKINS, resetState: function () { for (const k of Object.keys(DISTRO_HIST)) delete DISTRO_HIST[k]; } };'
 );
 
 // Every theme with every screen its modes offer, from the one resolver the
@@ -228,7 +231,9 @@ function layoutPxHits(html) {
  * that no test had ever seen carry a process. Read the keys out of the
  * renderer source and require FULL to define them. */
 (function () {
-  const src = fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8');
+  const src = ['screen_functions.js'].concat(KIOSK_JS).map(function (f) {
+    return fs.readFileSync(path.join(UI, f), 'utf8');
+  }).join('\n');
   const re = /\bm\('([a-z]+\.[a-z_]+)'\)/g;
   const missing = [];
   const seen = new Set();
@@ -752,6 +757,90 @@ __HARNESS.skins.forEach(function (skin) {
   metrics = withRows(FIX.FULL['homelab.gpus'].value, { published_at: nowS - after - 5 });
   if (!gpuHouseData().stale) fail('GPUS', 'boundary', 'not stale after stale_after');
   metrics = FIX.FULL;
+})();
+
+/* ── KIOSK CORE: what every look shares ── */
+(function () {
+  const eq = function (what, got, want) {
+    if (JSON.stringify(got) !== JSON.stringify(want)) fail('KIOSK CORE', what, JSON.stringify(got) + ' != ' + JSON.stringify(want));
+  };
+  [[683, 683], [600, 600], [576, 576], [770, 770], [1200, 600], [246, 600], [400, 600]].forEach(function (c) {
+    setFrameH(c[0]); eq('kioskH at ' + c[0], kioskH(), c[1]);
+    const fluid = bsFrame('x', 'landscape').indexOf('screen-frame fluid') !== -1;
+    eq('landscape frame fluid at ' + c[0], fluid, layoutClass() === 'landscape');
+  });
+  setFrameH(600);
+  eq('bsFrame true unchanged', bsFrame('x', true).indexOf('class="screen-frame fluid"') !== -1, true);
+  eq('bsFrame look attribute', /data-look="Sci-Fi\/TNG"/.test(bsFrame('x', 'landscape', 'Sci-Fi/TNG')), true);
+  // Up and health, from the issue keys.
+  metrics = FIX.HL_BUSY;
+  const L = kioskLab();
+  const host = function (n) { return L.hosts.filter(function (h) { return h.name === n; })[0]; };
+  eq('down host', [host('Vesta').up, host('Vesta').health], [false, 'down']);
+  eq('gw host', [host('pfSense').up, host('pfSense').health], [false, 'down']);
+  eq('api host', [host('Home Assistant').up, host('Home Assistant').health], [true, 'crit']);
+  eq('warn host', [host('devbox').up, host('devbox').health, host('devbox').n], [true, 'warn', 2]);
+  eq('issues in server order', L.issues.map(function (i) { return i.title; }), FIX.HL_BUSY['homelab.issues'].value.map(function (i) { return i.title; }));
+  eq('counts', L.counts, { ok: 0, warn: 4, crit: 3, down: 2, unknown: 0 });
+  metrics = FIX.HL_PENDING;
+  eq('pending lamps unknown', kioskLab().hosts.map(function (h) { return h.up; }).filter(function (u) { return u !== null; }), []);
+  metrics = FIX.HL_UNKNOWN;
+  eq('unknown host', [kioskLab().hosts[2].up, kioskLab().hosts[2].health], [null, 'unknown']);
+  metrics = FIX.HL_STALE;
+  eq('stale keeps lamps', [kioskLab().stale, kioskLab().hosts[0].up], [true, true]);
+  // Attention: words, and today's tab colours unchanged.
+  bsSkin(__HARNESS.skins[0]);
+  const TOS = __HARNESS.skins[0];
+  const ATT = { FULL: { lab: null, sessions: 'warn', gpus: null }, KIOSK_CALM: { lab: null, sessions: null, gpus: null },
+                HL_RED: { lab: 'crit', sessions: 'warn', gpus: null }, HL_YELLOW: { lab: 'warn', sessions: 'warn', gpus: null },
+                HL_STALE: { lab: 'warn', sessions: 'warn', gpus: null }, SESS_OFFLINE: { lab: null, sessions: 'warn', gpus: null },
+                GPU_HOUSE: { lab: null, sessions: 'warn', gpus: 'crit' }, GPU_HOUSE_STALE: { lab: null, sessions: 'warn', gpus: 'warn' },
+                HL_UNCONFIGURED: { lab: null, sessions: 'warn', gpus: null } };
+  Object.keys(ATT).forEach(function (fx) {
+    metrics = FIX[fx];
+    const a = kioskAttention();
+    eq('attention ' + fx, { lab: a.lab, sessions: a.sessions, gpus: a.gpus }, ATT[fx]);
+    const c = bsTabAttention();
+    const col = function (w) { return w === 'crit' ? TOS.crit : w === 'warn' ? TOS.warn : null; };
+    eq('tab colours ' + fx, { lab: c.lab, sessions: c.sessions, gpus: c.gpus },
+       { lab: col(ATT[fx].lab), sessions: col(ATT[fx].sessions), gpus: col(ATT[fx].gpus) });
+  });
+  // The worst state counts only the plan's live screens.
+  const tabs = function (ids) {
+    return ids.map(function (id) { const s = SCREEN_SPEC.screens[id]; return { id: id, label: s.label, color: s.color, built: s.built, live: s.built }; });
+  };
+  metrics = FIX.FULL;
+  setTabPlan(tabs(['lab', 'sessions', 'gpus'])); eq('worst FULL', kioskWorst(), 'warn');
+  setTabPlan(tabs(['lab', 'gpus'])); eq('worst FULL without Sessions', kioskWorst(), 'ok');
+  metrics = FIX.HL_RED; setTabPlan(tabs(['sessions', 'lab'])); eq('worst HL_RED', kioskWorst(), 'crit');
+  metrics = FIX.KIOSK_CALM; setTabPlan(null); eq('worst calm', kioskWorst(), 'ok');
+  // Menu items follow the plan's order, with attention.
+  metrics = FIX.HL_RED; setTabPlan(tabs(['gpus', 'overview', 'lab']));
+  eq('menu', kioskMenu('lab').map(function (t) { return [t.key, t.live, t.built, t.active, t.att, t.screen]; }),
+     [['gpus', true, true, false, null, 'gpus'], ['overview', false, false, false, null, null], ['lab', true, true, true, 'crit', 'lab']]);
+  setTabPlan(null); metrics = FIX.FULL;
+  eq('clock', kioskClock(), { hm: '14:03', day: 'SATURDAY', date: 'OCTOBER 24', short: 'SAT 24 OCT', year: 2026 });
+  // Padding counts the raw text, then escapes.
+  eq('kpad', kpad('<b>', 5), '&lt;b&gt;  ');
+  eq('kpad cut', kpad('abcdef', 3), 'abc');
+  eq('klpad', klpad('7', 3), '  7');
+  eq('kpad code points', kpad('92°C→', 6), '92°C→ ');
+  eq('fit over', kioskFit(15, 9, 8), { shown: 8, more: 7 });
+  eq('fit exact', kioskFit(8, 9, 8), { shown: 8, more: 0 });
+  eq('fit sessions', kioskFit(6, 5, 5), { shown: 5, more: 1 });
+  eq('fit empty', kioskFit(0, 5, 4), { shown: 0, more: 0 });
+  // Renderer metadata: today's Kiosk renderers stay fluid, plain true.
+  eq('TOS fluid', screenRenderer('lab', 'Sci-Fi', 'TOS').fluid, true);
+  eq('plan notice', typeof screenPlan({ mode: 'kiosk', screens: [], family: 'Sci-Fi', variant: 'TOS' }).notice, 'function');
+  // Distro roles.
+  ['Arch', 'Ubuntu', 'openSUSE', 'Mandriva'].forEach(function (v) {
+    ['warnA', 'crit', 'ok', 'off', 'ghost', 'ghostText'].forEach(function (k) {
+      if (!/^#[0-9a-f]{6}$/i.test(String(__HARNESS.distroSkins[v][k]))) fail('KIOSK CORE', v, 'distro role ' + k + ' missing');
+    });
+  });
+  eq('Arch roles', ['warnA', 'crit', 'ok', 'off', 'ghost', 'ghostText'].map(function (k) { return __HARNESS.distroSkins.Arch[k]; }),
+     ['#e5c07b', '#e06c75', '#7fb87f', '#13202a', '#1c2a35', '#2e4352']);
+  setFrameH(600);
 })();
 
 /* ── Golden: today's screens stay byte-identical ─────────────────────────

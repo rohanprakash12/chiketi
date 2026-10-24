@@ -977,8 +977,10 @@ def _ui_asset(name: str) -> str:
     return cached
 
 
+# The Kiosk looks: appended to screen_functions.js wherever it is inlined.
+KIOSK_JS = ("kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js")
 _DISPLAY_ASSETS = ("display.html", "display.css", "display_app.js", "shared_helpers.js",
-                   "fonts.css", "screen_functions.js", "pairing.js", "screens.json")
+                   "fonts.css", "screen_functions.js", "pairing.js", "screens.json") + KIOSK_JS
 
 
 def _display_build() -> str:
@@ -1017,8 +1019,9 @@ def _build_display_html() -> str:
 
 
 def _screen_functions_js() -> str:
-    """Return the JS screen renderer functions shared by both pages."""
-    return _ui_asset("screen_functions.js")
+    """Return the JS screen renderer functions shared by both pages: the renderers,
+    then the Kiosk looks (one script, so function declarations see each other)."""
+    return "\n".join([_ui_asset("screen_functions.js")] + [_ui_asset(n) for n in KIOSK_JS])
 
 
 def _build_html() -> str:

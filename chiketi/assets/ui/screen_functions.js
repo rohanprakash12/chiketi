@@ -631,21 +631,25 @@ const DISTRO_SKINS = {
   Arch: {
     label: '#5296c8', value: '#d8e6f0', accent: '#1793d1', meter: '#4dd0e1',
     dim: '#3f5a6d', warn: '#e06c75', bg: '#06090c',
+    warnA: '#e5c07b', crit: '#e06c75', ok: '#7fb87f', off: '#13202a', ghost: '#1c2a35', ghostText: '#2e4352',
     series: ['#1793d1', '#4dd0e1', '#8e79c9', '#c3cdd4'],
   },
   Ubuntu: {
     label: '#c8683f', value: '#f2e6dd', accent: '#E95420', meter: '#e9a05a',
     dim: '#6b4433', warn: '#ff5555', bg: '#0d0705',
+    warnA: '#e5c07b', crit: '#ff5555', ok: '#8fbf6f', off: '#24140d', ghost: '#2a1a12', ghostText: '#4a3024',
     series: ['#E95420', '#e9a05a', '#a4487a', '#c9bfb6'],
   },
   openSUSE: {
     label: '#6fa03a', value: '#e3f0d8', accent: '#73ba25', meter: '#a4d65e',
     dim: '#3d5426', warn: '#e5484d', bg: '#050a04',
+    warnA: '#e5c07b', crit: '#e5484d', ok: '#8fd16a', off: '#132010', ghost: '#1a2a14', ghostText: '#30462a',
     series: ['#73ba25', '#a4d65e', '#35b9ab', '#c3cdb4'],
   },
   Mandriva: {
     label: '#4a8fc0', value: '#e8eef4', accent: '#2b7cb8', meter: '#e8a33d',
     dim: '#33556e', warn: '#e05c4a', bg: '#04070b',
+    warnA: '#e5c07b', crit: '#e05c4a', ok: '#7fb87f', off: '#101c28', ghost: '#18283a', ghostText: '#2c4358',
     series: ['#2b7cb8', '#e8a33d', '#6fb1d8', '#b6c4ce'],
   },
 };
@@ -2966,8 +2970,11 @@ function bsThermRowSolid(label, temp, w) {
    filament lines and a grid across it, so the overlay belongs to the frame
    rather than to any one region. */
 /* `fluid`: true fills any landscape shape; 'strip' also has a bar-display
-   layout. A fluid screen without one is letterboxed on a strip. */
-function bsFrame(body, fluid) {
+   layout. A fluid screen without one is letterboxed on a strip. 'landscape'
+   (the Kiosk looks) fills a landscape frame and is letterboxed in 1024 x 600 on
+   every other shape, strip and other alike. `look` tags the frame for the
+   browser checks. */
+function bsFrame(body, fluid, look) {
   const S = bsS();
   // A skin may put the board behind glass: its own filter on the content, its
   // own overlay stack in front. Scanlines uses both; the rest use neither.
@@ -2977,7 +2984,9 @@ function bsFrame(body, fluid) {
       (S.contentTransform ? `transform:${S.contentTransform};` : '') +
       `">${body}</div>`
     : body;
-  return `<div class="screen-frame${fluid ? ' fluid' : ''}${fluid === 'strip' ? ' strip' : ''}">${S.defs || ''}` +
+  const fills = fluid === 'landscape' ? layoutClass() === 'landscape' : fluid;
+  return `<div class="screen-frame${fills ? ' fluid' : ''}${fluid === 'strip' ? ' strip' : ''}"` +
+      (look ? ` data-look="${look}"` : '') + `>${S.defs || ''}` +
     `<div style="position:relative;width:100%;height:100%;background:${S.bg};` +
       `font-family:${S.font};overflow:hidden;${S.frameCss || ''}">` +
       inner + (S.overlay || '') + `</div></div>`;
@@ -3715,17 +3724,9 @@ function bsTabList() {
    amber for a warning, red for Home Lab's red alert, nothing when calm. */
 function bsTabAttention() {
   const S = bsS();
-  const d = sessData();
-  const lab = hlConfigured() ? hlData().mode : null;
-  return {
-    sessions: (d.status === 'offline' || d.list.some(function (s) { return s.state === 'waiting'; })) ? S.warn : null,
-    lab: lab === 'crit' ? S.crit : (lab === 'warn' || lab === 'stale') ? S.warn : null,
-    gpus: (function () {
-      if (!hlConfigured()) return null;
-      const col = gpuStatusColor(gpuHouseData());
-      return col === S.crit ? S.crit : col === S.warn ? S.warn : null;
-    })(),
-  };
+  const a = kioskAttention();   // kiosk_looks.js: the status words every look shares
+  const col = function (w) { return w === 'crit' ? S.crit : w === 'warn' ? S.warn : null; };
+  return { sessions: col(a.sessions), lab: col(a.lab), gpus: col(a.gpus) };
 }
 
 function bsTabs(active, vertical) {
@@ -4421,14 +4422,15 @@ function selfScreens(fam, v) {
   if (DISTRO_SCREENS[v]) return [DISTRO_SCREENS[v], DISTRO_AI_SCREENS[v], DISTRO_CLAUDE_SCREENS[v], DISTRO_GPU_SCREENS[v], null];
   return [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen, null];
 }
-/* The Kiosk screens exist only in the Kiosk themes. */
+/* The Kiosk screens exist only in the Kiosk themes. An entry may say `fluid`
+   (default true) and give the empty-plan `notice` (default kioskNotice). */
 const KIOSK_RENDERERS = {
   'Sci-Fi/TOS': { lab: sfTosHomelab, sessions: sfTosSessions, gpus: sfTosGpus },
   'Others/Claude': { lab: claudeHomelab, sessions: claudeSessions, gpus: claudeGpus },
 };
 function screenRenderer(id, fam, v) {
   const k = KIOSK_RENDERERS[fam + '/' + v];
-  if (k && k[id]) return { fn: k[id], fluid: true };
+  if (k && k[id] && id !== 'notice' && id !== 'fluid') return { fn: k[id], fluid: k.fluid === undefined ? true : k.fluid };
   const slot = /^screen([1-5])$/.exec(id);
   if (!slot) return null;
   const fn = selfScreens(fam, v)[Number(slot[1]) - 1];
@@ -4453,7 +4455,8 @@ function screenPlan(o) {
     const r = s.built && screenReady(id) ? screenRenderer(id, o.family, o.variant) : null;
     if (r) list.push({ id: id, name: s.name, fn: r.fn, fluid: r.fluid });
   });
-  const plan = { mode: mode, list: list, tabs: [], fallback: false, empty: false };
+  const plan = { mode: mode, list: list, tabs: [], fallback: false, empty: false,
+                 notice: kioskNoticeFor(o.family, o.variant) };
   if (mode === 'kiosk') {
     plan.tabs = sel.map(function (id) {
       const s = SCREEN_SPEC.screens[id];
