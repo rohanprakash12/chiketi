@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import tempfile
 import threading
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 
-from chiketi.collectors.homelab.probe import Disk, ProbeReport
+from chiketi.collectors.homelab.probe import MAX_GPUS, Disk, Gpu, ProbeReport
 
 HOLD_NOW, HOLD_FS, HOLD_UNITS, HOLD_TEMP, HOLD_DOWN, HOLD_MEM = 1, 2, 2, 4, 4, 10
 CLEAR_AFTER = 2
@@ -51,7 +52,7 @@ class Baseline:
         self.path = path
         self._lock = threading.Lock()
         self._dirty = False
-        self._data: dict = {"smart": {}, "sec": {}}
+        self._data: dict = {"smart": {}, "sec": {}, "gpus": {}}
         try:
             with open(path) as f:
                 raw = json.load(f)
@@ -59,6 +60,8 @@ class Baseline:
                 self._data = raw
         except (OSError, ValueError, AttributeError):
             pass
+        if not isinstance(self._data.get("gpus"), dict):
+            self._data["gpus"] = {}
 
     def smart_rises(self, host: str, disk: Disk) -> list[tuple[str, int, int]]:
         key = f"{host}|{disk.dev}|{disk.model}"
@@ -87,6 +90,27 @@ class Baseline:
                 self._dirty = True
             return float(self._data["sec"][host])
 
+    def gpu_memory(self) -> dict[str, tuple[list[Gpu], float]]:
+        """Each host's last GPU sample and when it was taken, as remembered across restarts.
+        A record that is malformed in any way is dropped whole."""
+        out: dict[str, tuple[list[Gpu], float]] = {}
+        with self._lock:
+            for host, rec in self._data["gpus"].items():
+                gpus = _gpus_from_json(rec)
+                if gpus is not None:
+                    out[host] = (gpus, float(rec["seen_at"]))
+        return out
+
+    def remember_gpus(self, host: str, gpus: list[Gpu], seen_at: float) -> None:
+        with self._lock:
+            self._data["gpus"][host] = {"seen_at": seen_at, "gpus": [asdict(g) for g in gpus]}
+            self._dirty = True
+
+    def forget_gpus(self, host: str) -> None:
+        with self._lock:
+            if self._data["gpus"].pop(host, None) is not None:
+                self._dirty = True
+
     def save(self) -> None:
         with self._lock:
             if not self._dirty:
@@ -99,6 +123,96 @@ class Baseline:
                 os.fsync(f.fileno())
             os.replace(tmp, self.path)
             self._dirty = False
+
+
+_GPU_FLOATS = ("util", "vram_used", "vram_total", "temp", "power", "power_limit", "fan", "mem_temp")
+
+
+def _finite(v) -> bool:
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:
+        return math.isfinite(v)
+    except OverflowError:              # an int too large for a float
+        return False
+
+
+def _gpus_from_json(rec) -> list[Gpu] | None:
+    if not isinstance(rec, dict) or not _finite(rec.get("seen_at")):
+        return None
+    raw = rec.get("gpus")
+    if not isinstance(raw, list) or len(raw) > MAX_GPUS:
+        return None
+    names = {f.name for f in fields(Gpu)}
+    out = []
+    for g in raw:
+        if not isinstance(g, dict):
+            return None
+        idx = g.get("index")
+        if not isinstance(idx, int) or isinstance(idx, bool) or idx < 0:
+            return None
+        if any(g.get(k) is not None and not _finite(g.get(k)) for k in _GPU_FLOATS):
+            return None
+        if any(not isinstance(g.get(k, ""), str) for k in ("name", "bus_id", "uuid")):
+            return None
+        for k in ("throttle", "procs"):
+            v = g.get(k)
+            if v is not None and (not isinstance(v, int) or isinstance(v, bool)):
+                return None
+        if not isinstance(g.get("detail", True), bool):
+            return None
+        out.append(Gpu(**{k: v for k, v in g.items() if k in names}))
+    return out
+
+
+THROTTLE_BITS = 0x08 | 0x20 | 0x40 | 0x80   # HW slowdown, SW thermal, HW thermal, HW power brake
+
+
+def throttling(g: Gpu) -> bool:
+    """A thermal or hardware slowdown. The 0x04 software power cap under load is normal."""
+    return g.throttle is not None and bool(g.throttle & THROTTLE_BITS)
+
+
+def gpu_state(g: Gpu, thr: dict, outcome: str, throttled: bool | None = None) -> str:
+    """The one-word state of a GPU (spec decision 3); the first match wins. throttled: the
+    poller's view over recent polls (spec §6.2); None judges this sample alone."""
+    if outcome in ("offline", "unreadable"):
+        return outcome
+    if g.temp is not None and g.temp >= thr["gpu_crit_c"]:
+        return "critical"
+    if g.temp is not None and g.temp >= thr["gpu_warn_c"]:
+        return "hot"
+    if throttling(g) if throttled is None else throttled:
+        return "throttling"
+    if not g.detail:
+        return "nodetail"
+    if (g.util is not None and g.util >= 10) or (g.procs is not None and g.procs >= 1):
+        return "busy"
+    if g.util is not None and g.procs == 0:
+        return "idle"
+    return "unknown"
+
+
+def gpu_condition(g: Gpu, thr: dict, throttled: bool | None = None, fast: bool = False) -> Condition | None:
+    """One condition per GPU, from heat or throttling: a change between the two keeps the
+    same key, so a raised alert never drops in the handover. throttled: the poller's
+    windowed decision (spec §6.3), None judges this sample alone; fast: hold 1, because
+    the window has already done the holding."""
+    key = f"gpu_temp:{g.index}"
+    hold = 1 if fast else HOLD_TEMP
+    if g.temp is not None:
+        sev = _level(g.temp, thr["gpu_warn_c"], thr["gpu_crit_c"])
+        if sev:
+            return Condition(key, sev, f"GPU {g.index} {g.temp:.0f}°C", "", hold)
+    if throttling(g) if throttled is None else throttled:
+        return Condition(key, "warn", f"GPU {g.index} throttling", "clock slowdown reported by the driver", hold)
+    return None
+
+
+def gpu_keep_keys(rep: ProbeReport) -> set[str]:
+    """GPUs whose reading cannot show an alert is over: no temperature, or (v2) no throttle mask."""
+    return {f"gpu_temp:{g.index}" for g in rep.gpus
+            if g.temp is None or (g.detail and g.throttle is None)}
 
 
 _ARRAY_DISK = re.compile(r"^/mnt/disk[0-9]+$")
@@ -134,10 +248,10 @@ def evaluate_report(host: str, rep: ProbeReport, thr: dict, baseline: Baseline,
         sev = _level(rep.cpu_temp_c, thr["cpu_warn_c"], thr["cpu_crit_c"])
         if sev:
             out.append(Condition("cpu_temp", sev, f"CPU {rep.cpu_temp_c:.0f}°C", "package temperature", HOLD_TEMP))
-    for i, t in enumerate(rep.gpu_temps):
-        sev = _level(t, thr["gpu_warn_c"], thr["gpu_crit_c"])
-        if sev:
-            out.append(Condition(f"gpu_temp:{i}", sev, f"GPU {i} {t:.0f}°C", "", HOLD_TEMP))
+    for g in rep.gpus:
+        c = gpu_condition(g, thr)
+        if c:
+            out.append(c)
     for d in rep.disks:
         dev = _cut(d.dev, 16)
         if d.health and d.health.upper().rstrip("!") not in ("PASSED", "OK"):
@@ -218,7 +332,10 @@ class IssueTracker:
     def __init__(self) -> None:
         self._t: dict[tuple[str, str], _Track] = {}
 
-    def update(self, host: str, conds: list[Condition], now: float, partial: bool = False) -> None:
+    def update(self, host: str, conds: list[Condition], now: float, partial: bool = False,
+               keep=None) -> None:
+        """keep: a predicate on keys; a key it accepts that this update does not mention
+        is left as it was (no evidence either way), as for a partial update."""
         seen = set()
         for c in conds:
             k = (host, c.key)
@@ -232,10 +349,20 @@ class IssueTracker:
         if partial:
             return
         for k in [k for k in self._t if k[0] == host and k not in seen]:
+            if keep is not None and keep(k[1]):
+                continue
             t = self._t[k]
             t.good, t.bad = t.good + 1, 0
             if not t.raised or t.good >= CLEAR_AFTER:
                 del self._t[k]
+
+    def raised(self, host: str, key: str) -> Condition | None:
+        t = self._t.get((host, key))
+        return t.cond if t is not None and t.raised else None
+
+    def holds(self, host: str, key: str) -> bool:
+        """Whether the tracker has any record of the key, raised or still counting."""
+        return (host, key) in self._t
 
     def issues(self) -> list[dict]:
         out = [{"host": h, "severity": t.cond.severity, "title": t.cond.title,

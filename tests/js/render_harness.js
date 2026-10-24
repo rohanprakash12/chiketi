@@ -293,7 +293,7 @@ for (const fixtureName of Object.keys(FIX)) {
       // renderers uppercase metrics first, so matching 'onerror=' both misses
       // uppercase leaks and false-positives on correctly-escaped output.
       if (fixtureName === 'HOSTILE' || fixtureName === 'GPU_HOSTILE' || fixtureName === 'SESS_HOSTILE' ||
-          fixtureName === 'HL_HOSTILE') {
+          fixtureName === 'HL_HOSTILE' || fixtureName === 'GPU_HOUSE_HOSTILE') {
         const leak = leakReason(fn.name, html);
         if (leak) fail(fixtureName, label, 'unescaped metric reached output -- ' + leak);
       }
@@ -363,6 +363,37 @@ for (const fixtureName of Object.keys(FIX)) {
         }
         if (fixtureName === 'SESS_MANY' && !/\+\d+ MORE/.test(html)) fail(fixtureName, label, 'sessions dropped silently');
         if (html.indexOf('screen-frame fluid') === -1) fail(fixtureName, label, 'Claude Sessions must be fluid');
+      }
+
+      // GPUs: each fixture says what it is; power is never sold as more than it is.
+      if (/Gpus$/.test(fn.name)) {
+        const want = { FULL: '2 GPUS', GPU_HOUSE_NONE: 'NO GPUS REPORTED', GPU_HOUSE_INCOMPLETE: 'GPU INVENTORY INCOMPLETE',
+                       GPU_HOUSE_INCOMPLETE_WITH_ROWS: 'NOT REACHED', GPU_HOUSE_PENDING_WITH_ROWS: 'NOT REACHED',
+                       GPU_HOUSE_STALE: 'TELEMETRY STALE', GPU_HOUSE_STALE_EMPTY: 'NO GPUS REPORTED',
+                       GPU_HOUSE_MIXED_POWER: 'W FROM 1 OF 3 GPUS', GPU_HOUSE_ONE_OFFLINE: '100 W FROM 1 OF 2 GPUS',
+                       HL_PENDING: 'ACQUIRING TELEMETRY' }[fixtureName];
+        if (want && html.indexOf(want) === -1) fail(fixtureName, label, 'missing "' + want + '"');
+        if (fixtureName === 'GPU_HOUSE_STALE_EMPTY' && html.indexOf('TELEMETRY STALE') === -1) fail(fixtureName, label, 'stale banner missing over an empty body');
+        if (fixtureName === 'FULL' && html.indexOf('W NOW') === -1) fail(fixtureName, label, 'no W NOW total');
+        if (fixtureName === 'GPU_HOUSE_ONE_OFFLINE' && html.indexOf('W NOW') !== -1) fail(fixtureName, label, 'subtotal sold as W NOW');
+        if (fixtureName === 'GPU_HOUSE_NONE' && / W( |<|$)/.test(html.replace(/GPUS/g, ''))) fail(fixtureName, label, 'power shown for no GPUs');
+        if (fixtureName === 'GPU_HOUSE_STALE' && html.indexOf('CRITICAL') === -1) fail(fixtureName, label, 'cached CRITICAL word lost');
+        if (fixtureName === 'GPU_HOUSE_SPARSE' && (/>\s*0%\s*</.test(html) || /NaN/.test(html))) fail(fixtureName, label, 'missing value shown as 0% or NaN');
+        if (fixtureName === 'GPU_HOUSE_MANY' && !/\+\d+ MORE/.test(html)) fail(fixtureName, label, 'GPUs dropped silently');
+        if (html.indexOf('screen-frame fluid') === -1) fail(fixtureName, label, 'GPUs must be fluid');
+        // Memory temperature: a second line in the full layout only, bounded, never "MEM --".
+        const strip = layoutClass() === 'strip';
+        if (strip && /MEM /.test(html)) fail(fixtureName, label, 'MEM line in the strip layout');
+        if (/MEM --|MEM NaN|MEM undefined/.test(html)) fail(fixtureName, label, 'MEM shown without a value');
+        if (!strip && fixtureName === 'GPU_HOUSE' && !/MEM 84&deg;/.test(html)) fail(fixtureName, label, 'MEM 84 missing');
+        if (!strip && fixtureName === 'GPU_HOUSE_MEM_EDGE') {
+          if (!/MEM 200&deg;/.test(html) || !/MEM -50&deg;/.test(html)) fail(fixtureName, label, 'edge MEM values not rounded');
+          if (/MEM (1000000000|-80|84)/.test(html)) fail(fixtureName, label, 'out-of-range or string MEM shown');
+        }
+        if (fixtureName === 'GPU_HOUSE_HOSTILE' && /MEM /.test(html)) fail(fixtureName, label, 'string MEM shown');
+        if (!strip && fixtureName === 'GPU_HOUSE_MEM_NULL' && (html.match(/MEM /g) || []).length !== 1) {
+          fail(fixtureName, label, 'a missing memory temperature drew a MEM line');
+        }
       }
 
       // The empty state has to say why it is empty.
@@ -495,7 +526,8 @@ __HARNESS.skins.forEach(function (skin) {
    expected lists come from the fixtures, not from the planner itself. ── */
 (function () {
   const kiosk = SCREEN_SPEC.modes.kiosk.screens;
-  const READY = { FULL: ['lab', 'sessions'], HL_UNCONFIGURED: ['sessions'], SESS_UNCONFIGURED: ['lab'], KIOSK_EMPTY: [] };
+  const READY = { FULL: ['lab', 'sessions', 'gpus'], HL_UNCONFIGURED: ['sessions'], SESS_UNCONFIGURED: ['lab', 'gpus'],
+                  KIOSK_EMPTY: [] };
   const cases = [];
   for (let mask = 0; mask < (1 << kiosk.length); mask += 5) cases.push(kiosk.filter(function (_, i) { return mask & (1 << i); }));
   cases.push(['lab', 'sessions'], ['sessions', 'lab'], ['lab'], [], kiosk.slice().reverse());
@@ -552,6 +584,78 @@ __HARNESS.skins.forEach(function (skin) {
   if (p.list.map(function (x) { return x.id; }).join() !== 'lab' || p.tabs[0].live) fail('PLAN', 'placeholder', 'grey tab live');
   p = screenPlan({ mode: 'bogus', screens: null, family: 'Sci-Fi', variant: 'TOS' });
   if (p.mode !== 'self' || p.list.length !== 5) fail('PLAN', 'unknown mode', 'not treated as Self defaults');
+})();
+
+/* ── GPUs: every state word, exact worst-first order with ties, exact overflow
+   counts, status colour precedence, prototype-safe host names, strip ages,
+   and staleness at its boundary. ── */
+(function () {
+  const LABEL = { critical: 'CRITICAL', hot: 'HOT', throttling: 'THROTTLING', unreadable: 'UNREADABLE',
+                  offline: 'OFFLINE', nodetail: 'NO DETAIL', unknown: 'UNKNOWN', busy: 'BUSY', idle: 'IDLE' };
+  const ORDER = ['critical', 'hot', 'throttling', 'unreadable', 'offline', 'nodetail', 'unknown', 'busy', 'idle'];
+  const nowS = Math.floor(Date.now() / 1000);
+  const withRows = function (rows, extra) {
+    const g = Object.assign({}, FIX.FULL['homelab.gpus'], { value: rows });
+    if (extra) g.extra = Object.assign({}, g.extra, extra);
+    return Object.assign({}, FIX.FULL, { 'homelab.gpus': g });
+  };
+  const expected = function (fx) {
+    const hosts = fx['homelab.gpu_hosts'].value.map(function (h) { return h.host; });
+    return fx['homelab.gpus'].value.slice().sort(function (a, b) {
+      return (ORDER.indexOf(a.state) - ORDER.indexOf(b.state)) || (hosts.indexOf(a.host) - hosts.indexOf(b.host)) ||
+        (a.index - b.index);
+    }).map(function (r) { return esc(String(r.host)) + '|' + r.index; });
+  };
+  [['Sci-Fi', 'TOS', sfTosGpus], ['Others', 'Claude', claudeGpus]].forEach(function (t) {
+    activeFamily = t[0];
+    const colors = FAMILIES[t[0]][t[1]];
+    [600, 683, 246].forEach(function (h) {
+      setFrameH(h);
+      const where = t[1] + ' h=' + h;
+      Object.keys(LABEL).forEach(function (st) {
+        const row = { host: 'gpubox', index: 0, name: 'V100', util: 50, vram_used: 1, vram_total: 2,
+                      temp: st === 'critical' ? 95 : st === 'hot' ? 87 : 60, power: 1, power_limit: 2, fan: null,
+                      procs: 1, state: st, detail: st !== 'nodetail', seen_at: nowS - 300 };
+        metrics = withRows([row]);
+        const html = t[2](colors);
+        if (html.indexOf('>' + LABEL[st] + '<') === -1) fail('GPUS', st + ' ' + where, 'state word missing');
+        if ((st === 'offline' || st === 'unreadable') && html.indexOf('SEEN') === -1) fail('GPUS', st + ' ' + where, 'no SEEN age on a cached row');
+      });
+      ['GPU_HOUSE', 'GPU_HOUSE_TIES', 'GPU_HOUSE_MANY'].forEach(function (name) {
+        metrics = FIX[name];
+        const html = t[2](colors);
+        const got = (html.match(/data-gpu-row="([^"]*)"/g) || []).map(function (x) { return x.slice(14, -1); });
+        const want = expected(FIX[name]);
+        if (!got.length) fail('GPUS', name + ' ' + where, 'no rows rendered');
+        if (got.join() !== want.slice(0, got.length).join()) fail('GPUS', name + ' ' + where, 'order ' + got.join() + ' != ' + want.join());
+        const more = /\+(\d+) MORE/.exec(html);
+        if (got.length < want.length ? !(more && Number(more[1]) === want.length - got.length) : !!more) {
+          fail('GPUS', name + ' ' + where, 'MORE ' + (more && more[1]) + ' with ' + got.length + ' of ' + want.length);
+        }
+      });
+      metrics = FIX.GPU_HOUSE_STALE;
+      if (t[2](colors).indexOf('SEEN') === -1) fail('GPUS', 'stale ' + where, 'stale rows need their age');
+      metrics = FIX.GPU_HOUSE_STALE_EMPTY;
+      if (t[2](colors).indexOf('TELEMETRY STALE') === -1) fail('GPUS', 'stale empty ' + where, 'no stale banner');
+    });
+  });
+  setFrameH(600);
+  activeFamily = 'Sci-Fi';
+  bsSkin(__HARNESS.skins[0]);
+  const S = bsS();
+  const colour = function (fx) { metrics = fx; return gpuStatusColor(gpuHouseData()); };
+  if (colour(FIX.GPU_HOUSE_STALE) !== S.warn || bsTabAttention().gpus !== S.warn) fail('GPUS', 'stale+critical', 'must be warn');
+  if (colour(FIX.GPU_HOUSE) !== S.crit || bsTabAttention().gpus !== S.crit) fail('GPUS', 'critical', 'not crit');
+  if (colour(FIX.GPU_HOUSE_PENDING_WITH_ROWS) !== S.edge || bsTabAttention().gpus !== null) fail('GPUS', 'pending host with rows', 'must stay calm');
+  if (colour(FIX.GPU_HOUSE_INCOMPLETE_WITH_ROWS) !== S.warn) fail('GPUS', 'unreadable host named constructor', 'must warn');
+  if (colour(FIX.GPU_HOUSE_INCOMPLETE) !== S.warn) fail('GPUS', 'no rows, host offline', 'must warn');
+  if (colour(FIX.FULL) !== S.edge) fail('GPUS', 'FULL', 'healthy must be calm');
+  const after = FIX.FULL['homelab.gpus'].extra.stale_after;
+  metrics = withRows(FIX.FULL['homelab.gpus'].value, { published_at: nowS - after + 5 });
+  if (gpuHouseData().stale) fail('GPUS', 'boundary', 'stale before stale_after');
+  metrics = withRows(FIX.FULL['homelab.gpus'].value, { published_at: nowS - after - 5 });
+  if (!gpuHouseData().stale) fail('GPUS', 'boundary', 'not stale after stale_after');
+  metrics = FIX.FULL;
 })();
 
 if (failures.length) {

@@ -3829,6 +3829,11 @@ function bsTabAttention() {
   return {
     sessions: (d.status === 'offline' || d.list.some(function (s) { return s.state === 'waiting'; })) ? S.warn : null,
     lab: lab === 'crit' ? S.crit : (lab === 'warn' || lab === 'stale') ? S.warn : null,
+    gpus: (function () {
+      if (!hlConfigured()) return null;
+      const col = gpuStatusColor(gpuHouseData());
+      return col === S.crit ? S.crit : col === S.warn ? S.warn : null;
+    })(),
   };
 }
 
@@ -4019,10 +4024,11 @@ function bsStripFrame(o) {
     `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(4)};height:${gq(TOP - 4)};display:flex;` +
         `align-items:center;gap:${gq(16)};border-bottom:${gq(1.5)} solid ${S.edge}">` +
       `<div style="color:${o.leadColor};font-size:${gq(o.leadSize || 13)};letter-spacing:${S.ls};white-space:nowrap;` +
+        `min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;` +
         `${bsGlow(8, o.leadColor)}${o.leadPulse ? ';animation:hlPulse 2s ease-in-out infinite' : ''}">${o.lead}</div>` +
-      `<div style="margin-left:auto;color:${S.kDate};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap">` +
+      `<div style="margin-left:auto;flex-shrink:0;color:${S.kDate};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap">` +
         `${days[now.getDay()]} · ${months[now.getMonth()]} ${now.getDate()}</div>` +
-      `<div style="color:${S.kHour};font-size:${gq(32)};font-weight:${S.fw};line-height:1;` +
+      `<div style="flex-shrink:0;color:${S.kHour};font-size:${gq(32)};font-weight:${S.fw};line-height:1;` +
         `font-variant-numeric:tabular-nums;${bsGlow(10, S.kHour)}">${hh}:${mm}</div></div>` +
     `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(TOP + 2)};height:${gq(H - TOP - FOOT - 4)};` +
       `overflow:hidden">${o.body}</div>` +
@@ -4245,6 +4251,250 @@ function sfTosHomelab(c) { bsSkin(BS_SKIN_TOS); return bsHomelabScreen(c); }
 function claudeHomelab(c) { bsSkin(BS_SKIN_CLAUDE); return bsHomelabScreen(c); }
 
 
+/* ── GPUs ───────────────────────────────────────────────────────────────
+ * Every NVIDIA GPU the Home Lab probe sees, worst first: what it is doing,
+ * how full and hot it is, and -- when a host is gone or its driver answers
+ * nothing -- the last reading, dimmed, with its age. Same chrome as Sessions. */
+const GPU_ORDER = { critical: 0, hot: 1, throttling: 2, unreadable: 3, offline: 4, nodetail: 5, unknown: 6, busy: 7, idle: 8 };
+const GPU_LABEL = { critical: 'CRITICAL', hot: 'HOT', throttling: 'THROTTLING', unreadable: 'UNREADABLE',
+                    offline: 'OFFLINE', nodetail: 'NO DETAIL', unknown: 'UNKNOWN', busy: 'BUSY', idle: 'IDLE' };
+const GPU_COLS = [
+  { key: 'name', label: 'GPU', w: null },
+  { key: 'state', label: 'STATE', w: 124 },
+  { key: 'load', label: 'LOAD', w: 112 },
+  { key: 'vram', label: 'VRAM', w: 168 },
+  { key: 'temp', label: 'TEMP', w: 72, align: 'right' },
+  { key: 'power', label: 'POWER', w: 112, align: 'right' },
+  { key: 'procs', label: 'PROCS', w: 60, align: 'right' },
+];
+const GPU_GAP = 12;   // tighter than Sessions: seven columns
+
+function gpuFin(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+function gpuStateColor(st) {
+  const S = bsS();
+  return st === 'critical' ? S.crit
+    : (st === 'hot' || st === 'throttling' || st === 'unreadable' || st === 'offline') ? S.warn
+    : st === 'busy' ? S.a4 : st === 'idle' ? S.label : S.dim;
+}
+function gpuHouseData() {
+  const hl = hlData();
+  const gm = m('homelab.gpus'), hm = m('homelab.gpu_hosts');
+  const isObj = function (x) { return x && typeof x === 'object'; };
+  const hosts = (hm.available && Array.isArray(hm.value)) ? hm.value.filter(isObj) : [];
+  const hostOrder = new Map();
+  hosts.forEach(function (h, i) { if (!hostOrder.has(String(h.host))) hostOrder.set(String(h.host), i); });
+  const ord = function (host) { return hostOrder.has(host) ? hostOrder.get(host) : 99; };
+  const rows = ((gm.available && Array.isArray(gm.value)) ? gm.value.filter(isObj) : []).map(function (r) {
+    return Object.assign({}, r, { state: GPU_ORDER[r.state] !== undefined ? r.state : 'unknown',
+                                  host: String(r.host == null ? '' : r.host), index: gpuFin(r.index) || 0 });
+  });
+  rows.sort(function (a, b) {
+    return (GPU_ORDER[a.state] - GPU_ORDER[b.state]) ||
+      (ord(a.host) - ord(b.host)) ||
+      (a.index - b.index);
+  });
+  const ex = gm.extra || {};
+  const pub = gpuFin(ex.published_at), after = gpuFin(ex.stale_after);
+  const stale = !!(gm.available && pub !== null && after !== null && after > 0 && Date.now() / 1000 - pub > after);
+  const withRows = new Set(rows.map(function (r) { return r.host; }));
+  const incomplete = hosts.filter(function (h) {
+    return (h.outcome === 'pending' || h.outcome === 'offline' || h.outcome === 'unreadable') && !withRows.has(String(h.host));
+  });
+  const invWarn = incomplete.length > 0 && (rows.length === 0 || incomplete.some(function (h) { return h.outcome === 'unreadable'; }));
+  return { mode: hl.mode, available: !!gm.available, rows: rows, hosts: hosts, stale: stale,
+           incomplete: incomplete, invWarn: invWarn, pub: pub };
+}
+function gpuFresh(d, r) { return !d.stale && r.state !== 'offline' && r.state !== 'unreadable'; }
+function gpuStatusColor(d) {
+  const S = bsS();
+  if (d.stale) return S.warn;
+  if (d.rows.some(function (r) { return r.state === 'critical'; })) return S.crit;
+  if (d.invWarn || d.rows.some(function (r) {
+    return r.state === 'hot' || r.state === 'throttling' || r.state === 'unreadable' || r.state === 'offline';
+  })) return S.warn;
+  return S.edge;
+}
+function gpuPowerText(d) {
+  const n = d.rows.length;
+  let a = 0, w = 0;
+  d.rows.forEach(function (r) { const p = gpuFin(r.power); if (gpuFresh(d, r) && p !== null) { a++; w += p; } });
+  if (d.stale || a === 0) return '-- W';
+  return a === n ? Math.round(w) + ' W NOW' : Math.round(w) + ' W FROM ' + a + ' OF ' + n + ' GPUS';
+}
+function gpuHostList(list) {
+  const names = list.map(function (h) { return esc(String(h.host)); });
+  return names.slice(0, 3).join(', ') + (names.length > 3 ? ' +' + (names.length - 3) : '');
+}
+function gpuFooterText(d) {
+  const busy = d.rows.filter(function (r) { return r.state === 'busy'; }).length;
+  const parts = [d.rows.length + ' GPU' + (d.rows.length === 1 ? '' : 'S'), busy + ' BUSY', gpuPowerText(d),
+                 'CHECKED ' + (d.pub ? sessAge(d.pub) + ' AGO' : 'NEVER')];
+  const old = new Set();
+  d.rows.forEach(function (r) { if (r.state === 'nodetail') old.add(r.host); });
+  if (old.size) {
+    parts.push(gpuHostList(Array.from(old).map(function (h) { return { host: h }; })) +
+               (old.size === 1 ? ' NEEDS' : ' NEED') + ' THE NEW PROBE');
+  }
+  if (d.incomplete.length) parts.push('NOT REACHED: ' + gpuHostList(d.incomplete));
+  return parts.join(' · ');
+}
+function gpuVram(r) {
+  const used = gpuFin(r.vram_used), tot = gpuFin(r.vram_total);
+  const pct = used !== null && tot !== null && tot > 0 ? Math.max(0, Math.min(100, used / tot * 100)) : null;
+  const text = used !== null && tot !== null && tot > 0
+    ? (used / 1024).toFixed(1) + ' / ' + Math.round(tot / 1024) + ' G' : '--';
+  return { pct: pct, text: text };
+}
+function bsGpuRow(d, r, rowH, k, cols, compact) {
+  const S = bsS();
+  const col = gpuStateColor(r.state);
+  const fresh = gpuFresh(d, r);
+  const util = gpuFin(r.util), temp = gpuFin(r.temp), pw = gpuFin(r.power), lim = gpuFin(r.power_limit);
+  const procs = gpuFin(r.procs);
+  const v = gpuVram(r);
+  const C = {};
+  cols.forEach(function (c) { C[c.key] = c; });
+  // Only the name grows with a tall row: the other columns have fixed widths, so
+  // their type stays at its base size and their text is never cut short.
+  const kc = Math.min(1, k);
+  const title = 'GPU ' + r.index + (r.name ? ' · ' + esc(String(r.name)) : '');
+  const nameCell = compact
+    ? `<span style="color:${S.bright};font-size:${gq(17 * k)};font-weight:${S.fw}">${title}</span>` +
+      `<span style="color:${S.label};font-size:${gq(13 * k)}"> · ${esc(r.host)}</span>`
+    // Full rows lead with which card and where; the model (often the same on
+    // every card) goes underneath, where it can be cut short without loss.
+    : `<div style="color:${fresh ? S.bright : S.label};font-size:${gq(20 * k)};font-weight:${S.fw};overflow:hidden;` +
+        `text-overflow:ellipsis">GPU ${r.index} · ${esc(r.host)}</div><div style="color:${S.label};font-size:${gq(14 * k)};` +
+        `overflow:hidden;text-overflow:ellipsis">${r.name ? esc(String(r.name)) : '--'}</div>`;
+  const seen = 'SEEN ' + (r.seen_at ? sessAge(r.seen_at) : '--');
+  const stateCell = compact
+    ? `<span style="color:${col};letter-spacing:0.08em;font-size:${gq(13 * kc)};${bsGlow(8, col)}">${GPU_LABEL[r.state]}</span>` +
+      (fresh ? '' : `<span style="color:${S.dim};font-size:${gq(11 * kc)}"> · ${seen}</span>`)
+    : `<div style="color:${col};letter-spacing:0.08em;font-size:${gq(14 * kc)};${bsGlow(8, col)}">${GPU_LABEL[r.state]}</div>` +
+      (fresh ? '' : `<div style="color:${S.dim};font-size:${gq(11 * kc)};letter-spacing:0.06em">${seen} AGO</div>`);
+  const bar = function (pct, color, w) {
+    return `<span style="display:inline-flex;vertical-align:middle;margin-right:${gq(8)}">${bsSegBar(pct === null ? 0 : pct, color, w, 12 * k, 10, 2)}</span>`;
+  };
+  const loadCell = compact ? (util === null ? '--' : Math.round(util) + '%')
+    : bar(util, col === S.label ? S.a4 : col, 52) + (util === null ? '--' : Math.round(util) + '%');
+  const vramCell = compact ? (v.pct === null ? '--' : Math.round(v.pct) + '%') : bar(v.pct, S.a2, 44) + v.text;
+  // The memory (HBM) temperature, under the core one in the full layout (spec §6.4).
+  const mt = gpuFin(r.mem_temp);
+  const memLine = !compact && mt !== null && mt >= -50 && mt <= 200
+    ? `<div style="color:${S.therm(mt)};font-size:${gq(11)};letter-spacing:0.04em">MEM ${Math.round(mt)}&deg;</div>` : '';
+  const tempCell = (temp === null ? '--' : Math.round(temp) + '&deg;') + memLine;
+  const powerCell = pw === null ? '--' : Math.round(pw) + (lim !== null && !compact ? ' / ' + Math.round(lim) : '') + ' W';
+  // data-fit: text that must never be cut (fit_check checks it); the name may be.
+  const fit = function (col, inner, style) { return sessCell(col, inner, style).replace('<div ', '<div data-fit '); };
+  const cells = {
+    name: sessCell(C.name, nameCell),
+    state: fit(C.state, stateCell, ''),
+    load: fit(C.load, loadCell, `color:${S.soft};font-size:${gq(16 * kc)};font-variant-numeric:tabular-nums`),
+    vram: fit(C.vram, vramCell, `color:${S.soft};font-size:${gq((compact ? 16 : 15) * kc)};font-variant-numeric:tabular-nums`),
+    temp: fit(C.temp, tempCell, `color:${temp === null ? S.dim : S.therm(temp)};font-size:${gq(19 * kc)};font-variant-numeric:tabular-nums`),
+    power: fit(C.power, powerCell, `color:${S.soft};font-size:${gq(16 * kc)};font-variant-numeric:tabular-nums`),
+    procs: C.procs ? fit(C.procs, procs === null ? '--' : String(procs), `color:${procs ? S.a2 : S.dim};font-size:${gq(17 * kc)}`) : '',
+  };
+  return `<div data-gpu-row="${esc(r.host)}|${r.index}" style="display:flex;align-items:center;gap:${gq(GPU_GAP)};height:${gq(rowH)};flex-shrink:0;` +
+      `padding:0 ${gq(16)};border-bottom:${gq(1)} solid ${S.edge};${fresh ? '' : 'opacity:0.6;'}">` +
+    `<span style="display:flex;width:${gq(SESS_LAMP * 1.5)};flex-shrink:0">${bsTabIcon('gpus', col, SESS_LAMP * 1.4 * Math.min(1, k + 0.2))}</span>` +
+    cols.map(function (c) { return cells[c.key]; }).join('') + `</div>`;
+}
+function bsGpuHeadings(cols, h, px) {
+  const S = bsS();
+  return `<div style="display:flex;align-items:center;gap:${gq(GPU_GAP)};padding:0 ${gq(16)};height:${gq(h)};` +
+      `flex-shrink:0;color:${S.label};font-size:${gq(px)};letter-spacing:${S.ls}">` +
+    `<span style="width:${gq(SESS_LAMP * 1.5)};flex-shrink:0"></span>` +
+    cols.map(function (c) { return sessCell(c, c.label); }).join('') + `</div>`;
+}
+function gpuEmptyNote(d) {
+  if (d.mode === 'unconfigured') return ['HOME LAB NOT CONFIGURED', bsS().dim];
+  if (d.mode === 'pending' || !d.available) return ['ACQUIRING TELEMETRY', bsS().dim];
+  if (!d.rows.length && d.invWarn) return ['GPU INVENTORY INCOMPLETE — ' + gpuHostList(d.incomplete), bsS().warn];
+  if (!d.rows.length) return ['NO GPUS REPORTED', bsS().dim];
+  return null;
+}
+function bsGpusScreen(c) {
+  if (layoutClass() === 'strip') return bsGpusStrip(c);
+  const S = bsS();
+  const d = gpuHouseData();
+  const H = fluidH();
+  const status = gpuStatusColor(d);
+  const ROW = 64, GAP = 6, TOP = 118, FOOT = 40, BANNER = d.stale ? 34 : 0;
+  const bodyH = H - TOP - FOOT;
+  const rowsH = bodyH - 34 - BANNER;
+  const fit = Math.max(1, Math.floor((rowsH + GAP) / (ROW + GAP)));
+  const shown = d.rows.length > fit ? d.rows.slice(0, fit - 1) : d.rows;
+  const rowH = d.rows.length > fit ? ROW
+    : Math.min(80, Math.max(ROW, Math.floor((rowsH * 0.8 + GAP) / Math.max(1, shown.length) - GAP)));
+  const k = rowH / 64;
+  const more = d.rows.length - shown.length;
+  const empty = gpuEmptyNote(d);
+  const banner = d.stale ? `<div style="height:${gq(BANNER)};flex-shrink:0;color:${S.warn};font-size:${gq(18)};` +
+    `letter-spacing:${S.ls};${bsGlow(8, S.warn)}">TELEMETRY STALE · LAST UPDATE ${d.pub ? sessAge(d.pub) + ' AGO' : 'NEVER'}</div>` : '';
+  let body;
+  if (empty) {
+    body = banner + `<div style="height:${gq(bodyH - BANNER)};display:flex;align-items:center;justify-content:center;` +
+      `text-align:center;color:${empty[1]};font-size:${gq(34)};letter-spacing:${S.ls};${bsGlow(14, empty[1])}">${empty[0]}</div>`;
+  } else {
+    body = banner +
+      bsGpuHeadings(GPU_COLS, 34, 11.5) +
+      `<div style="display:flex;flex-direction:column;gap:${gq(GAP)}">` +
+      shown.map(function (r) { return bsGpuRow(d, r, rowH, k, GPU_COLS, false); }).join('') + `</div>` +
+      (more > 0 ? `<div style="color:${S.label};font-size:${gq(17)};letter-spacing:${S.ls};` +
+        `padding:${gq(10)} ${gq(16)} 0 ${gq(52)}">+${more} MORE</div>` : '');
+  }
+  const foot = empty ? '' : gpuFooterText(d);
+  const inner = `<div style="position:absolute;left:0;right:0;top:50%;height:${gq(H)};transform:translateY(-50%)">` +
+    `<div style="position:absolute;left:0;right:0;top:0;height:${gq(6)};background:${status};` +
+      (status === S.edge ? '' : `box-shadow:0 0 ${gq(14)} ${status}88;`) + `"></div>` +
+    bsHeader('gpus') +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(TOP)};height:${gq(bodyH)};overflow:hidden">${body}</div>` +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};bottom:${gq(10)};height:${gq(22)};color:${S.dim};` +
+      `font-size:${gq(13)};letter-spacing:${S.ls};text-transform:uppercase;white-space:nowrap;overflow:hidden;` +
+      `text-overflow:ellipsis">${foot}</div></div>`;
+  return bsFrame(inner, true);
+}
+const GPU_STRIP_COLS = [
+  { key: 'name', label: 'GPU', w: null },
+  { key: 'state', label: 'STATE', w: 210 },
+  { key: 'load', label: 'LOAD', w: 60, align: 'right' },
+  { key: 'vram', label: 'VRAM', w: 60, align: 'right' },
+  { key: 'temp', label: 'TEMP', w: 56, align: 'right' },
+  { key: 'power', label: 'POWER', w: 76, align: 'right' },
+];
+function bsGpusStrip(c) {
+  const S = bsS();
+  const d = gpuHouseData();
+  const H = frameH();
+  const status = gpuStatusColor(d);
+  const TOP = STRIP.TOP, HEAD = 22, FOOT = STRIP.FOOT, GAP = 4;
+  const rowsH = H - TOP - HEAD - FOOT - 6;
+  const ROW = 34;
+  const fit = Math.max(1, Math.floor((rowsH + GAP) / (ROW + GAP)));
+  const shown = d.rows.length > fit ? d.rows.slice(0, fit - 1) : d.rows;
+  const more = d.rows.length - shown.length;
+  const rowH = Math.min(56, Math.floor((rowsH + GAP) / Math.max(1, shown.length) - GAP));
+  const empty = gpuEmptyNote(d);
+  const busy = d.rows.filter(function (r) { return r.state === 'busy'; }).length;
+  const hot = d.rows.filter(function (r) { return r.state === 'hot' || r.state === 'critical'; }).length;
+  let lead = d.stale ? 'TELEMETRY STALE'
+    : empty ? '' : d.rows.length + ' GPU' + (d.rows.length === 1 ? '' : 'S') + ' · ' + busy + ' BUSY · ' + hot + ' HOT';
+  if (d.stale && empty) lead = 'TELEMETRY STALE';
+  if (!empty && d.incomplete.length) lead += ' · NOT REACHED: ' + gpuHostList(d.incomplete);
+  const body = empty
+    ? `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:${empty[1]};` +
+        `font-size:${gq(22)};letter-spacing:${S.ls};${bsGlow(10, empty[1])}">${empty[0]}</div>`
+    : bsGpuHeadings(GPU_STRIP_COLS, HEAD, 9.5) + `<div style="display:flex;flex-direction:column;gap:${gq(GAP)}">` +
+      shown.map(function (r) { return bsGpuRow(d, r, rowH, Math.min(0.9, rowH / 46), GPU_STRIP_COLS, true); }).join('') + `</div>`;
+  return bsStripFrame({ active: 'gpus', status: status, lead: lead, leadColor: status === S.edge ? S.label : status,
+                        body: body, foot: empty ? '' : gpuPowerText(d) + ' · CHECKED ' + (d.pub ? sessAge(d.pub) + ' AGO' : 'NEVER'),
+                        footColor: S.dim, more: more });
+}
+function sfTosGpus(c) { bsSkin(BS_SKIN_TOS); return bsGpusScreen(c); }
+function claudeGpus(c) { bsSkin(BS_SKIN_CLAUDE); return bsGpusScreen(c); }
+
+
 /* ── Screens: one description (screens.json, inlined as SCREEN_SPEC) ─────
  * screenRenderer() says how a theme draws a screen; screenPlan() says what a
  * display shows. The display, the control panel, the harness and the site all
@@ -4282,8 +4532,8 @@ function selfScreens(fam, v) {
 }
 /* The Kiosk screens exist only in the Kiosk themes. */
 const KIOSK_RENDERERS = {
-  'Sci-Fi/TOS': { lab: sfTosHomelab, sessions: sfTosSessions },
-  'Others/Claude': { lab: claudeHomelab, sessions: claudeSessions },
+  'Sci-Fi/TOS': { lab: sfTosHomelab, sessions: sfTosSessions, gpus: sfTosGpus },
+  'Others/Claude': { lab: claudeHomelab, sessions: claudeSessions, gpus: claudeGpus },
 };
 function screenRenderer(id, fam, v) {
   const k = KIOSK_RENDERERS[fam + '/' + v];

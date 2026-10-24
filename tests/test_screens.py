@@ -25,7 +25,8 @@ def test_fields():
         assert s["needs"] in (None, "sessions", "homelab")
     for sid in screens.mode_screens("self"):
         assert screens.SPEC["screens"][sid]["name"] and screens.SPEC["screens"][sid]["built"] is True
-    assert [s for s in screens.mode_screens("kiosk") if screens.SPEC["screens"][s]["built"]] == ["lab", "sessions"]
+    built = [s for s in screens.mode_screens("kiosk") if screens.SPEC["screens"][s]["built"]]
+    assert built == ["lab", "sessions", "gpus"]
 
 
 def test_defaults_and_themes():
@@ -33,10 +34,10 @@ def test_defaults_and_themes():
         assert set(screens.defaults(mode)) <= set(screens.mode_screens(mode))
         assert screens.default_theme(mode) in THEMES
         assert screens.theme_allowed(mode, screens.default_theme(mode))
-    assert screens.defaults("kiosk") == ["lab", "sessions"]
+    assert screens.defaults("kiosk") == ["lab", "sessions", "gpus"]
     d = screens.defaults("kiosk")
     d.append("x")
-    assert screens.defaults("kiosk") == ["lab", "sessions"]          # a copy
+    assert screens.defaults("kiosk") == ["lab", "sessions", "gpus"]          # a copy
     for key in screens.SPEC["modes"]["kiosk"]["themes"]:
         assert key in THEMES
     assert screens.theme_allowed("kiosk", "Others/Claude")

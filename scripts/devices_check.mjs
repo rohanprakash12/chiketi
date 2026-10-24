@@ -43,7 +43,8 @@ console.log('ok   pairing page');
 // 2. Approve -> dashboard within one poll; starting settings from touch.
 const s = await api('POST', `/api/devices/${id}/approve`, { name: 'Check' });
 // The dev server has a sessions.toml, so a new display starts in Kiosk.
-if (s.auto_rotate !== false || s.gear !== true || s.mode !== 'kiosk') fail('starting settings ' + JSON.stringify(s));
+if (s.auto_rotate !== false || s.gear !== true || s.mode !== 'kiosk' ||
+    s.screens.join() !== 'lab,sessions,gpus') fail('starting settings ' + JSON.stringify(s));
 await page.waitForSelector('#display .screen-frame', { timeout: 8000 });
 if (!(await page.isHidden('#pairing'))) fail('pairing still visible after approve');
 console.log('ok   approve shows dashboard');
@@ -220,7 +221,7 @@ await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Terminal/hacker
 await kp.waitForFunction(() => activeFamily === 'Terminal' && enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
 await kp.evaluate(() => { window.__marker = 1; });
 await api('POST', `/api/devices/${kid}`, { mode: 'kiosk' });
-await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens.map(s => s.id).join() === 'lab,sessions', null, { timeout: 8000 });
+await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens.map(s => s.id).join() === 'lab,sessions,gpus', null, { timeout: 8000 });
 // Same theme across a mode change: Self/TOS -> Kiosk/TOS.
 await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Sci-Fi/TOS' });
 await kp.waitForFunction(() => enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
@@ -279,6 +280,7 @@ await pp.click('input[name=devMode][value=kiosk]');
 await pp.waitForSelector('.pick-row[data-id="lab"]');
 await pp.waitForFunction(() => document.querySelector('.pick-row').dataset.id === 'lab');
 await pp.uncheck('.pick-row[data-id="lab"] .pick-on');
+await pp.uncheck('.pick-row[data-id="gpus"] .pick-on');      // new Kiosk displays get GPUs ticked
 for (let i = 0; i < 8 && (await pp.$eval('.pick-row', r => r.dataset.id)) !== 'sessions'; i++) {
   await pp.click('.pick-row[data-id="sessions"] .pick-up');
 }

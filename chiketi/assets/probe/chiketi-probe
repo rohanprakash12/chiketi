@@ -9,7 +9,12 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LC_ALL=C
 export PATH LC_ALL
 
-echo "probe_version=1"
+# A monotonic clock for the optional last step: whole seconds of /proc/uptime, line 1 only.
+UP=${CHIKETI_PROBE_UPTIME:-/proc/uptime}
+up() { awk 'NR == 1 && $1 ~ /^[0-9]+(\.[0-9]+)?$/ { print int($1) }' "$UP" 2>/dev/null; }
+START_UP=$(up)
+
+echo "probe_version=2"
 if [ -r /var/local/emhttp/var.ini ]; then KIND=unraid; else KIND=linux; fi
 echo "kind=$KIND"
 
@@ -35,11 +40,53 @@ for d in /sys/class/hwmon/hwmon*; do
 done
 [ -n "$best" ] && echo "cpu_temp_c=$((best / 1000))"
 
+# GPUs (NVIDIA): one sample, its outcome, and a process COUNT per card. No names,
+# no PIDs. Each call is time-boxed where timeout(1) exists: TERM at the limit, KILL
+# one second later for a call that ignores TERM (at most 6 + 6 + 5 s in all). The
+# memory temperatures are an optional, separately budgeted query at the very end.
+nv() {
+  nv_s=$1; shift
+  if command -v timeout >/dev/null 2>&1; then timeout -k 1 "$nv_s" nvidia-smi "$@"; else nvidia-smi "$@"; fi
+}
 if command -v nvidia-smi >/dev/null 2>&1; then
-  nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null |
-  while read -r t; do
-    case "$t" in ''|*[!0-9]*) ;; *) echo "gpu_temp_c=$t" ;; esac
-  done
+  F=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,fan.speed
+  out=$(nv 5 --query-gpu="$F,clocks_throttle_reasons.active,pci.bus_id,uuid" --format=csv,noheader,nounits 2>/dev/null)
+  rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'valid field'; then
+    out=$(nv 5 --query-gpu="$F,clocks_event_reasons.active,pci.bus_id,uuid" --format=csv,noheader,nounits 2>/dev/null)
+    rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo "gpu_query=fail|$rc"
+  else
+    NV_OK=1
+    echo "gpu_query=ok|$(printf '%s\n' "$out" | grep -c .)"
+    printf '%s\n' "$out" | awk -F', ' '
+      function num(x) { gsub(/^ +| +$/, "", x); return (x ~ /^-?[0-9]+(\.[0-9]+)?$/) ? x : "" }
+      NF {
+        if (NF != 12) next
+        idx = num($1); if (idx == "" || idx ~ /[.-]/) next
+        name = $2; gsub(/[|=]/, "", name); name = substr(name, 1, 40)
+        thr = $10; gsub(/ /, "", thr); if (thr !~ /^0x[0-9A-Fa-f]+$/) thr = ""
+        bus = $11; gsub(/[|= ]/, "", bus)
+        uid = $12; gsub(/[|= ]/, "", uid); uid = substr(uid, 1, 64)
+        if (uid !~ /^(GPU|MIG)-[0-9A-Za-z-]+$/) uid = ""
+        t = num($6)
+        print "gpu=" idx "|" name "|" num($3) "|" num($4) "|" num($5) "|" t "|" num($7) "|" num($8) "|" num($9) "|" thr "|" bus "|" uid
+        if (t != "") print "gpu_temp_c=" int(t)
+      }'
+    pout=$(nv 4 --query-compute-apps=gpu_bus_id --format=csv,noheader 2>/dev/null)
+    prc=$?
+    if [ "$prc" -ne 0 ]; then
+      echo "gpu_procs_query=fail|$prc"
+    else
+      echo "gpu_procs_query=ok"
+      printf '%s\n' "$pout" | awk 'NF { b = $0; gsub(/[|= ]/, "", b); if (b != "") c[b]++ }
+        END { for (b in c) print "gpu_procs=" b "|" c[b] }'
+    fi
+  fi
+else
+  echo "gpu_tool=absent"
 fi
 
 HELPER=/usr/local/lib/chiketi-probe/smart-read
@@ -91,5 +138,21 @@ if [ "$KIND" = unraid ]; then
   awk -F= '
     /^\[/ { s = $0; gsub(/[]["]/, "", s) }
     $1 == "status" { v = $2; gsub(/"/, "", v); if (s != "") print "unraid_disk=" s "|" v }' /var/local/emhttp/disks.ini
+fi
+# Last, and optional: memory (HBM) temperatures. Only where timeout(1) exists, and only
+# if the probe has run for under 20 s, so it ends by 24 s and cannot cost the sample.
+if [ "${NV_OK:-0}" = 1 ] && command -v timeout >/dev/null 2>&1; then
+  now_up=$(up)
+  case "$START_UP" in ''|*[!0-9]*) now_up="" ;; esac
+  case "$now_up" in
+    ''|*[!0-9]*) ;;
+    *)
+      el=$((now_up - START_UP))
+      if [ "$el" -ge 0 ] && [ "$el" -lt 20 ]; then
+        mout=$(timeout -k 1 3 nvidia-smi --query-gpu=pci.bus_id,temperature.memory --format=csv,noheader,nounits 2>/dev/null) &&
+          printf '%s\n' "$mout" | awk -F', ' 'NF == 2 { b = $1; gsub(/[|= ]/, "", b); t = $2; gsub(/^ +| +$/, "", t)
+            if (b != "" && t ~ /^-?[0-9]+(\.[0-9]+)?$/) print "gpu_mem_temp=" b "|" t }'
+      fi ;;
+  esac
 fi
 exit 0

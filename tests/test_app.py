@@ -508,7 +508,7 @@ class TestRunRestoresSavedState:
         again = load_state()
         assert "migrated" not in again                      # saved in the new format
         assert again["devices"]["tablet-1"]["mode"] == "kiosk"
-        assert again["devices"]["tablet-1"]["screens"] == ["lab", "sessions"]
+        assert again["devices"]["tablet-1"]["screens"] == ["lab", "sessions", "gpus"]
         assert len([f for f in os.listdir(os.path.dirname(state_path())) if ".bak-" in f]) == 1
 
     def test_cli_theme_beats_saved_theme(self, monkeypatch, restore_active_theme):

@@ -53,7 +53,7 @@ def test_starting_settings():
                                                  "mode": "self", "screens": SELF_DEFAULT}
     assert starting_settings(clean_caps(LCD))["auto_rotate"] is True
     assert starting_settings(clean_caps(GO), kiosk=True)["mode"] == "kiosk"
-    assert starting_settings(clean_caps(GO), kiosk=True)["screens"] == ["lab", "sessions"]
+    assert starting_settings(clean_caps(GO), kiosk=True)["screens"] == ["lab", "sessions", "gpus"]
     touch_picture = dict(GO, feed="picture")
     assert starting_settings(clean_caps(touch_picture))["auto_rotate"] is True
 
@@ -268,7 +268,7 @@ def test_new_display_mode_follows_kiosk_capability():
     r2, _ = reg()
     r2.kiosk_capable = True
     s = approved(r2)
-    assert s["mode"] == "kiosk" and s["screens"] == ["lab", "sessions"]
+    assert s["mode"] == "kiosk" and s["screens"] == ["lab", "sessions", "gpus"]
 
 
 def test_admin_sets_mode_and_screens():
@@ -305,7 +305,7 @@ def test_mode_switch_clears_unsupported_theme():
     approved(r)                                                      # self
     r.admin_update("kiosk-1", {"theme": "Terminal/hacker"})
     out = r.admin_update("kiosk-1", {"mode": "kiosk"})
-    assert out["theme"] == "" and out["screens"] == ["lab", "sessions"]
+    assert out["theme"] == "" and out["screens"] == ["lab", "sessions", "gpus"]
     r.admin_update("kiosk-1", {"mode": "self", "theme": "Terminal/hacker"})
     out = r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["sessions"]})   # with screens too
     assert out["theme"] == "" and out["screens"] == ["sessions"]
@@ -331,7 +331,7 @@ def test_self_service_cannot_change_mode_or_screens():
     r.kiosk_capable = True
     approved(r)
     out = r.self_update("kiosk-1", {"mode": "self", "screens": ["screen1"], "seconds": 40})
-    assert out["mode"] == "kiosk" and out["screens"] == ["lab", "sessions"] and out["seconds"] == 40
+    assert out["mode"] == "kiosk" and out["screens"] == ["lab", "sessions", "gpus"] and out["seconds"] == 40
     # The theme is checked against the STORED mode, not the ignored one in the body.
     with pytest.raises(ValueError):
         r.self_update("kiosk-1", {"mode": "self", "theme": "Terminal/hacker"})
@@ -377,9 +377,9 @@ def test_load_migrates_devices_without_mode():
     r.load(old)
     s = r.snapshot()
     assert (s["go"]["mode"], s["go"]["screens"], s["go"]["seconds"], s["go"]["theme"]) == \
-        ("kiosk", ["lab", "sessions"], 20, "Sci-Fi/TOS")
+        ("kiosk", ["lab", "sessions", "gpus"], 20, "Sci-Fi/TOS")
     assert (s["wide"]["mode"], s["wide"]["theme"]) == ("kiosk", "")          # Terminal is not a Kiosk theme
-    assert (s["bad"]["mode"], s["bad"]["screens"]) == ("kiosk", ["lab", "sessions"])
+    assert (s["bad"]["mode"], s["bad"]["screens"]) == ("kiosk", ["lab", "sessions", "gpus"])
     assert s["kept"]["screens"] == ["sessions"]
     r2, _ = reg()                                                            # no Kiosk data in this house
     r2.load(old)
@@ -405,3 +405,10 @@ def test_rotate_interval_seeds_new_devices(monkeypatch):
     assert approved(r)["seconds"] == 12
     r.load({"old": {"name": "Old", "seconds": 50, "caps": {}}})
     assert r.snapshot()["old"]["seconds"] == 50
+
+
+def test_saved_screens_survive_new_defaults():
+    r, _ = reg()
+    r.kiosk_capable = True
+    r.load({"wide": {"name": "Wide", "mode": "kiosk", "screens": ["lab", "sessions"], "caps": {}}})
+    assert r.snapshot()["wide"]["screens"] == ["lab", "sessions"]

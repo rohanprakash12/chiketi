@@ -20,7 +20,7 @@ class CheckError(Exception):
 
 
 def run_probe(host: Host, cfg: HomelabConfig, runner=subprocess.run,
-              timeout: float = 20.0) -> ProbeReport:
+              timeout: float = 30.0) -> ProbeReport:
     cmd = ["ssh", "-i", cfg.ssh_key, "-p", str(host.port),
            "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
            "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={cfg.known_hosts}",

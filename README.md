@@ -159,8 +159,8 @@ Each display has a **mode**, chosen in the control panel:
 
 - **Self**: the stats of the machine chiketi runs on (screens 1–5), in every theme.
   chiketi's own screen is a Self display.
-- **Kiosk**: the house — Home Lab and Claude Sessions so far, with Overview, My Day,
-  My Home, AI Harness and GPUs to come. Kiosk screens share a header with a tab per
+- **Kiosk**: the house — Home Lab, Claude Sessions and GPUs so far, with Overview,
+  My Day, My Home and AI Harness to come. Kiosk screens share a header with a tab per
   screen and are drawn in Sci-Fi / TOS and Others / Claude.
 
 Each display also has its **own ordered list of screens** from its mode: a wide bar
@@ -177,6 +177,7 @@ swiped through on a touch display. A new display starts in Kiosk when the house 
 | 5 | **Clock** | A full-screen chronometer in the family's own idiom: nixie digits on Tubes, phosphor glow on Scanlines, LCARS numerals on Sci-Fi. Sci-Fi and Vintage only — the Terminal distro boards draw the time on screen 1. |
 | Kiosk | **Home Lab** | Health of the hosts in `homelab.toml`: one light per host, and issue cards (disk space, SMART, temperatures, failed units, Unraid array, gateway, Home Assistant) worst first. Shows once `homelab.toml` exists. |
 | Kiosk | **Claude Sessions** | Live Claude Code and Codex sessions from the session feed (`sessions.toml`). Shows once `sessions.toml` exists. |
+| Kiosk | **GPUs** | Every NVIDIA GPU on the Home Lab hosts, worst first: load, VRAM, temperature (and the memory temperature, where the card reports it), power and a state (busy, idle, hot, throttling, unreadable, offline). Throttling is judged over the last few polls, so a card that slows itself down on and off reads THROTTLING steadily; Home Lab alerts only when it happens on 3 of 4 polls. A host that stops answering keeps its last readings, dimmed, with their age. Needs `homelab.toml` and the version-2 probe on each GPU host (`chiketi-site deploy probe <host>`); an older probe shows temperatures only. |
 
 The Kiosk header has a colour bar for overall status, a tab for each screen the
 display has chosen (tap to switch; a planned screen's tab is grey; a tab fades amber
