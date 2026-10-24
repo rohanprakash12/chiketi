@@ -230,7 +230,8 @@ def _nv_mem(mem_case: str) -> str:
         'echo "$*" >> "$ARGLOG"\n'
         'case "$*" in\n'
         f'  *temperature.memory*) {mem_case} ;;\n'
-        f'  *--query-gpu=*) [ -n "$UPNEXT" ] && echo "$UPNEXT" > "$CHIKETI_PROBE_UPTIME"; printf \'%s\\n\' "{ROW0}" "{ROW1}" ;;\n'
+        '  *--query-gpu=*) [ -n "$UPNEXT" ] && echo "$UPNEXT" > "$CHIKETI_PROBE_UPTIME"\n'
+        f'    printf \'%s\\n\' "{ROW0}" "{ROW1}" ;;\n'
         '  *--query-compute-apps=*) echo "00000000:01:00.0" ;;\n'
         'esac\n')
 
