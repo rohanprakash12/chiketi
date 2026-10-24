@@ -6,6 +6,21 @@ All notable changes to chiketi. Dates are the tag date.
 
 Chiketi grows from one dashboard on one panel into a server for several displays.
 
+### Screen modes
+- Each display has a **mode** — **Kiosk** (the house: Home Lab, Sessions, and tabs for
+  Overview, My Day, My Home, AI Harness and GPUs to come; Sci-Fi / TOS and Others /
+  Claude) or **Self** (the machine's own stats, screens 1–5, every theme) — and its
+  **own ordered list of screens**, set in the control panel.
+- The tab bar is drawn from the display's own screens, so every lit tab leads to a
+  screen (a tab on a touch display could do nothing when its screen was switched off).
+- One description of the screens (`assets/ui/screens.json`) replaces four copies of
+  the screen registry.
+- The house-wide screen list and per-screen durations are gone; `state.json` is
+  migrated on first start (the old file is kept as `state.json.bak-YYYYMMDD`).
+  A **Kiosk house theme** joins the house theme.
+- chiketi's own screen is the display `local`, approved at start without pairing.
+- `--rotate-interval` now sets the starting seconds for a new display (default 30).
+
 ### Screens and themes
 - **Claude Sessions** (screen 7): live Claude Code and Codex sessions — needs input /
   working / idle, total tokens, running subagents, a Claude or Codex mark per row —

@@ -13,7 +13,7 @@ repo (here: `../chiketi-private`, which has its own `CLAUDE.md`).
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q          # ~690 tests
+.venv/bin/python -m pytest -q          # ~780 tests
 node tests/js/render_harness.js        # every renderer × fixture × theme × shape
 ./scripts/check_js.sh                  # syntax of the inlined UI JS
 .venv/bin/ruff check <changed files>   # old files have pre-existing findings; add none
@@ -25,13 +25,14 @@ Real-browser checks (need a running server and Chromium; `CHROME=<headless shell
 ```bash
 XDG_CONFIG_HOME=/tmp/chk-xdg .venv/bin/python -m chiketi --no-kiosk --bind 127.0.0.1 &
 node scripts/fit_check.mjs       # SHAPES=1800x1200,1920x462 CASES=screen7:FULL,... narrow it
-node scripts/devices_check.mjs   # pairing, per-device settings, control-panel hub (12 steps)
+node scripts/devices_check.mjs   # pairing, settings, modes, tabs, the panel (18 steps; give the
+                                 # dev server a sessions.toml so new displays start in Kiosk)
 ```
 
 Traps:
 - The server **caches UI assets at startup**: restart it after editing `assets/ui/*`.
-- Stop the dev server by killing the python process only; `pkill -f "chiketi ..."`
-  also matches your own shell's command line.
+- Stop the dev server by killing the python process only (by its PID); `pkill -f`
+  or `pgrep -f "chiketi ..."` also matches your own shell's command line.
 - Use a throwaway `XDG_CONFIG_HOME` for dev servers so they don't write your real
   `~/.config/chiketi/state.json`.
 - Don't run `ruff format`; follow the existing style.
@@ -41,8 +42,13 @@ Traps:
 - `server.py` inlines `assets/ui/*` into two pages: `/display` (the kiosk) and `/`
   (control panel). `screen_functions.js` and `shared_helpers.js` are shared by both
   and by the harness (`tests/js/render_harness.js` evals them).
-- **The screen registry exists three times**: `getScreenRegistry()` in
-  `display_app.js` and `control_app.js`, and `REGISTRY` in the harness. Change all three.
+- **Screens are described once**: `assets/ui/screens.json` (the modes, their themes
+  and screens, each screen's tab label and colour and the data it needs) is read by
+  `chiketi/screens.py` for validation and inlined into both pages as `SCREEN_SPEC`.
+  `screenRenderer(id, family, variant)` and `screenPlan()` at the end of
+  `screen_functions.js` say how a theme draws a screen and what a display shows; the
+  display, the control panel previews, the harness and the site all use them, and the
+  tab bar is drawn from the plan (`setTabPlan`).
 - **Harness rules** (it fails the run): no layout `px` over 2 (use `gq(n)` = n/1024
   of the frame width in `cqw`); every metric string through `esc()` (HOSTILE fixtures);
   the `FULL` fixture must define every `m('ns.key')` a renderer reads; no
@@ -60,9 +66,10 @@ Traps:
   `bsTabAttention` (a tab per screen; built screens in colour, planned ones grey;
   a tab fades amber/red when its area needs you), `bsTabIcon`, `toolMark`.
 - **Adding a screen with the shared header** (Sessions / Home Lab style): a `bs<Name>Screen(c)` with full and strip
-  layouts, skin wrappers, registry entries ×3, harness fixtures (normal, empty,
-  offline, hostile), a tab in `bsTabList` (set `built` and `screen`), its attention
-  colour in `bsTabAttention`, then `fit_check` at 1800×1200 and 1920×462.
+  layouts, skin wrappers, an entry in `screens.json` (set `built`), its renderers in
+  `KIOSK_RENDERERS`, its tab art in `bsTabIcon`, harness fixtures (normal, empty,
+  offline, hostile), its attention colour in `bsTabAttention`, then `fit_check` at
+  1800×1200 and 1920×462 (`CASES=<id>:<fixture>`, `TABS=n`).
 
 ## Collectors
 
@@ -87,6 +94,10 @@ configured). Self-service writes are coalesced (one flush at a time, ≤ 1 per 5
 `assets/ui/pairing.js` runs first, in **ES5**, works out id and capabilities,
 shows the pairing page, and calls `chiketiStart(settings)` in `display_app.js` once
 approved. Open displays reload when `/api/display` reports a new `build`.
+Each device has a `mode` (`kiosk`/`self`) and an ordered `screens` list, set from the
+control panel only (`admin_update`); chiketi's own screen is the device `local`
+(`ensure_local`). A pre-modes `state.json` is migrated at start; `_persist()` will not
+replace it until `state.json.bak-YYYYMMDD` holds the old bytes.
 
 ## Companions
 

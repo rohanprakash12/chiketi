@@ -101,7 +101,7 @@ chiketi
 # Specify a theme
 chiketi --theme Sci-Fi/TOS
 
-# Custom rotation interval
+# Seconds per screen a new display starts with
 chiketi --rotate-interval 15
 
 # Restrict the control server to localhost (default binds the LAN)
@@ -155,9 +155,18 @@ Four distro boards — **Arch**, **Ubuntu**, **openSUSE**, **Mandriva** — mode
 
 ## Screens
 
-Up to seven screens rotate (or are swiped through on a touch display). Each is enabled, disabled and timed individually from the
-control panel, so a machine with no GPU or no local model simply switches those
-screens off.
+Each display has a **mode**, chosen in the control panel:
+
+- **Self**: the stats of the machine chiketi runs on (screens 1–5), in every theme.
+  chiketi's own screen is a Self display.
+- **Kiosk**: the house — Home Lab and Claude Sessions so far, with Overview, My Day,
+  My Home, AI Harness and GPUs to come. Kiosk screens share a header with a tab per
+  screen and are drawn in Sci-Fi / TOS and Others / Claude.
+
+Each display also has its **own ordered list of screens** from its mode: a wide bar
+display might show two, a hub monitor all of them. Screens rotate, or are tapped and
+swiped through on a touch display. A new display starts in Kiosk when the house has a
+`sessions.toml` or `homelab.toml`, otherwise in Self.
 
 | # | Screen | What it shows |
 |---|--------|----------------|
@@ -166,12 +175,12 @@ screens off.
 | 3 | **Claude Code usage** | Tokens by type (input / output / cache write / cache read), messages, session totals, monthly averages, live token-rate plot, agents spawned. |
 | 4 | **GPU** | Adaptive to card count — one card in full, or a grid of tiles for a multi-card rig. Utilisation, VRAM, power, clocks, temperature, per-process VRAM. |
 | 5 | **Clock** | A full-screen chronometer in the family's own idiom: nixie digits on Tubes, phosphor glow on Scanlines, LCARS numerals on Sci-Fi. Sci-Fi and Vintage only — the Terminal distro boards draw the time on screen 1. |
-| 6 | **Home Lab** | Health of the hosts in `homelab.toml`: one light per host, and issue cards (disk space, SMART, temperatures, failed units, Unraid array, gateway, Home Assistant) worst first. Sci-Fi and Others. Appears only when `homelab.toml` exists. |
-| 7 | **Claude Sessions** | Live Claude Code and Codex sessions from the session feed (`sessions.toml`). Sci-Fi and Others. Appears only when `sessions.toml` exists. |
+| Kiosk | **Home Lab** | Health of the hosts in `homelab.toml`: one light per host, and issue cards (disk space, SMART, temperatures, failed units, Unraid array, gateway, Home Assistant) worst first. Shows once `homelab.toml` exists. |
+| Kiosk | **Claude Sessions** | Live Claude Code and Codex sessions from the session feed (`sessions.toml`). Shows once `sessions.toml` exists. |
 
-Screens 6 and 7 share a header: a colour bar for overall status, a tab per screen
-(tap to switch; a tab fades amber or red when its area needs attention), and the
-date and clock.
+The Kiosk header has a colour bar for overall status, a tab for each screen the
+display has chosen (tap to switch; a planned screen's tab is grey; a tab fades amber
+or red when its area needs attention), and the date and clock.
 
 ## Architecture
 
@@ -221,7 +230,7 @@ sudo modprobe nct6775  # or your chipset's module
 | CLI flag | Default | Description |
 |----------|---------|-------------|
 | `--theme` | `Sci-Fi/TOS` | Initial theme (`Sci-Fi/TOS`, `Terminal/hacker`, `Vintage/VFD`, etc.) |
-| `--rotate-interval` | `10` | Default seconds between screen auto-rotation (per-screen durations override) |
+| `--rotate-interval` | `30` | Seconds per screen a new display starts with (each display then has its own, set in the control panel) |
 | `--bind` | `0.0.0.0` | Host to bind the control server to (use `127.0.0.1` for localhost only) |
 | `--token` | _none_ | Shared secret required on control actions; clients pass it via `?token=…` (or the `CHIKETI_TOKEN` env var) |
 | `--no-kiosk` | off | Serve the dashboard and API only; never launch a local Chromium kiosk |
@@ -275,9 +284,10 @@ always-on machine, and the displays are browsers (or picture-fed screens) pointe
   auto-rotate off (swipe or tap instead), others rotate. Browsers older than
   Chrome 105 / Safari 16 / Firefox 110 get a "too old" message instead of a broken page.
 - **The control panel is the hub.** The display drop-down at the top switches the
-  panel between *House defaults* and one display: theme, auto-rotate and seconds
-  per screen are per display; which screens are on is shared. Rename or forget a
-  display there; a forgotten one returns to its pairing code.
+  panel between *House defaults* and one display. Per display: mode (Kiosk or
+  Self), its screens and their order, theme, auto-rotate and seconds per screen.
+  The house defaults hold a theme for Kiosk displays and one for Self displays.
+  Rename or forget a display there; a forgotten one returns to its pairing code.
 - Open displays reload by themselves when the server runs newer code, so a deploy
   needs no visit.
 
