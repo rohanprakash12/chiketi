@@ -25,7 +25,8 @@ def test_fields():
         assert s["needs"] in (None, "sessions", "homelab")
     for sid in screens.mode_screens("self"):
         assert screens.SPEC["screens"][sid]["name"] and screens.SPEC["screens"][sid]["built"] is True
-    assert [s for s in screens.mode_screens("kiosk") if screens.SPEC["screens"][s]["built"]] == ["lab", "sessions", "gpus"]
+    built = [s for s in screens.mode_screens("kiosk") if screens.SPEC["screens"][s]["built"]]
+    assert built == ["lab", "sessions", "gpus"]
 
 
 def test_defaults_and_themes():
