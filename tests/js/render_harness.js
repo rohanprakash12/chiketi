@@ -962,6 +962,38 @@ __HARNESS.skins.forEach(function (skin) {
         if (hidden ? !(more && Number(more[1]) === hidden) : !!more) fail('LOOKS', where + ' ' + c[0], 'MORE ' + (more && more[1]) + ' for ' + hidden + ' hidden');
       });
     });
+    // Codex build r1: twelve hosts at 576 all show whatever the issue count; eight GPUs
+    // on five hosts all show; every cached GPU row carries its age; the LOAD panel never
+    // says "all in the table" when the table hides some.
+    setFrameH(576);
+    [0, 1, 4, 6, 15].forEach(function (k) {
+      const names = Array.from({ length: 12 }, function (_, i) { return 'host-' + (i + 1); });
+      const iss = Array.from({ length: k }, function (_, i) {
+        return { host: names[i % 12], key: 'k' + i, severity: i ? 'warn' : 'crit', title: 'Issue ' + i, detail: '', since: Date.now() / 1000 - 600 + i };
+      });
+      metrics = Object.assign({}, FIX.HL_BUSY, {
+        'homelab.issues': Object.assign({}, FIX.HL_BUSY['homelab.issues'], { value: iss }),
+        'homelab.hosts': Object.assign({}, FIX.HL_BUSY['homelab.hosts'], { value: names.map(function (n) {
+          return { name: n, state: iss.some(function (i) { return i.host === n; }) ? 'warn' : 'ok' }; }) }) });
+      const got = attrs(R('lab')(colors), 'data-host').length;
+      if (got !== 12) fail('LOOKS', key + ' h=576 12 hosts ' + k + ' issues', 'shows ' + got + ' hosts');
+    });
+    metrics = Object.assign({}, FIX.GPU_HOUSE_BUSY, { 'homelab.gpus': Object.assign({}, FIX.GPU_HOUSE_BUSY['homelab.gpus'], {
+      value: FIX.GPU_HOUSE_BUSY['homelab.gpus'].value.map(function (r, i) { return Object.assign({}, r, { host: 'box' + (i % 5) }); }) }) });
+    if (attrs(R('gpus')(colors), 'data-gpu-row').length !== 8) fail('LOOKS', key + ' h=576', '8 GPUs on 5 hosts do not all show');
+    metrics = Object.assign({}, FIX.GPU_HOUSE_BUSY, { 'homelab.gpus': Object.assign({}, FIX.GPU_HOUSE_BUSY['homelab.gpus'], {
+      value: FIX.GPU_HOUSE_BUSY['homelab.gpus'].value.map(function (r) { return Object.assign({}, r, { state: 'offline', seen_at: Date.now() / 1000 - 90000 }); }) }) });
+    {
+      const html = R('gpus')(colors);
+      const rows = html.split('data-gpu-row="').slice(1);
+      rows.forEach(function (r, i) {
+        // The row's own markup, up to the next row.
+        if (!/seen/i.test(r)) fail('LOOKS', key + ' h=576 offline row ' + i, 'cached row without its age');
+      });
+    }
+    metrics = FIX.GPU_HOUSE_MANY;
+    { const html = R('gpus')(colors);
+      if (/all in the table/.test(html) && attrs(html, 'data-gpu-row').length < 12) fail('LOOKS', key + ' h=576', 'says all in the table while the table hides GPUs'); }
     setFrameH(600);
     // Theme switching: after a Self Scanlines screen (glass, raster) and after
     // another look, each screen draws exactly what it draws fresh.

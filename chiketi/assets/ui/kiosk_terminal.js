@@ -191,11 +191,14 @@ function tclGpus(v, C) {
     const mem = mt !== null && mt >= -50 && mt <= 200 ? `<span data-mem style="color:${mt >= 85 ? C.accent : C.primary}">${klpad(Math.round(mt) + 'C', 4)}</span>` : '   -';
     const pw = gpuFin(g.power), pl = gpuFin(g.power_limit);
     return `<span data-gpu-row="${esc(g.host)}|${g.index}"${g.fresh ? '' : ' style="opacity:.6"'}>| ${tw(WH, kpad(g.host, 9))} ${klpad(g.index, 2)} ` +
-      `${kpad(g.short, 11)} ${tw(sc(g.state), kpad(word(g.state), 10))}| ${klpad(vram, 10)} | ${klpad(kNum(g.util) === '--' ? '--' : kNum(g.util) + '%', 4)} ` +
-      `${klpad(kNum(g.temp) === '--' ? '--' : kNum(g.temp) + 'C', 4)} ${mem} ${klpad((pw === null ? '--' : Math.round(pw)) + '/' + (pl === null ? '--' : Math.round(pl)) + 'W', 9)} |</span>`;
+      `${kpad(g.short, 11)} ${tw(sc(g.state), kpad(word(g.state), 10))}| ${klpad(vram, 10)} | ` +
+      // A cached row's old util, temp and mem give way to how old it is.
+      (g.fresh ? `${klpad(kNum(g.util) === '--' ? '--' : kNum(g.util) + '%', 4)} ${klpad(kNum(g.temp) === '--' ? '--' : kNum(g.temp) + 'C', 4)} ${mem}`
+        : tw(C.dim, kpad('seen ' + (g.seen_at ? sessAge(g.seen_at) : '--'), 14))) +
+      ` ${klpad((pw === null ? '--' : Math.round(pw)) + '/' + (pl === null ? '--' : Math.round(pl)) + 'W', 9)} |</span>`;
   }).join('\n');
   const head = `| ${tw(C.dim, 'HOST      GPU NAME        STATE     | MEM-USAGE  | UTIL TEMP  MEM PWR:USE/CAP')} |\n|${'='.repeat(78)}|`;
-  const th = 25 * (ft.shown + 4 + (ft.more ? 1 : 0)) + 40;
+  const th = 25 * (ft.shown + 4 + (ft.more ? 1 : 0) + (G.incomplete.length ? 1 : 0)) + 40;
   const loadH = H - 56 - th;
   const roomy = n <= 4;
   const lh = roomy ? 44 : 25;
@@ -203,15 +206,16 @@ function tclGpus(v, C) {
   const fl = kioskFit(n, lcap, lcap - 1);
   const bars = G.rows.slice(0, fl.shown).map(function (g) {
     const u = gpuFin(g.util), vv = gpuVram(g);
-    const seen = g.fresh ? '' : '  ' + tw(C.dim, 'seen ' + (g.seen_at ? sessAge(g.seen_at) : '--') + ' ago');
-    return `${kpad(g.host + ':' + g.index, 11)} ${tBlocks(u === null ? null : u / 100, 22, sc(g.state))} ${klpad(u === null ? '--' : Math.round(u), 3)}%  ` +
-      `vram ${tBlocks(vv.pct === null ? null : vv.pct / 100, 16, C.primary)}${seen}`;
-  }).join('\n') + (fl.more ? '\n' + tw(C.dim, `and ${fl.more} below (all in the table)`) : '');
+    // A cached row says how old it is where its VRAM bar would be.
+    const tail = g.fresh ? `vram ${tBlocks(vv.pct === null ? null : vv.pct / 100, 16, C.primary)}`
+      : tw(C.dim, 'seen ' + (g.seen_at ? sessAge(g.seen_at) : '--') + ' ago');
+    return `${kpad(g.host + ':' + g.index, 11)} ${tBlocks(u === null ? null : u / 100, 22, sc(g.state))} ${klpad(u === null ? '--' : Math.round(u), 3)}%  ${tail}`;
+  }).join('\n') + (fl.more ? '\n' + tw(C.dim, `and ${fl.more} below` + (ft.more ? '' : ' (all in the table)')) : '');
   const stale = G.stale ? tw(C.accent, `telemetry stale · last update ${G.checked.toLowerCase()}`) + '  ' : '';
-  const nr = G.incomplete.length ? tw(C.accent, ' · not reached: ' + gpuHostList(G.incomplete)) : '';
+  const nr = G.incomplete.length ? '\n' + tw(C.accent, 'not reached: ' + gpuHostList(G.incomplete)) : '';
   return tclFrame(v, C, 'gpus',
-    tclPanel(C, 8, 42, 1008, th, 'GPUS', stale + right() + nr,
-      `${Lrule}\n${head}\n${rows}\n${Lrule}` + (ft.more ? '\n' + tw(C.dim, `+${ft.more} more`) : '')) +
+    tclPanel(C, 8, 42, 1008, th, 'GPUS', stale + right(),
+      `${Lrule}\n${head}\n${rows}\n${Lrule}` + (ft.more ? '\n' + tw(C.dim, `+${ft.more} more`) : '') + nr) +
     tclPanel(C, 8, 48 + th, 1008, H - 56 - th, 'LOAD', 'util · vram',
       roomy ? `<div style="font-size:${kq(23)};line-height:${kq(44)}">${bars}</div>` : bars));
 }
@@ -307,9 +311,13 @@ function tdsHomelab(v) {
   const W = S.warnA, B = S.crit, OK = S.ok;
   const big = n <= 6;
   const lh = big ? 29 : 25;
-  // Every host up to what fits (at least 12 at 576), then "+n more hosts".
-  const room = Math.floor((H - 80 - 8 - 26 - 25 - 12 - lh - (n && n <= 4 ? 12 + 25 * (n + 1) : 0)) / lh);
+  // The hosts come first: every host up to what fits (12 at 576), then "+n more
+  // hosts". The detail block (n <= 4) only takes room that is left over.
+  const base = H - 80 - 8 - 26 - 12 - lh - lh;      // frame, padding, gap; the status and heading lines
+  const room = Math.floor(base / lh);
   const fh = kioskFit(L.hosts.length, room, room - 1);
+  const left = base - (fh.shown + (fh.more ? 1 : 0)) * lh;
+  const withDetail = n && n <= 4 && left >= 12 + lh * (n + 1);
   const health = function (h) {
     return { ok: tw(OK, 'healthy'), warn: tw(W, 'warn   '), crit: tw(B, 'alert  '), down: tw(B, 'down   '), unknown: tw(S.dim, '--     ') }[h.health];
   };
@@ -322,7 +330,7 @@ function tdsHomelab(v) {
       return `<span data-host="${esc(h.name)}" data-up="${h.up}" data-health="${h.health}"${L.stale ? ' style="opacity:.45"' : ''}>` +
         `${kpad(h.name, 15)} ${up} ${health(h)}  ${iss}</span>`;
     }).join('\n') + (fh.more ? '\n' + tw(S.label, `+${fh.more} more hosts`) : '');
-  const det = n && n <= 4 ? L.issues.map(function (i) {
+  const det = withDetail ? L.issues.map(function (i) {
     return `${tw(i.severity === 'crit' ? B : W, '▲')} ${kpad(i.host, 9)} ${esc(i.title)}  ${tw(S.label, hlClock(i.since))}`;
   }).join('\n') : '';
   const cond = { crit: tw(B, 'red'), warn: tw(W, 'yellow'), nominal: tw(OK, 'green'), stale: tw(W, 'stale'), pending: tw(S.dim, 'pending') }[L.mode] || tw(S.dim, 'pending');
@@ -389,7 +397,7 @@ function tdsGpus(v) {
   const empty = gpuEmptyNote(G);
   const tight = n > 4;
   const lh = tight ? 21 : 25, per = tight ? 2 : 3;
-  const room = Math.floor((H - 80 - 8 - 26 - 25 - 12) / lh);
+  const room = Math.floor((H - 80 - 8 - 26 - 25 - 12 - (G.incomplete.length ? 25 : 0)) / lh);
   const f = kioskFit(n, Math.floor((room + (tight ? 0 : 1)) / per), Math.floor((room - 1 + (tight ? 0 : 1)) / per));
   const sc = function (st) {
     return st === 'throttling' || st === 'hot' || st === 'unreadable' || st === 'offline' ? W : st === 'critical' ? S.crit : st === 'busy' ? S.accent : S.label;
@@ -398,7 +406,8 @@ function tdsGpus(v) {
   const bar = tw(S.dim, '│');
   const status = `gpus ${tw(S.accent, n)}  ${bar} busy ${tw(S.accent, G.busy)}  hot/throttling ${tw(W, G.hot)}  idle ${tw(S.label, G.idle)}  ${bar} ` +
     `${tw(S.accent, low(G.powerText))}  ${bar} checked ${G.checked.toLowerCase()}` +
-    (G.stale ? '  ' + tw(W, 'telemetry stale') : '') + (G.incomplete.length ? '  ' + tw(W, 'not reached: ' + gpuHostList(G.incomplete)) : '');
+    (G.stale ? '  ' + tw(W, 'telemetry stale') : '');
+  const nr = G.incomplete.length ? `<div style="white-space:pre;overflow:hidden;text-overflow:ellipsis">${tw(W, 'not reached: ' + gpuHostList(G.incomplete))}</div>` : '';
   if (empty) {
     return tdsFrame(S, v, 'gpus', (G.stale ? `<div style="white-space:pre">${tw(W, 'telemetry stale · last update ' + G.checked.toLowerCase())}</div>` : '') +
       `<div style="white-space:pre;margin-top:${kq(12)}">${tw(empty[1] === bsS().warn ? W : S.label, empty[0].toLowerCase())}</div>`);
@@ -409,15 +418,17 @@ function tdsGpus(v) {
       ? ' ' + `<span data-mem style="color:${mt >= 85 ? W : S.label}">mem ${Math.round(mt)}&deg;</span>` : '        ';
     const vu = gpuFin(g.vram_used), vt = gpuFin(g.vram_total), vv = gpuVram(g), u = gpuFin(g.util);
     const pw = gpuFin(g.power), pl = gpuFin(g.power_limit);
-    const seen = g.fresh ? '' : '  ' + tw(S.dim, 'seen ' + (g.seen_at ? sessAge(g.seen_at) : '--') + ' ago');
+    const seen = '';
+    const tail = g.fresh ? `vram ${tgrad(S, vv.pct === null ? null : vv.pct / 100, 14)} ` +
+        `${vu !== null && vt ? klpad((vu / 1024).toFixed(1), 4) + '/' + Math.round(vt / 1024) + 'G' : '--'}`
+      : tw(S.dim, 'seen ' + (g.seen_at ? sessAge(g.seen_at) : '--') + ' ago');
     return `<span data-gpu-row="${esc(g.host)}|${g.index}"${g.fresh ? '' : ' style="opacity:.6"'}>${tw(S.meter, 'gpu' + g.index)} ` +
       `${tw(S.accent, kpad(g.host, 9))} ${kpad(g.short, 11)} ${tw(sc(g.state), kpad(GPU_LABEL[g.state].toLowerCase(), 10))} ` +
       `${tw(S.label, 'temp')} ${klpad(kNum(g.temp) === '--' ? '--' : kNum(g.temp) + '°', 4)}${mem} ${tw(S.label, 'pwr')} ` +
       `${klpad(pw === null ? '--' : Math.round(pw), 3)}/${pl === null ? '--' : Math.round(pl)}W ${tw(S.label, 'procs')} ${kNum(g.procs)}${seen}\n` +
-      `     util ${tgrad(S, u === null ? null : u / 100, 24)} ${klpad(u === null ? '--' : Math.round(u), 3)}%   vram ${tgrad(S, vv.pct === null ? null : vv.pct / 100, 14)} ` +
-      `${vu !== null && vt ? klpad((vu / 1024).toFixed(1), 4) + '/' + Math.round(vt / 1024) + 'G' : '--'}</span>`;
+      `     util ${tgrad(S, u === null ? null : u / 100, 24)} ${klpad(u === null ? '--' : Math.round(u), 3)}%   ${tail}</span>`;
   }).join(tight ? '\n' : '\n\n') + (f.more ? '\n' + tw(S.label, `+${f.more} more`) : '');
-  return tdsFrame(S, v, 'gpus', tdsLine(status) +
+  return tdsFrame(S, v, 'gpus', tdsLine(status) + nr +
     `<div style="white-space:pre;margin-top:${kq(12)};${tight ? `font-size:${kq(17)};line-height:${kq(21)}` : ''}">${blk}</div>`);
 }
 

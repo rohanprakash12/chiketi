@@ -206,9 +206,18 @@ function tngGpus(c) {
   // Groups by host, in order of their worst card; the rows inside keep that order.
   const ordered = hosts.reduce(function (a, h) { return a.concat(G.rows.filter(function (r) { return r.host === h; })); }, []);
   const banner = G.stale ? 30 : 0;
-  const budget = H - 76 - banner - hosts.length * 34;
-  const f = kioskFit(n, Math.floor(budget / 42), Math.floor((budget - 26) / 42));
+  // Capacity from what the headings really take (24, and 30 for each further
+  // group) for the groups the first k rows show; then the mockup's row height
+  // (34 a heading) wherever that still leaves rows of at least 42.
+  const room = H - 76 - banner;
+  const groupsIn = function (k) { return new Set(ordered.slice(0, k).map(function (r) { return r.host; })).size; };
+  const fits = function (k, extra) { const g = groupsIn(k); return k * 42 + (g ? 24 + 30 * (g - 1) : 0) + extra <= room; };
+  let capAll = 0, capMore = 0;
+  while (capAll < n && fits(capAll + 1, 0)) capAll++;
+  while (capMore < n && fits(capMore + 1, 26)) capMore++;
+  const f = kioskFit(n, capAll, capMore);
   const vis = ordered.slice(0, f.shown);
+  const budget = room - groupsIn(f.shown) * 34;
   const rowH = Math.max(42, Math.min(78, Math.floor((budget - (f.more ? 26 : 0)) / Math.max(1, f.shown))));
   const big = rowH >= 62;
   const bar = function (pct, color) {
