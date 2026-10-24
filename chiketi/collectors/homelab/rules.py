@@ -365,9 +365,10 @@ class IssueTracker:
         return (host, key) in self._t
 
     def issues(self) -> list[dict]:
-        out = [{"host": h, "severity": t.cond.severity, "title": t.cond.title,
+        # key: the condition key (down, gw, api, fs:/ ...); the display's up lamp reads it.
+        out = [{"host": h, "key": k, "severity": t.cond.severity, "title": t.cond.title,
                 "detail": t.cond.detail, "since": t.since}
-               for (h, _k), t in self._t.items() if t.raised]
+               for (h, k), t in self._t.items() if t.raised]
         out.sort(key=lambda i: (0 if i["severity"] == "crit" else 1, i["since"]))
         return out
 

@@ -17,6 +17,7 @@ from chiketi.collectors.homelab.checks import (
     run_probe,
 )
 from chiketi.collectors.homelab.config import HomelabConfig, Host
+from chiketi.collectors.homelab.rules import HOLD_DOWN
 
 CFG = HomelabConfig(hosts=(), ssh_key="/k", known_hosts="/kh")
 LINUX = Host("devbox", "linux", address="192.0.2.159", user="user")
@@ -107,7 +108,8 @@ def test_http_ok_and_401():
     def unauthorized(req, timeout=None):
         raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
     (c,) = evaluate_http(HA, opener=unauthorized)
-    assert c.key == "down" and "401" in c.title
+    # Answering at all means reachable: an error status is health, not down.
+    assert c.key == "api" and c.title == "API answered 401" and c.severity == "crit" and c.hold == HOLD_DOWN
 
 
 def test_http_unreachable():
