@@ -14,7 +14,7 @@
  * overflow is cutting content off (other than deliberate ellipses), the wrong
  * screen is showing, or the tabs are not exactly the selection. */
 import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright-core');
 const FIX = require('../tests/js/fixtures.js');
@@ -26,15 +26,21 @@ const SHAPES = process.env.SHAPES ? process.env.SHAPES.split(',').map(x => x.spl
 const KIOSK_THEMES = [['Sci-Fi', 'TOS'], ['Others', 'Claude']];
 const SELF_THEMES = KIOSK_THEMES.concat([['Sci-Fi', 'TNG'], ['Sci-Fi', 'DS9']]);
 const CASES = (process.env.CASES ||
-  'sessions:LIVE,sessions:FULL,sessions:SESS_MANY,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,lab:FULL,lab:HL_RED,screen5:FULL')
+  'sessions:LIVE,sessions:FULL,sessions:SESS_MANY,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,lab:FULL,lab:HL_RED,' +
+  'gpus:FULL,gpus:GPU_HOUSE,gpus:GPU_HOUSE_MANY,screen5:FULL')
   .split(',').map(c => c.split(':'));
 const TABS = Math.max(1, Number(process.env.TABS || 2));
 const KIOSK = ['lab', 'sessions', 'overview', 'myday', 'home', 'harness', 'gpus'];
 mkdirSync(OUT, { recursive: true });
 
-const ready = (metrics) => ['lab', 'sessions'].filter(id => {
-  const st = metrics[id === 'lab' ? 'homelab.status' : 'sessions.status'];
-  return st && st.available && st.value !== 'unconfigured';
+// Which Kiosk screens can show, from screens.json's built + needs (as screenPlan does).
+const SPEC = JSON.parse(readFileSync(new URL('../chiketi/assets/ui/screens.json', import.meta.url)));
+const ready = (metrics) => KIOSK.filter(id => {
+  const s = SPEC.screens[id];
+  if (!s.built) return false;
+  if (!s.needs) return true;
+  const st = metrics[s.needs + '.status'];
+  return !!(st && st.available && st.value !== 'unconfigured');
 });
 const liveMetrics = await (await fetch(BASE + '/api/metrics')).json();
 const browser = await chromium.launch({ executablePath: process.env.CHROME, headless: true });

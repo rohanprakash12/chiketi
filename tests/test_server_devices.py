@@ -332,3 +332,15 @@ class TestMigrationAtStartup:
         server._persist()
         assert open(self._bak(path)).read() == self.OLD
         assert "local" in json.load(open(path))["devices"]
+
+
+def test_saved_screens_unchanged_across_restart(tmp_path, monkeypatch):
+    """New Kiosk defaults (with GPUs) never rewrite a display's saved screens."""
+    from chiketi.state import load_state, save_state
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    save_state({"devices": {"wide-1": {"name": "Wide", "mode": "kiosk", "screens": ["lab", "sessions"],
+                                       "caps": {"w": 1920, "h": 462}}}})
+    monkeypatch.setattr(server, "DEVICES", DeviceRegistry())
+    server.DEVICES.kiosk_capable = True
+    server.apply_saved_state(load_state())
+    assert server.DEVICES.snapshot()["wide-1"]["screens"] == ["lab", "sessions"]
