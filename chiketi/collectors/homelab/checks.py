@@ -101,7 +101,8 @@ def evaluate_http(host: Host, opener=urllib.request.urlopen) -> list[Condition]:
     except (urllib.error.URLError, OSError) as exc:
         return [down(str(getattr(exc, "reason", exc)))]
     if status != 200:
-        return [Condition("down", "crit", f"API answered {status}", host.url, HOLD_DOWN)]
+        # It answered, so it is reachable: an error status is its health (key api), not down.
+        return [Condition("api", "crit", f"API answered {status}", host.url, HOLD_DOWN)]
     return []
 
 

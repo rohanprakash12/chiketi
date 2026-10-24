@@ -217,8 +217,8 @@ await kp.route('**/api/metrics', r => r.fulfill({ json: FIX.FULL }));   // Home 
 await kp.goto(`${BASE}/display?device=${kid}`);
 await kp.waitForSelector('#pairing:not([hidden])');
 await api('POST', `/api/devices/${kid}/approve`, { name: 'Modes' });
-await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Terminal/hacker' });
-await kp.waitForFunction(() => activeFamily === 'Terminal' && enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
+await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Vintage/Tubes' });   // not a Kiosk theme (yet)
+await kp.waitForFunction(() => activeVariant === 'Tubes' && enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
 await kp.evaluate(() => { window.__marker = 1; });
 await api('POST', `/api/devices/${kid}`, { mode: 'kiosk' });
 await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens.map(s => s.id).join() === 'lab,sessions,gpus', null, { timeout: 8000 });
@@ -229,6 +229,26 @@ await api('POST', `/api/devices/${kid}`, { mode: 'kiosk' });
 await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens[0].id === 'lab', null, { timeout: 8000 });
 if (!(await kp.evaluate(() => window.__marker === 1))) fail('a mode change reloaded the page');
 console.log('ok   mode switches reach the display; Kiosk falls back to TOS; same theme kept');
+
+// 19. Each Kiosk look reaches the open display, and is still drawn after a reload.
+{
+  const SPEC = JSON.parse(require('fs').readFileSync(new URL('../chiketi/assets/ui/screens.json', import.meta.url)));
+  const looks = SPEC.modes.kiosk.themes.filter(k => k !== 'Sci-Fi/TOS' && k !== 'Others/Claude');
+  for (const theme of looks) {
+    await api('POST', `/api/devices/${kid}`, { mode: 'kiosk', theme });
+    const drawn = t => kp.waitForFunction(t => {
+      const f = document.querySelector('#display [data-look]');
+      return f && f.getAttribute('data-look') === t;
+    }, t, { timeout: 8000 });
+    await drawn(theme).catch(() => fail(theme + ' did not reach the display'));
+    await kp.reload();
+    await drawn(theme).catch(() => fail(theme + ' lost after a reload'));
+  }
+  await api('POST', `/api/devices/${kid}`, { mode: 'kiosk', theme: 'Sci-Fi/TOS' });
+  await kp.waitForFunction(() => activeVariant === 'TOS', null, { timeout: 8000 });
+  await kp.evaluate(() => { window.__marker = 1; });
+  console.log('ok   every Kiosk look reaches the display and survives a reload (' + looks.length + ')');
+}
 
 // 14. Tap each live tab; a tap straddling a redraw still navigates; a grey tab does nothing.
 await api('POST', `/api/devices/${kid}`, { screens: ['sessions', 'overview', 'lab'] });

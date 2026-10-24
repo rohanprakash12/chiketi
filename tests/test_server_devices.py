@@ -236,7 +236,7 @@ def test_kiosk_theme_route():
             call(srv, "POST", "/api/kiosk-theme/Others/Claude", {}, token=True, origin="http://evil.example")
         assert e.value.code == 403
         with pytest.raises(urllib.error.HTTPError) as e:
-            call(srv, "POST", "/api/kiosk-theme/Terminal/hacker", {}, token=True)
+            call(srv, "POST", "/api/kiosk-theme/Vintage/Tubes", {}, token=True)
         assert e.value.code == 400
         assert call(srv, "POST", "/api/kiosk-theme/Others/Claude", {}, token=True) == {"kiosk_theme": "Others/Claude"}
         assert call(srv, "GET", "/api/themes")["kiosk_theme"] == "Others/Claude"

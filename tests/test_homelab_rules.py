@@ -129,7 +129,7 @@ def test_tracker_hold_and_clear():
     assert t.issues() == []                       # held
     t.update("h", [c], 130)
     (i,) = t.issues()
-    assert i == {"host": "h", "severity": "warn", "title": "/ 90% full", "detail": "", "since": 100}
+    assert i == {"host": "h", "key": "fs:/", "severity": "warn", "title": "/ 90% full", "detail": "", "since": 100}
     t.update("h", [], 160)
     assert len(t.issues()) == 1                   # one good check is not enough
     t.update("h", [], 190)
@@ -337,3 +337,13 @@ def test_tracker_raised_and_holds():
     assert t.raised("h", "gpu_temp:0") is c
     t.update("h", [], 3)
     assert t.raised("h", "gpu_temp:0") is None and not t.holds("h", "gpu_temp:0")
+
+
+def test_issue_keys_for_reachability():
+    """The display's up lamp reads these keys: down and gw are reachability, api is health."""
+    t = IssueTracker()
+    for n in range(1, HOLD_DOWN + 1):
+        t.update("box", [down("timed out")], n * 30, partial=True)
+        t.update("gw", [Condition("gw", "crit", "Gateway unreachable", "", HOLD_DOWN)], n * 30)
+        t.update("ha", [Condition("api", "crit", "API answered 500", "", HOLD_DOWN)], n * 30)
+    assert {(i["host"], i["key"]) for i in t.issues()} == {("box", "down"), ("gw", "gw"), ("ha", "api")}

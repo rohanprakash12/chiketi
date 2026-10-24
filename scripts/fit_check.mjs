@@ -17,17 +17,29 @@ import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright-core');
+// One fixed instant, in Node (the fixtures' timestamps) and in every fixture-backed
+// page: a long run must not age a fresh fixture into a stale one.
+const NOW_MS = Date.UTC(2026, 9, 24, 14, 3, 0);
+const FREEZE = `(() => { const T = ${NOW_MS}; const RD = Date; class FD extends RD { constructor(...a) { if (a.length) super(...a); else super(T); } static now() { return T; } } window.Date = FD; })();`;
+{ const RD = Date; class FD extends RD { constructor(...a) { if (a.length) super(...a); else super(NOW_MS); } static now() { return NOW_MS; } } globalThis.Date = FD; }
 const FIX = require('../tests/js/fixtures.js');
 
 const BASE = process.env.CHIKETI_URL || 'http://127.0.0.1:7777';
 const OUT = process.env.OUT || 'fit-shots';
+// The four landscape heights the spec names (576, 600, 683, 770 units), the strip
+// and a portrait 'other' shape (both letterbox the Kiosk looks), and the Go.
 const SHAPES = process.env.SHAPES ? process.env.SHAPES.split(',').map(x => x.split('x').map(Number))
-  : [[1024, 576], [1024, 600], [1024, 640], [1800, 1200], [1024, 768], [1920, 462]];
-const KIOSK_THEMES = [['Sci-Fi', 'TOS'], ['Others', 'Claude']];
-const SELF_THEMES = KIOSK_THEMES.concat([['Sci-Fi', 'TNG'], ['Sci-Fi', 'DS9']]);
+  : [[1024, 576], [1024, 600], [1536, 1024], [1024, 770], [1800, 1200], [1920, 462], [1024, 1400]];
+// Kiosk themes from screens.json, never a fixed list; THEMES=Sci-Fi/TNG,... narrows them.
+const SPEC0 = JSON.parse(readFileSync(new URL('../chiketi/assets/ui/screens.json', import.meta.url)));
+const KIOSK_THEMES = SPEC0.modes.kiosk.themes.map(k => k.split('/'))
+  .filter(fv => !process.env.THEMES || process.env.THEMES.split(',').includes(fv.join('/')));
+const SELF_THEMES = [['Sci-Fi', 'TOS'], ['Others', 'Claude'], ['Sci-Fi', 'TNG'], ['Sci-Fi', 'DS9']];
 const CASES = (process.env.CASES ||
-  'sessions:LIVE,sessions:FULL,sessions:SESS_MANY,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,lab:FULL,lab:HL_RED,' +
-  'gpus:FULL,gpus:GPU_HOUSE,gpus:GPU_HOUSE_MANY,gpus:GPU_HOUSE_OLD,gpus:GPU_HOUSE_LONG_HOSTS,screen5:FULL')
+  'lab:KIOSK_CALM,lab:FULL,lab:HL_RED,lab:HL_BUSY,lab:HL_PENDING,lab:HL_STALE,lab:HL_UNCONFIGURED,lab:HL_HOSTILE,' +
+  'sessions:FULL,sessions:SESS_BUSY,sessions:SESS_MANY,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,sessions:SESS_PENDING,sessions:SESS_HOSTILE,' +
+  'gpus:GPU_HOUSE,gpus:GPU_HOUSE_BUSY,gpus:GPU_HOUSE_BUSY9,gpus:GPU_HOUSE_MANY,gpus:GPU_HOUSE_OLD,gpus:GPU_HOUSE_STALE,gpus:GPU_HOUSE_NONE,' +
+  'gpus:GPU_HOUSE_HOSTILE,gpus:GPU_HOUSE_LONG_HOSTS,sessions:LIVE,screen5:FULL')
   .split(',').map(c => c.split(':'));
 const TABS = Math.max(1, Number(process.env.TABS || 2));
 const KIOSK = ['lab', 'sessions', 'overview', 'myday', 'home', 'harness', 'gpus'];
@@ -57,6 +69,7 @@ for (const [sid, fx] of CASES) {
       const page = await browser.newPage({ viewport: { width: w, height: h } });
       const errors = [];
       page.on('pageerror', e => errors.push(e.message));
+      if (fx !== 'LIVE') await page.addInitScript(FREEZE);
       const settings = { id: 'fit', name: 'fit', auto_rotate: false, seconds: 600, theme: fam + '/' + variant,
                          gear: false, mode, screens };
       await page.route('**/api/register', r => r.fulfill({ json: { status: 'approved', settings } }));
@@ -101,7 +114,13 @@ for (const [sid, fx] of CASES) {
           });
           return out.slice(0, 5);
         });
+        // Every image loaded (the Tubes parts, phase 3).
+        const imgs = await page.$$eval('img', els => els.filter(i => !(i.complete && i.naturalWidth > 0)).map(i => i.getAttribute('src')));
+        if (imgs.length) bad.push('images not loaded: ' + imgs.slice(0, 3).join(' '));
         if (mode === 'kiosk') {
+          // A new look draws its own frame (never another theme's).
+          const look = await page.$$eval('[data-look]', els => els.map(e => e.getAttribute('data-look')));
+          if (look.length && look[0] !== fam + '/' + variant) bad.push('frame is ' + look[0] + ', not ' + fam + '/' + variant);
           const tabs = await page.$$eval('[data-tab]', els => els.map(e => e.getAttribute('data-tab')));
           const taps = await page.$$eval('[data-screen]', els => els.map(e => e.getAttribute('data-screen')));
           if (tabs.join() !== screens.join()) bad.push('tabs ' + tabs.join() + ' != selection ' + screens.join());

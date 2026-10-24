@@ -637,6 +637,17 @@ class TestScreenModesServer:
         monkeypatch.setitem(server._UI_ASSET_CACHE, "screens.json", server._ui_asset("screens.json") + " ")
         assert server._display_build() != before
 
+    @pytest.mark.parametrize("name", ["kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js"])
+    def test_kiosk_looks_are_inlined_and_in_the_build(self, monkeypatch, name):
+        # The looks are part of the renderer script on both pages, and a change to one
+        # reloads open displays.
+        marker = "/* ── " + name
+        for html in (server._build_display_html(), server._build_html()):
+            assert marker in html
+        before = server._display_build()
+        monkeypatch.setitem(server._UI_ASSET_CACHE, name, server._ui_asset(name) + " ")
+        assert server._display_build() != before
+
     def test_pages_inline_the_screen_spec(self):
         for html in (server._build_display_html(), server._build_html()):
             assert "__SCREEN_SPEC_JSON__" not in html and '"sessions"' in html

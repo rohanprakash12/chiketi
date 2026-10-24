@@ -12,6 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from chiketi.panel_spec import web_spec
 from chiketi.screens import SPEC as SCREEN_SPEC
+from chiketi.server import KIOSK_JS
 from chiketi.themes import get_active_family, get_active_theme, get_families
 
 UI = ROOT / "chiketi" / "assets" / "ui"
@@ -96,9 +97,11 @@ data_js = (
 )
 (OUT / "data.js").write_text(data_js)
 
-# --- 3. dashboard.js = shared_helpers + screen_functions + shim ---
+# --- 3. dashboard.js = shared_helpers + screen_functions + Kiosk looks + shim ---
 shared = (UI / "shared_helpers.js").read_text()
 screens = (UI / "screen_functions.js").read_text()
+# The Kiosk looks follow screen_functions.js, as server.py inlines them.
+screens = "\n".join([screens] + [(UI / n).read_text() for n in KIOSK_JS])
 shim = r"""
 /* ── site render shim (replaces display_app.js poll loop) ── */
 var metrics = window.SITE_METRICS;

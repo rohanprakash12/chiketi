@@ -41,8 +41,8 @@ def test_defaults_and_themes():
     for key in screens.SPEC["modes"]["kiosk"]["themes"]:
         assert key in THEMES
     assert screens.theme_allowed("kiosk", "Others/Claude")
-    assert not screens.theme_allowed("kiosk", "Terminal/hacker")
-    assert screens.theme_allowed("self", "Terminal/hacker")
+    assert not screens.theme_allowed("kiosk", "Vintage/Tubes")
+    assert screens.theme_allowed("self", "Vintage/Tubes")
     assert not screens.theme_allowed("self", "Nope/x")
     assert not screens.theme_allowed("bogus", "Sci-Fi/TOS")
 

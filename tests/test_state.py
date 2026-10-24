@@ -420,11 +420,11 @@ def test_kiosk_theme_and_no_screen_rotation():
                            "screen_rotation": {"screen6": {"enabled": False, "duration": 10}}}))
     s = load_state()
     assert "screen_rotation" not in s and s["kiosk_theme"] == "Others/Claude"
-    p.write_text(json.dumps({"version": 1, "theme": "Terminal/hacker"}))
+    p.write_text(json.dumps({"version": 1, "theme": "Vintage/Tubes"}))
     assert load_state()["kiosk_theme"] == "Sci-Fi/TOS"
-    p.write_text(json.dumps({"version": 1, "theme": "Terminal/hacker", "kiosk_theme": "Others/Claude"}))
+    p.write_text(json.dumps({"version": 1, "theme": "Vintage/Tubes", "kiosk_theme": "Others/Claude"}))
     assert load_state()["kiosk_theme"] == "Others/Claude"
-    p.write_text(json.dumps({"version": 1, "kiosk_theme": "Terminal/hacker"}))
+    p.write_text(json.dumps({"version": 1, "kiosk_theme": "Vintage/Tubes"}))
     assert load_state()["kiosk_theme"] == "Sci-Fi/TOS"
 
 

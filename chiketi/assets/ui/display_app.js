@@ -110,8 +110,8 @@ function resolveTheme(td) {
   return (ok(own) ? own : ok(house) ? house : SCREEN_SPEC.modes[mode].default_theme).split('/');
 }
 
-/* A Kiosk display with nothing to show draws the notice (with its tabs). */
-const NOTICE = { id: 'none', name: 'No screens', fn: kioskNotice, fluid: true };
+/* A Kiosk display with nothing to show draws its theme's notice (with its tabs). */
+function noticeScreen(plan) { return { id: 'none', name: 'No screens', fn: plan.notice, fluid: true }; }
 
 /* The one place settings become a screen: theme, plan, tabs and the current
    screen (kept by id) are worked out together and drawn in one step. Only the
@@ -127,7 +127,7 @@ function renderDisplay() {
   const plan = screenPlan({ mode: device ? device.mode : 'self', screens: device ? device.screens : null,
                             family: activeFamily, variant: activeVariant });
   setTabPlan(plan.mode === 'kiosk' ? plan.tabs : null);
-  enabledScreens = plan.empty ? [NOTICE] : plan.list;
+  enabledScreens = plan.empty ? [noticeScreen(plan)] : plan.list;
   let idx = enabledScreens.findIndex(function (x) { return x.id === currentId; });
   if (idx === -1) idx = 0;
   currentScreenIdx = idx;
