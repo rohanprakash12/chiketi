@@ -4024,10 +4024,11 @@ function bsStripFrame(o) {
     `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(4)};height:${gq(TOP - 4)};display:flex;` +
         `align-items:center;gap:${gq(16)};border-bottom:${gq(1.5)} solid ${S.edge}">` +
       `<div style="color:${o.leadColor};font-size:${gq(o.leadSize || 13)};letter-spacing:${S.ls};white-space:nowrap;` +
+        `min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;` +
         `${bsGlow(8, o.leadColor)}${o.leadPulse ? ';animation:hlPulse 2s ease-in-out infinite' : ''}">${o.lead}</div>` +
-      `<div style="margin-left:auto;color:${S.kDate};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap">` +
+      `<div style="margin-left:auto;flex-shrink:0;color:${S.kDate};font-size:${gq(13)};letter-spacing:${S.ls};white-space:nowrap">` +
         `${days[now.getDay()]} · ${months[now.getMonth()]} ${now.getDate()}</div>` +
-      `<div style="color:${S.kHour};font-size:${gq(32)};font-weight:${S.fw};line-height:1;` +
+      `<div style="flex-shrink:0;color:${S.kHour};font-size:${gq(32)};font-weight:${S.fw};line-height:1;` +
         `font-variant-numeric:tabular-nums;${bsGlow(10, S.kHour)}">${hh}:${mm}</div></div>` +
     `<div style="position:absolute;left:${gq(X)};right:${gq(16)};top:${gq(TOP + 2)};height:${gq(H - TOP - FOOT - 4)};` +
       `overflow:hidden">${o.body}</div>` +
@@ -4259,11 +4260,11 @@ const GPU_LABEL = { critical: 'CRITICAL', hot: 'HOT', throttling: 'THROTTLING', 
                     offline: 'OFFLINE', nodetail: 'NO DETAIL', unknown: 'UNKNOWN', busy: 'BUSY', idle: 'IDLE' };
 const GPU_COLS = [
   { key: 'name', label: 'GPU', w: null },
-  { key: 'state', label: 'STATE', w: 108 },
+  { key: 'state', label: 'STATE', w: 124 },
   { key: 'load', label: 'LOAD', w: 112 },
   { key: 'vram', label: 'VRAM', w: 168 },
   { key: 'temp', label: 'TEMP', w: 52, align: 'right' },
-  { key: 'power', label: 'POWER', w: 104, align: 'right' },
+  { key: 'power', label: 'POWER', w: 112, align: 'right' },
   { key: 'procs', label: 'PROCS', w: 60, align: 'right' },
 ];
 const GPU_GAP = 12;   // tighter than Sessions: seven columns
@@ -4353,6 +4354,9 @@ function bsGpuRow(d, r, rowH, k, cols, compact) {
   const v = gpuVram(r);
   const C = {};
   cols.forEach(function (c) { C[c.key] = c; });
+  // Only the name grows with a tall row: the other columns have fixed widths, so
+  // their type stays at its base size and their text is never cut short.
+  const kc = Math.min(1, k);
   const title = 'GPU ' + r.index + (r.name ? ' · ' + esc(String(r.name)) : '');
   const nameCell = compact
     ? `<span style="color:${S.bright};font-size:${gq(17 * k)};font-weight:${S.fw}">${title}</span>` +
@@ -4364,10 +4368,10 @@ function bsGpuRow(d, r, rowH, k, cols, compact) {
         `overflow:hidden;text-overflow:ellipsis">${r.name ? esc(String(r.name)) : '--'}</div>`;
   const seen = 'SEEN ' + (r.seen_at ? sessAge(r.seen_at) : '--');
   const stateCell = compact
-    ? `<span style="color:${col};letter-spacing:0.12em;font-size:${gq(13 * k)};${bsGlow(8, col)}">${GPU_LABEL[r.state]}</span>` +
-      (fresh ? '' : `<span style="color:${S.dim};font-size:${gq(11 * k)}"> · ${seen}</span>`)
-    : `<div style="color:${col};letter-spacing:0.12em;font-size:${gq(14 * k)};${bsGlow(8, col)}">${GPU_LABEL[r.state]}</div>` +
-      (fresh ? '' : `<div style="color:${S.dim};font-size:${gq(11 * k)};letter-spacing:0.08em">${seen} AGO</div>`);
+    ? `<span style="color:${col};letter-spacing:0.08em;font-size:${gq(13 * kc)};${bsGlow(8, col)}">${GPU_LABEL[r.state]}</span>` +
+      (fresh ? '' : `<span style="color:${S.dim};font-size:${gq(11 * kc)}"> · ${seen}</span>`)
+    : `<div style="color:${col};letter-spacing:0.08em;font-size:${gq(14 * kc)};${bsGlow(8, col)}">${GPU_LABEL[r.state]}</div>` +
+      (fresh ? '' : `<div style="color:${S.dim};font-size:${gq(11 * kc)};letter-spacing:0.06em">${seen} AGO</div>`);
   const bar = function (pct, color, w) {
     return `<span style="display:inline-flex;vertical-align:middle;margin-right:${gq(8)}">${bsSegBar(pct === null ? 0 : pct, color, w, 12 * k, 10, 2)}</span>`;
   };
@@ -4376,14 +4380,16 @@ function bsGpuRow(d, r, rowH, k, cols, compact) {
   const vramCell = compact ? (v.pct === null ? '--' : Math.round(v.pct) + '%') : bar(v.pct, S.a2, 44) + v.text;
   const tempCell = temp === null ? '--' : Math.round(temp) + '&deg;';
   const powerCell = pw === null ? '--' : Math.round(pw) + (lim !== null && !compact ? ' / ' + Math.round(lim) : '') + ' W';
+  // data-fit: text that must never be cut (fit_check checks it); the name may be.
+  const fit = function (col, inner, style) { return sessCell(col, inner, style).replace('<div ', '<div data-fit '); };
   const cells = {
     name: sessCell(C.name, nameCell),
-    state: sessCell(C.state, stateCell),
-    load: sessCell(C.load, loadCell, `color:${S.soft};font-size:${gq(16 * k)};font-variant-numeric:tabular-nums`),
-    vram: sessCell(C.vram, vramCell, `color:${S.soft};font-size:${gq((compact ? 16 : 15) * k)};font-variant-numeric:tabular-nums`),
-    temp: sessCell(C.temp, tempCell, `color:${temp === null ? S.dim : S.therm(temp)};font-size:${gq(19 * k)};font-variant-numeric:tabular-nums`),
-    power: sessCell(C.power, powerCell, `color:${S.soft};font-size:${gq(16 * k)};font-variant-numeric:tabular-nums`),
-    procs: C.procs ? sessCell(C.procs, procs === null ? '--' : String(procs), `color:${procs ? S.a2 : S.dim};font-size:${gq(17 * k)}`) : '',
+    state: fit(C.state, stateCell, ''),
+    load: fit(C.load, loadCell, `color:${S.soft};font-size:${gq(16 * kc)};font-variant-numeric:tabular-nums`),
+    vram: fit(C.vram, vramCell, `color:${S.soft};font-size:${gq((compact ? 16 : 15) * kc)};font-variant-numeric:tabular-nums`),
+    temp: fit(C.temp, tempCell, `color:${temp === null ? S.dim : S.therm(temp)};font-size:${gq(19 * kc)};font-variant-numeric:tabular-nums`),
+    power: fit(C.power, powerCell, `color:${S.soft};font-size:${gq(16 * kc)};font-variant-numeric:tabular-nums`),
+    procs: C.procs ? fit(C.procs, procs === null ? '--' : String(procs), `color:${procs ? S.a2 : S.dim};font-size:${gq(17 * kc)}`) : '',
   };
   return `<div data-gpu-row="${esc(r.host)}|${r.index}" style="display:flex;align-items:center;gap:${gq(GPU_GAP)};height:${gq(rowH)};flex-shrink:0;` +
       `padding:0 ${gq(16)};border-bottom:${gq(1)} solid ${S.edge};${fresh ? '' : 'opacity:0.6;'}">` +
@@ -4447,7 +4453,7 @@ function bsGpusScreen(c) {
 }
 const GPU_STRIP_COLS = [
   { key: 'name', label: 'GPU', w: null },
-  { key: 'state', label: 'STATE', w: 150 },
+  { key: 'state', label: 'STATE', w: 210 },
   { key: 'load', label: 'LOAD', w: 60, align: 'right' },
   { key: 'vram', label: 'VRAM', w: 60, align: 'right' },
   { key: 'temp', label: 'TEMP', w: 56, align: 'right' },

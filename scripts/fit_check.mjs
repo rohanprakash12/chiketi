@@ -27,7 +27,7 @@ const KIOSK_THEMES = [['Sci-Fi', 'TOS'], ['Others', 'Claude']];
 const SELF_THEMES = KIOSK_THEMES.concat([['Sci-Fi', 'TNG'], ['Sci-Fi', 'DS9']]);
 const CASES = (process.env.CASES ||
   'sessions:LIVE,sessions:FULL,sessions:SESS_MANY,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,lab:FULL,lab:HL_RED,' +
-  'gpus:FULL,gpus:GPU_HOUSE,gpus:GPU_HOUSE_MANY,screen5:FULL')
+  'gpus:FULL,gpus:GPU_HOUSE,gpus:GPU_HOUSE_MANY,gpus:GPU_HOUSE_OLD,gpus:GPU_HOUSE_LONG_HOSTS,screen5:FULL')
   .split(',').map(c => c.split(':'));
 const TABS = Math.max(1, Number(process.env.TABS || 2));
 const KIOSK = ['lab', 'sessions', 'overview', 'myday', 'home', 'harness', 'gpus'];
@@ -93,6 +93,10 @@ for (const [sid, fx] of CASES) {
             if (cs.overflow === 'hidden' && cs.textOverflow !== 'ellipsis' &&
                 el.scrollHeight > el.clientHeight + 2) {
               out.push(el.tagName + ' clips: "' + (el.textContent || '').trim().slice(0, 30) + '"');
+            }
+            // Text marked data-fit must never be cut short, ellipsis or not.
+            if (el.hasAttribute('data-fit') && el.scrollWidth > el.clientWidth + 1) {
+              out.push('cut short: "' + (el.textContent || '').trim().slice(0, 30) + '"');
             }
           });
           return out.slice(0, 5);

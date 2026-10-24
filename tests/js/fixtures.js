@@ -406,12 +406,17 @@ const GPU_HOUSE_MIXED_POWER = gpuHouse([gpuRow('gpubox', 0, 'busy'), gpuRow('gpu
   gpuRow('devbox', 0, 'offline')], [{ host: 'gpubox', outcome: 'ok' }, { host: 'devbox', outcome: 'offline' }]);
 const GPU_HOUSE_ONE_OFFLINE = gpuHouse([gpuRow('gpubox', 0, 'busy', { power: 100 }), gpuRow('gpubox', 1, 'offline')]);
 const GPU_HOUSE_MANY = gpuHouse(Array.from({ length: 12 }, function (_, i) { return gpuRow('gpubox', i, i % 2 ? 'idle' : 'busy'); }));
+const GPU_HOUSE_OLD = gpuHouse([gpuRow('gpubox', 0, 'unreadable', { power: 231, seen_at: NOW_S - 90000 }),
+  gpuRow('gpubox', 1, 'offline', { power: 231, seen_at: NOW_S - 90000 })], [{ host: 'gpubox', outcome: 'unreadable' }]);
+const GPU_HOUSE_LONG_HOSTS = gpuHouse([gpuRow('gpubox', 0, 'busy')], [{ host: 'gpubox', outcome: 'ok' },
+  { host: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1', outcome: 'pending' }, { host: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2', outcome: 'pending' },
+  { host: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3', outcome: 'pending' }]);
 const GPU_HOUSE_HOSTILE = gpuHouse([gpuRow(XSS, 0, 'busy', { name: XSS }), gpuRow('gpubox', 1, XSS)],
   [{ host: XSS, outcome: 'pending' }, { host: 'gpubox', outcome: 'ok' }]);
 
 module.exports = { GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
                    GPU_HOUSE_INCOMPLETE_WITH_ROWS, GPU_HOUSE_STALE, GPU_HOUSE_STALE_EMPTY, GPU_HOUSE_SPARSE,
-                   GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE,
+                   GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE, GPU_HOUSE_OLD, GPU_HOUSE_LONG_HOSTS,
                    KIOSK_EMPTY, HL_YELLOW, HL_RED, HL_STALE, HL_PENDING, HL_UNCONFIGURED, HL_HOSTILE,
                    SESS_EMPTY, SESS_MANY, SESS_OFFLINE, SESS_PENDING, SESS_UNCONFIGURED, SESS_HOSTILE,
                    FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA,
