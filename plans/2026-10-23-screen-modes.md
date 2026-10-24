@@ -1887,3 +1887,78 @@ through `snapshot()` → `clean_devices()` → `load()`, and `local` keeps 45.
 `Timing().rotate_interval_s == 30`. Add `test_rotate_interval_seeds_new_devices`: with
 `TIMING.rotate_interval_s` patched to 12, a newly approved device has `seconds == 12`,
 and a loaded saved device keeps its own seconds.
+
+### Revisions, round 2
+
+**R15 (Task 6, a mode changed elsewhere; Task 8 step 8).**
+- `loadDevices()` keeps `lastModeKey = d ? d.mode + '|' + d.screens.join() : null`.
+  When it changes for the selected device, it calls `applyDeviceScope()`, which sets the
+  radio, rebuilds `pick` from the server, and redraws the picker, previews and theme row.
+  So a mode or screens change made elsewhere shows up, and an edit in progress is
+  replaced only when the server's mode or screens actually changed.
+- In step 8, R6 changes to: click `input[name=devMode][value=self]` in the panel, then
+  wait until the API reports `mode === 'self'` before clicking TNG.
+
+**R16 (Task 8, order of the steps and cleanup).**
+- Steps 13–18, R7 and R8 run in this order:
+  1. 13 (mode switches, including "same theme");
+  2. 14 (tabs, grey tab);
+  3. 15 (reorder, empty plan);
+  4. 18 (panel UI on `kid`);
+  5. 16 (late registration reply on `oid`);
+  6. R8's delayed device-status reply (on `oid`);
+  7. 17 (stalls on `oid`).
+- Every `forget`, every `context.close()` and the stall server's `close()` move into
+  one final cleanup block after step 17.
+
+**R17 (Task 8 step 17, proving nothing is committed).**
+1. Before the stalls, route `**/api/themes` to the real response with
+   `active_variant` intact, and `**/api/metrics` to `FIX.FULL` with `sys.hostname` set
+   to `before-stall`.
+2. Wait for a committed poll showing `before-stall`. Record
+   `snap = {html: display.innerHTML, theme: activeFamily + '/' + activeVariant, host: metrics['sys.hostname'].value, polls: __chiketiPolls}`.
+   The device is in Self mode with only `screen1`, which shows the hostname, and
+   auto-rotate is off.
+3. During each stall, re-route `**/api/themes` to return `Others/Claude`, a distinguishable
+   success, so a partial commit would change the theme.
+4. Wait until the stall server has received the request (it counts hits), then wait 9 s.
+   Assert that `activeFamily/activeVariant`, `metrics['sys.hostname'].value` and
+   `__chiketiPolls` all equal `snap`. Assert that `display.innerHTML` still contains
+   `before-stall`. A clock redraw may change the digits, so don't compare the whole HTML.
+5. Afterwards, restore the themes route and route metrics to `after-stall`. Assert the
+   commit shows `after-stall`, and that `window.__marker === 1`.
+
+**R18 (Task 3, a backup that is complete or absent).** `migration_backup(path, blob)`:
+1. `tmp = bak + '.tmp-' + str(os.getpid())`.
+2. Create `tmp` with `os.open(tmp, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)`, write
+   `blob`, `flush` and `os.fsync`.
+3. Publish with `os.link(tmp, bak)`. This is atomic and fails with `FileExistsError` if
+   `bak` exists, a symlink included.
+4. `os.unlink(tmp)` in `finally`.
+
+It returns `"made"`, `"exists"` (a backup is already there) or `None` (failed; the
+partial temp file is removed).
+
+`load_state` records the result:
+- When migrating, it sets `saved["migrated"] = True`.
+- If the backup returned `None`, it also sets `saved["backup_failed"] = True` and prints
+  `chiketi: could not back up state.json before migrating; leaving it unchanged until settings change`.
+
+`adopt_saved_state` skips its start-up `_persist()` when `backup_failed`. The file is then
+only rewritten when someone changes a setting.
+
+Tests:
+- a write failure (monkeypatch `os.fsync` to raise) leaves no `bak` and no temp file,
+  sets `backup_failed`, and causes no start-up write;
+- a later run with `fsync` restored makes the backup.
+
+**R19 (Task 5, input before the first render).** `goToScreen` and `goToId` return
+immediately when `enabledScreens.length === 0`. `onRotate` does the same. In
+devices_check step 1 (a pending display), press `1`, `Space`, and swipe, and assert no
+`pageerror` (R10's handler) and that the pairing page is still shown.
+
+**R20 (Task 2, an exact approval response).** In `tests/test_devices.py`, the exact
+dictionary in the approval test (`:63` area) gains
+`"mode": "self", "screens": ["screen1", "screen2", "screen3", "screen4", "screen5"]`. It
+stays an exact comparison. Do the same in any other test comparing a whole `_public()`
+dictionary; find them with `grep -n '"gear":' tests/`.
