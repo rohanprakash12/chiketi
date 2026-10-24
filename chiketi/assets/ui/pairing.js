@@ -136,10 +136,20 @@
       register();
     }
   }
+  // Every reply that reaches handle() carries its request's number, and one
+  // older than the newest applied is dropped: a slow reply cannot roll the
+  // display's settings back (a resize re-registers while polls carry on).
+  var reqSeq = 0, appliedSeq = 0;
+  function fresh(seq) {
+    if (seq < appliedSeq) return false;
+    appliedSeq = seq;
+    return true;
+  }
   // A failed registration retries with backoff (3 s doubling to 30 s), so a
   // display that boots before the chiketi server answers recovers on its own.
   var retryDelay = 3000, retryTimer = null;
   function register() {
+    var seq = ++reqSeq;
     xhr('POST', '/api/register', { id: ID, caps: caps() }, function (out) {
       if (!out) {
         if (!started) {
@@ -152,10 +162,13 @@
         return;
       }
       retryDelay = 3000;
-      handle(out);
+      if (fresh(seq)) handle(out);
     });
   }
-  function poll() { xhr('GET', '/api/device/' + ID, null, handle); }
+  function poll() {
+    var seq = ++reqSeq;
+    xhr('GET', '/api/device/' + ID, null, function (out) { if (out && fresh(seq)) handle(out); });
+  }
   window.chiketiRegister = register;
   // Report a new shape (a rotated tablet, a resized window) once it settles,
   // whether pending or approved.
@@ -164,7 +177,7 @@
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () { resizeTimer = null; if (supported()) register(); }, 1000);
   });
-  window.chiketiPollDevice = function () { xhr('GET', '/api/device/' + ID, null, handle); };
+  window.chiketiPollDevice = poll;
 
   xhr('GET', '/api/themes', null, function (t) {
     if (t && t.families && t.families[t.active_family]) house = t.families[t.active_family][t.active_variant];

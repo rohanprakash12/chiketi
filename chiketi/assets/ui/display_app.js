@@ -46,7 +46,9 @@ let metrics = null;
 let activeFamily = null, activeVariant = null;
 let themeColors = null;
 let currentScreenIdx = 0;
-let enabledScreens = []; // [{id, name, html, duration}]
+let enabledScreens = []; // what this display shows now: [{id, name, fn, fluid}]
+let currentId = null;     // the showing screen, kept by id across plan changes
+let themeData = null;     // the last good /api/themes
 let pauseUntil = 0;
 let lastRotate = Date.now();
 const PAUSE_MS = __PAUSE_S__ * 1000;
@@ -54,8 +56,8 @@ const BUILD = '__BUILD__';  // this page's code; see _display_build() in server.
 /* This display's own settings, from the control panel or its Settings screen
    (see pairing.js). null only before approval. */
 let device = null;
-let screenRotation = {}; // {id: {enabled, duration}}
-let defaultDuration = 10; // server-provided default (--rotate-interval)
+let polling = false;
+const POLL_DEADLINE_MS = 8000;
 let rotateTimer = null;
 let clockTimer = null;
 
@@ -82,70 +84,8 @@ __SHARED_HELPERS__
 
 __SCREEN_FUNCTIONS__
 
-/* ── Screen registry for current theme ──────────────────────────────────
-   Every family names all five of its own screens. Nothing falls through to
-   another family's renderer any more: screen 3 was one generic board serving
-   all sixteen themes, and screen 4 handed the Terminal palettes the Sci-Fi
-   TOS panel -- which is how a green-on-black tty rotated into gold LCARS
-   every fourth screen and took itself back afterwards. */
-function getScreenRegistry(c) {
-  const fam = activeFamily, v = activeVariant;
-  let fns, second;
-  if (fam === 'Sci-Fi') {
-    second = 'NPU';
-    fns = v === 'DS9' ? [sfDs9Screen1, sfDs9NpuScreen, sfDs9ClaudeScreen, sfDs9GpuScreen, sfDs9Screen2]
-        : v === 'TNG' ? [sfTngScreen1, sfTngNpuScreen, sfTngClaudeScreen, sfTngGpuScreen, sfTngScreen2]
-                      : [sfTosScreen1, sfTosNpuScreen, sfTosClaudeScreen, sfTosGpuScreen, sfTosScreen2];
-  } else if (fam === 'Vintage') {
-    second = 'NPU';
-    fns = v === 'Tubes' ? [tubeScreen1, tubeNpuScreen, tubeClaudeScreen, tubeGpuScreen, tubeScreen2]
-        : v === 'VFD'   ? [vfdScreen1, vfdNpuScreen, vfdClaudeScreen, vfdGpuScreen, vfdScreen2]
-                        : [scanScreen1, scanNpuScreen, scanClaudeScreen, scanGpuScreen, scanScreen2];
-  } else if (fam === 'Others') {
-    second = 'NPU';
-    fns = [claudeScreen1, claudeNpuScreen, claudeClaudeScreen, claudeGpuScreen, claudeClockScreen];
-  } else if (DISTRO_SCREENS[v]) {
-    // The distro boards draw the time in block characters on screen 1, so the
-    // family has no separate clock screen to toggle.
-    second = 'AI Monitor';
-    fns = [DISTRO_SCREENS[v], DISTRO_AI_SCREENS[v], DISTRO_CLAUDE_SCREENS[v],
-           DISTRO_GPU_SCREENS[v], null];
-  } else {
-    second = 'AI Monitor';
-    fns = [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen, null];
-  }
-  const screens = [
-    {id: 'screen1', name: 'System Stats', fn: fns[0], fluid: false},
-    {id: 'screen2', name: second, fn: fns[1], fluid: false},
-    {id: 'screen3', name: 'Claude Usage', fn: fns[2], fluid: false},
-    // Adaptive: the GPU screen picks its own density from the card count, so a
-    // single-card box and a four-card rig both read correctly with no
-    // configuration. Switch it off in Settings on a machine with no GPU.
-    {id: 'screen4', name: 'GPU', fn: fns[3], fluid: false},
-  ];
-  // The Sci-Fi clock is fluid: it fills any landscape shape.
-  if (fns[4]) screens.push({id: 'screen5', name: 'Clock', fn: fns[4], fluid: fam === 'Sci-Fi' || fam === 'Others'});
-  // Live Claude Code sessions: Sci-Fi and Others only for now, and only on a chiketi
-  // that has a session feed configured -- a stock install gains no empty screen.
-  const sess = fam === 'Sci-Fi' ? (v === 'DS9' ? sfDs9Sessions : v === 'TNG' ? sfTngSessions : sfTosSessions)
-    : fam === 'Others' ? claudeSessions : null;
-  const ss = m('sessions.status');
-  if (sess && ss.available && ss.value !== 'unconfigured') {
-    screens.push({id: 'screen7', name: 'Claude Sessions', fn: sess, fluid: true});
-  }
-  // Home Lab: Sci-Fi and Others for now, and only on a chiketi that has a
-  // homelab.toml -- a stock install gains no empty screen. After Sessions, in
-  // the same order as the tabs.
-  const hl = fam === 'Sci-Fi' ? (v === 'DS9' ? sfDs9Homelab : v === 'TNG' ? sfTngHomelab : sfTosHomelab)
-    : fam === 'Others' ? claudeHomelab : null;
-  if (hl && hlConfigured()) {
-    screens.push({id: 'screen6', name: 'Home Lab', fn: hl, fluid: true});
-  }
-  return screens;
-}
-
-/* Rotation durations arrive from the server (--rotate-interval and the
-   per-screen config), so the page must not trust them. A 0, negative, NaN or
+/* A display's seconds arrive from the server (its device settings), so the
+   page must not trust them. A 0, negative, NaN or
    non-numeric duration makes setTimeout(onRotate, 0) reschedule itself
    forever, re-rendering ~130KB of innerHTML every iteration. Bounds match
    ROTATE_MIN_S/ROTATE_MAX_S in __main__.py and the API clamp in server.py. */
@@ -156,97 +96,93 @@ function clampDuration(v) {
   return Math.max(ROTATE_MIN_S, Math.min(ROTATE_MAX_S, n));
 }
 
-/* Build the list of enabled screens as lightweight metadata (no HTML).
-   Only the currently-visible screen's renderer runs, in renderDisplay(). */
-function buildEnabledScreens() {
-  const c = themeColors;
-  const allScreens = getScreenRegistry(c);
-  let list = allScreens.filter(s => {
-    const cfg = screenRotation[s.id];
-    return !cfg || cfg.enabled !== false;
-  }).map(s => {
-    const cfg = screenRotation[s.id];
-    return { id: s.id, name: s.name, fn: s.fn, fluid: !!s.fluid,
-             duration: clampDuration((cfg && cfg.duration) || defaultDuration) };
-  });
-  if (list.length === 0) {
-    // Fallback: show first screen if all disabled
-    const s0 = allScreens[0];
-    list = [{ id: s0.id, name: s0.name, fn: s0.fn, fluid: !!s0.fluid, duration: clampDuration(defaultDuration) }];
-  }
-  return list;
+/* The theme this display shows: its own if its mode allows it, else its mode's
+   house theme, else the mode's default. A Kiosk display never lands on Terminal. */
+function resolveTheme(td) {
+  const mode = device && SCREEN_SPEC.modes[device.mode] ? device.mode : 'self';
+  const ok = function (k) {
+    if (typeof k !== 'string') return false;
+    const fv = k.split('/');
+    return !!(td.families[fv[0]] && td.families[fv[0]][fv[1]]) && themeAllowed(mode, k);
+  };
+  const house = mode === 'kiosk' ? td.kiosk_theme : td.active_family + '/' + td.active_variant;
+  const own = device && device.theme;
+  return (ok(own) ? own : ok(house) ? house : SCREEN_SPEC.modes[mode].default_theme).split('/');
 }
 
+/* A Kiosk display with nothing to show draws the notice (with its tabs). */
+const NOTICE = { id: 'none', name: 'No screens', fn: kioskNotice, fluid: true };
+
+/* The one place settings become a screen: theme, plan, tabs and the current
+   screen (kept by id) are worked out together and drawn in one step. Only the
+   visible screen's renderer runs. */
 function renderDisplay() {
-  if (!themeColors || !activeFamily) return;
-  enabledScreens = buildEnabledScreens();
-  if (currentScreenIdx >= enabledScreens.length) currentScreenIdx = 0;
-  // Render only the visible screen, not every enabled one.
-  document.getElementById('display').innerHTML = enabledScreens[currentScreenIdx].fn(themeColors);
+  if (!themeData) return;
+  const fv = resolveTheme(themeData);
+  if (fv[0] !== activeFamily || fv[1] !== activeVariant) {
+    activeFamily = fv[0]; activeVariant = fv[1]; currentId = null; lastRotate = Date.now();
+  }
+  themeColors = (themeData.families[activeFamily] || {})[activeVariant];
+  if (!themeColors) return;
+  const plan = screenPlan({ mode: device ? device.mode : 'self', screens: device ? device.screens : null,
+                            family: activeFamily, variant: activeVariant });
+  setTabPlan(plan.mode === 'kiosk' ? plan.tabs : null);
+  enabledScreens = plan.empty ? [NOTICE] : plan.list;
+  let idx = enabledScreens.findIndex(function (x) { return x.id === currentId; });
+  if (idx === -1) idx = 0;
+  currentScreenIdx = idx;
+  currentId = enabledScreens[idx].id;
+  document.getElementById('display').innerHTML = enabledScreens[idx].fn(themeColors);
 }
 
-/* ── Polling ── */
+/* ── Polling: one at a time, each with a deadline. A stalled request must not
+   stop the display updating (or noticing a new build), and a failed batch
+   commits nothing: the last good render stays up. ── */
 async function poll() {
+  if (polling) return;
+  polling = true;
+  const ctl = new AbortController();
+  const timer = setTimeout(function () { ctl.abort(); }, POLL_DEADLINE_MS);
+  const get = function (p) {
+    return fetch(API + p, { signal: ctl.signal }).then(function (r) {
+      if (!r.ok) throw new Error(p + ' ' + r.status);
+      return r.json();
+    });
+  };
   try {
     if (window.chiketiPollDevice) window.chiketiPollDevice();
     measureFrame();
-    const [tr, mr, dr] = await Promise.all([
-      fetch(API + '/api/themes'),
-      fetch(API + '/api/metrics'),
-      fetch(API + '/api/display'),
-    ]);
-    const themeData = await tr.json();
-    metrics = await mr.json();
-    const displayData = await dr.json();
-
+    const got = await Promise.all([get('/api/themes'), get('/api/metrics'), get('/api/display')]);
     // The server is running newer code than this page: load it.
-    if (displayData.build && displayData.build !== BUILD) { location.reload(); return; }
-
-    // Apply per-screen rotation config
-    if (displayData.screen_rotation) screenRotation = displayData.screen_rotation;
-    // Clamp: a 0/negative duration turns scheduleRotate() into a hot
-    // setTimeout(0) loop that re-renders the whole screen continuously.
-    if (typeof displayData.default_duration === 'number' && isFinite(displayData.default_duration)) {
-      defaultDuration = clampDuration(displayData.default_duration);
-    }
-
-    // A device's own theme wins over the house theme, if it still exists.
-    let newFamily = themeData.active_family, newVariant = themeData.active_variant;
-    if (device && device.theme) {
-      const [fam, variant] = device.theme.split('/');
-      if (themeData.families[fam] && themeData.families[fam][variant]) {
-        newFamily = fam; newVariant = variant;
-      }
-    }
-    if (newFamily !== activeFamily || newVariant !== activeVariant) {
-      activeFamily = newFamily;
-      activeVariant = newVariant;
-      currentScreenIdx = 0;
-      lastRotate = Date.now();
-    }
-    themeColors = (themeData.families[activeFamily] || {})[activeVariant];
-
+    if (got[2].build && got[2].build !== BUILD) { location.reload(); return; }
+    themeData = got[0];
+    metrics = got[1];
+    window.__chiketiPolls = (window.__chiketiPolls || 0) + 1;
     renderDisplay();
     scheduleRotate();
     scheduleClockTick();
-  } catch(e) { /* retry next poll */ }
+  } catch (e) {
+    ctl.abort();      // the rest of the batch, if one request failed first; retry next poll
+  } finally {
+    clearTimeout(timer);
+    polling = false;
+  }
 }
 
 /* ── Auto-rotate: schedule a single timer for the next rotation instead of
    polling every animation frame (idle CPU/GPU on the Pi between rotations). ── */
 function scheduleRotate() {
   if (rotateTimer) { clearTimeout(rotateTimer); rotateTimer = null; }
-  if (enabledScreens.length <= 1 || (device && !device.auto_rotate)) return;
-  const raw = device ? device.seconds
-    : ((enabledScreens[currentScreenIdx] || {}).duration || defaultDuration);
-  const durationMs = clampDuration(raw) * 1000;
+  if (enabledScreens.length <= 1 || !device || !device.auto_rotate) return;
+  const durationMs = clampDuration(device.seconds) * 1000;
   // Next rotation is `durationMs` after the last one, but never before any
   // active manual-pause window expires.
   const target = Math.max(lastRotate + durationMs, pauseUntil);
   rotateTimer = setTimeout(onRotate, Math.max(0, target - Date.now()));
 }
 function onRotate() {
-  currentScreenIdx = (currentScreenIdx + 1) % (enabledScreens.length || 1);
+  if (!enabledScreens.length) return;
+  currentId = enabledScreens[(currentScreenIdx + 1) % enabledScreens.length].id;
   lastRotate = Date.now();
   renderDisplay();
   scheduleRotate();
@@ -304,58 +240,66 @@ document.addEventListener('visibilitychange', function () {
 });
 
 /* ── Manual navigation ──
-   Keys, swipes and the screen tabs all land here. A manual move pauses
-   auto-rotation for PAUSE_MS, as the keys always did. */
-function goToScreen(idx) {
-  const n = enabledScreens.length || 1;
-  currentScreenIdx = ((idx % n) + n) % n;
+   Keys, swipes and the screen tabs all land here, by screen id. A manual move
+   pauses auto-rotation for PAUSE_MS, as the keys always did. Before the first
+   render there is nothing to move to. */
+function goToId(id) {
+  if (!enabledScreens.some(function (x) { return x.id === id; })) return;
+  currentId = id;
   pauseUntil = Date.now() + PAUSE_MS;
   lastRotate = Date.now();
   renderDisplay();
   scheduleRotate();
   scheduleClockTick();
 }
+function goToScreen(idx) {
+  const n = enabledScreens.length;
+  if (!n) return;
+  goToId(enabledScreens[((idx % n) + n) % n].id);
+}
 
 document.addEventListener('keydown', (e) => {
-  const n = enabledScreens.length || 1;
-  if (e.key >= '1' && e.key <= '9') goToScreen(Math.min(parseInt(e.key) - 1, n - 1));
+  const n = enabledScreens.length;
+  if (e.key >= '1' && e.key <= '9') { if (n) goToScreen(Math.min(parseInt(e.key) - 1, n - 1)); }
   else if (e.key === ' ') { e.preventDefault(); goToScreen(currentScreenIdx + 1); }
   else if (e.key === 'Escape') { window.close(); }
 });
 
 /* Swipe left for the next screen, right for the previous one. A mostly
    horizontal move of at least 8% of the width counts; anything shorter is
-   a tap, which a screen tab may claim. */
+   a tap, which a screen tab may claim. The tab is noted at pointer-down: a
+   redraw (every poll, every second on a clock) can replace the element under
+   the finger before it lifts. */
 let swipeStart = null;
 document.addEventListener('pointerdown', function (e) {
-  swipeStart = { x: e.clientX, y: e.clientY };
+  const tab = e.target.closest && e.target.closest('[data-screen]');
+  swipeStart = { x: e.clientX, y: e.clientY, pointer: e.pointerId,
+                 tab: tab ? tab.getAttribute('data-screen') : null };
 });
 document.addEventListener('pointerup', function (e) {
   const s = swipeStart;
   swipeStart = null;
-  if (!s) return;
+  if (!s || e.pointerId !== s.pointer) return;
   const dx = e.clientX - s.x, dy = e.clientY - s.y;
   if (Math.abs(dx) >= window.innerWidth * 0.08 && Math.abs(dx) > Math.abs(dy) * 1.5) {
     goToScreen(currentScreenIdx + (dx < 0 ? 1 : -1));
     return;
   }
-  if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
-    const tab = e.target.closest && e.target.closest('[data-screen]');
-    if (!tab) return;
-    const idx = enabledScreens.findIndex(function (x) { return x.id === tab.getAttribute('data-screen'); });
-    if (idx !== -1 && idx !== currentScreenIdx) goToScreen(idx);
-  }
+  // Go by the id noted at pointer-down, whatever element this landed on.
+  if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && s.tab && s.tab !== currentId) goToId(s.tab);
 });
 document.addEventListener('pointercancel', function () { swipeStart = null; });
 
 /* ── Start: pairing.js calls this once the display is approved ── */
+/* New settings from pairing.js (in order: it drops stale replies). Mode,
+   screens and theme all reach the screen at once, without waiting for a poll. */
 window.chiketiApplyDevice = function (settings) {
-  const before = device;
+  const before = JSON.stringify(device);
   device = settings;
-  if (!before || before.theme !== settings.theme || before.auto_rotate !== settings.auto_rotate ||
-      before.seconds !== settings.seconds) {
-    scheduleRotate();
-  }
+  if (JSON.stringify(settings) === before) return;
+  renderDisplay();
+  scheduleRotate();
+  scheduleClockTick();
 };
 window.chiketiStart = function (settings) {
   device = settings;
