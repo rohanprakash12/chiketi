@@ -1541,3 +1541,67 @@ Also add, through the real poller with `gmake`:
 
 Any violation drops that host's record. `test_baseline_ignores_bad_gpu_memory` adds `gpus: [null]`,
 `seen_at: NaN`, and `{"index": true}`.
+
+### Revisions, round 2
+
+**R12 (Task 3, legacy end to end).** At 88 °C the row is `hot` (HOT outranks NO DETAIL), with
+`detail=False`, and a `GPU 0 88°C` warn issue after `HOLD_TEMP` polls. A separate legacy sample at
+70 °C is used to check `nodetail`.
+
+**R13 (Task 3, slow polls, replacing R8's version).**
+- `HomelabPoller.__init__` gains `mono=time.monotonic`, used for the poll-duration measure
+  (`published_at = now + (mono() − start)`).
+- The test injects a wall clock and a monotonic sequence:
+
+```python
+def test_publication_times_and_staleness(tmp_path):
+    hosts = tuple(Host(f"h{i}", "linux", address="a", user="u") for i in range(12))
+    wall = iter([0.0, 71.0])                     # poll starts: 0, then 60 s poll + 11 s max wait
+    mono = iter([0.0, 60.0, 100.0, 160.0])       # each poll lasts 60 s (two batches of 30 s)
+    cfg = HomelabConfig(hosts=hosts, poll_seconds=10)
+    p = HomelabPoller(cfg, Baseline(str(tmp_path / "b.json")), clock=lambda: next(wall),
+                      mono=lambda: next(mono), probe=lambda h, c: v2([], tool="absent", query=None))
+    c = HomelabCollector.__new__(HomelabCollector)
+    c._poller = p
+    p.poll_once()
+    a = c.collect()["homelab.gpus"].extra
+    assert a["published_at"] == 60.0                       # the END of the poll, not its start
+    assert c.collect()["homelab.gpus"].extra["published_at"] == 60.0
+    after = a["stale_after"]
+    assert after == 2 * (1.1 * 10 + 2 * 40)
+    assert 130.9 - a["published_at"] < after               # fresh right before the next publication
+    p.poll_once()
+    b = c.collect()["homelab.gpus"].extra
+    assert b["published_at"] == 131.0
+    assert (131.0 + after + 1) - b["published_at"] > after # publishing stopped: stale
+```
+
+  Run the mutation once by hand: stamping `published_at = now` must fail the `== 60.0` assertion.
+
+**R14 (Task 3, oscillation, replacing R8's version).** These run through the real poller.
+- From a clean tracker, 84/86 alternating for eight cycles never raises an issue.
+- Four consecutive 86 °C raise it (assert this). Then 84/86 alternating for six cycles keeps it raised, asserted after **every** cycle. Then two 60 °C readings clear it.
+
+**R15 (Task 3, missing v2 markers).** `gpu_outcome` for version 2:
+- `none` **only** for an explicit `gpu_tool == "absent"` with no known GPUs;
+- `unreadable` for `gpu_tool == "absent"` with known GPUs;
+- `ok` for `gpu_query == "ok"` with every row accepted;
+- `unreadable` for anything else, including a report with **no GPU markers at all**.
+
+```python
+def gpu_outcome(rep, has_known):
+    if rep.version < 2:
+        if rep.gpus:
+            return "legacy"
+        return "unreadable" if has_known else "none"
+    if rep.gpu_tool == "absent":
+        return "unreadable" if has_known else "none"
+    if rep.gpu_query == "ok" and rep.gpu_rows == len(rep.gpus):
+        return "ok"
+    return "unreadable"
+```
+
+Tests:
+- a version-2 report with no markers is `unreadable`, both for an unknown host and for a remembered host;
+- for the unknown host, `gpu_hosts` lists it as `unreadable` with no rows, so the screen's inventory warns (assert this through the collector's metrics plus the harness fixture `GPU_HOUSE_INCOMPLETE` semantics);
+- every Task 3 test helper that means "no GPUs" uses `tool="absent"` explicitly.
