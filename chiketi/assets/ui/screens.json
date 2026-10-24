@@ -5,7 +5,7 @@
       "themes": ["Sci-Fi/TOS", "Others/Claude"],
       "default_theme": "Sci-Fi/TOS",
       "screens": ["overview", "myday", "home", "lab", "sessions", "harness", "gpus"],
-      "defaults": ["lab", "sessions"]
+      "defaults": ["lab", "sessions", "gpus"]
     },
     "self": {
       "name": "Self",
@@ -22,7 +22,7 @@
     "lab":      {"name": "Home Lab", "label": "HOME LAB", "built": true, "color": "dRam", "needs": "homelab"},
     "sessions": {"name": "Sessions", "label": "SESSIONS", "built": true, "color": "#D97757", "needs": "sessions"},
     "harness":  {"name": "AI Harness", "label": "AI HARNESS", "built": false, "color": "a2", "needs": null},
-    "gpus":     {"name": "GPUs", "label": "GPUS", "built": false, "color": "a1", "needs": null},
+    "gpus":     {"name": "GPUs", "label": "GPUS", "built": true, "color": "a1", "needs": "homelab"},
     "screen1":  {"name": "System Stats", "built": true},
     "screen2":  {"name": "NPU / AI", "built": true},
     "screen3":  {"name": "Claude Usage", "built": true},

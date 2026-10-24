@@ -54,6 +54,15 @@ const FULL = {
   ]),
   'homelab.issues': mval([]),
   'homelab.checked_at': mval(Math.floor(Date.now() / 1000) - 5, 's', { poll_seconds: 30 }),
+  'homelab.gpus': mval([
+    { host: 'gpubox', index: 0, name: 'Tesla V100-PCIE-32GB', util: 87, vram_used: 30100, vram_total: 32768,
+      temp: 71, power: 231, power_limit: 250, fan: null, procs: 2, state: 'busy', detail: true,
+      seen_at: Math.floor(Date.now() / 1000) - 5 },
+    { host: 'gpubox', index: 1, name: 'Tesla V100-PCIE-32GB', util: 0, vram_used: 4, vram_total: 32768,
+      temp: 38, power: 26, power_limit: 250, fan: null, procs: 0, state: 'idle', detail: true,
+      seen_at: Math.floor(Date.now() / 1000) - 5 },
+  ], '', { published_at: Math.floor(Date.now() / 1000) - 5, stale_after: 182, warn_c: 85, crit_c: 92 }),
+  'homelab.gpu_hosts': mval([{ host: 'gpubox', outcome: 'ok' }, { host: 'devbox', outcome: 'none' }]),
   'disk.root_used': mval(120.5, 'GiB', { total: 500.0, percent: 24.1 }),
   'disk.root_total': mval(500.0, 'GiB'),
   'disk.root_percent': mval(24.1, '%'),
@@ -334,11 +343,14 @@ const HL_STALE = homelab('ok', [], null, 3600);
 const HL_PENDING = (function () {
   const f = homelab('pending', []);
   f['homelab.checked_at'] = { value: null, unit: 's', available: false, extra: { poll_seconds: 30 } };
+  f['homelab.gpus'] = { value: [], unit: '', available: false, extra: { published_at: null, stale_after: 182 } };
+  f['homelab.gpu_hosts'] = { value: [], unit: '', available: false, extra: {} };
   return f;
 })();
 const HL_UNCONFIGURED = (function () {
   const f = Object.assign({}, FULL);
-  ['homelab.hosts', 'homelab.issues', 'homelab.checked_at'].forEach(function (k) { delete f[k]; });
+  ['homelab.hosts', 'homelab.issues', 'homelab.checked_at', 'homelab.gpus', 'homelab.gpu_hosts']
+    .forEach(function (k) { delete f[k]; });
   f['homelab.status'] = mval('unconfigured');
   return f;
 })();
@@ -357,7 +369,50 @@ const HL_HOSTILE = (function () {
   return f;
 })();
 
-module.exports = { KIOSK_EMPTY, HL_YELLOW, HL_RED, HL_STALE, HL_PENDING, HL_UNCONFIGURED, HL_HOSTILE,
+/* GPUs: rows as homelab.gpus carries them (state worked out by the poller). */
+function gpuRow(host, index, state, over) {
+  return Object.assign({ host: host, index: index, name: 'Tesla V100-PCIE-32GB', util: 50, vram_used: 18432,
+    vram_total: 32768, temp: 64, power: 180, power_limit: 250, fan: null, procs: 1, state: state,
+    detail: true, seen_at: NOW_S - 5 }, over || {});
+}
+function gpuHouse(rows, hosts, over) {
+  const f = Object.assign({}, FULL);
+  f['homelab.gpus'] = mval(rows, '', Object.assign({ published_at: NOW_S - 5, stale_after: 182,
+    warn_c: 85, crit_c: 92 }, over || {}));
+  f['homelab.gpu_hosts'] = mval(hosts || [{ host: 'gpubox', outcome: 'ok' }, { host: 'devbox', outcome: 'none' }]);
+  return f;
+}
+const GPU_STATES = ['idle', 'busy', 'unknown', 'nodetail', 'offline', 'unreadable', 'throttling', 'hot', 'critical'];
+const GPU_HOUSE = gpuHouse(GPU_STATES.map(function (s, i) {
+  const over = s === 'nodetail' ? { util: null, vram_used: null, vram_total: null, power: null, power_limit: null,
+    procs: null, detail: false } : s === 'critical' ? { temp: 95 } : s === 'hot' ? { temp: 87 } : {};
+  return gpuRow(i < 5 ? 'gpubox' : 'devbox', i, s, over);
+}), [{ host: 'gpubox', outcome: 'ok' }, { host: 'devbox', outcome: 'ok' }]);
+const GPU_HOUSE_TIES = gpuHouse([gpuRow('devbox', 1, 'busy'), gpuRow('gpubox', 1, 'busy'), gpuRow('devbox', 0, 'hot', { temp: 87 }),
+  gpuRow('gpubox', 0, 'busy'), gpuRow('gpubox', 2, 'hot', { temp: 88 }), gpuRow('devbox', 2, 'busy')],
+  [{ host: 'gpubox', outcome: 'ok' }, { host: 'devbox', outcome: 'ok' }]);
+const GPU_HOUSE_NONE = gpuHouse([], [{ host: 'gpubox', outcome: 'none' }]);
+const GPU_HOUSE_INCOMPLETE = gpuHouse([], [{ host: 'gpubox', outcome: 'offline' }]);
+const GPU_HOUSE_PENDING_WITH_ROWS = gpuHouse([gpuRow('gpubox', 0, 'busy')],
+  [{ host: 'gpubox', outcome: 'ok' }, { host: 'a-very-long-host-name-<b>x</b>', outcome: 'pending' }]);
+const GPU_HOUSE_INCOMPLETE_WITH_ROWS = gpuHouse([gpuRow('gpubox', 0, 'busy')],
+  [{ host: 'gpubox', outcome: 'ok' }, { host: 'a-very-long-host-name-<b>x</b>', outcome: 'pending' },
+   { host: 'constructor', outcome: 'unreadable' }]);
+const GPU_HOUSE_STALE = gpuHouse([gpuRow('gpubox', 0, 'critical', { temp: 95 })], null, { published_at: NOW_S - 9999 });
+const GPU_HOUSE_STALE_EMPTY = gpuHouse([], [{ host: 'gpubox', outcome: 'none' }], { published_at: NOW_S - 9999 });
+const GPU_HOUSE_SPARSE = gpuHouse([gpuRow('gpubox', 0, 'unknown', { util: null, vram_used: null, vram_total: 0,
+  temp: null, power: null, power_limit: null, procs: null })]);
+const GPU_HOUSE_MIXED_POWER = gpuHouse([gpuRow('gpubox', 0, 'busy'), gpuRow('gpubox', 1, 'idle', { power: null }),
+  gpuRow('devbox', 0, 'offline')], [{ host: 'gpubox', outcome: 'ok' }, { host: 'devbox', outcome: 'offline' }]);
+const GPU_HOUSE_ONE_OFFLINE = gpuHouse([gpuRow('gpubox', 0, 'busy', { power: 100 }), gpuRow('gpubox', 1, 'offline')]);
+const GPU_HOUSE_MANY = gpuHouse(Array.from({ length: 12 }, function (_, i) { return gpuRow('gpubox', i, i % 2 ? 'idle' : 'busy'); }));
+const GPU_HOUSE_HOSTILE = gpuHouse([gpuRow(XSS, 0, 'busy', { name: XSS }), gpuRow('gpubox', 1, XSS)],
+  [{ host: XSS, outcome: 'pending' }, { host: 'gpubox', outcome: 'ok' }]);
+
+module.exports = { GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
+                   GPU_HOUSE_INCOMPLETE_WITH_ROWS, GPU_HOUSE_STALE, GPU_HOUSE_STALE_EMPTY, GPU_HOUSE_SPARSE,
+                   GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE,
+                   KIOSK_EMPTY, HL_YELLOW, HL_RED, HL_STALE, HL_PENDING, HL_UNCONFIGURED, HL_HOSTILE,
                    SESS_EMPTY, SESS_MANY, SESS_OFFLINE, SESS_PENDING, SESS_UNCONFIGURED, SESS_HOSTILE,
                    FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA,
                    GPU_NONE, GPU_DUAL, GPU_QUAD, GPU_MANY, GPU_SPARSE,
