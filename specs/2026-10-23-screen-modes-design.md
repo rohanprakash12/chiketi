@@ -194,6 +194,11 @@ gone, so nothing else used it.
 - **Polls do not overlap.** The display's 2.5 s poll is skipped while the previous one
   is still in flight. Theme and metric batches are therefore applied in the order they
   were requested, and an old batch cannot rebuild an old plan.
+- **A poll has a deadline.** Each batch has an 8 s deadline (`AbortController`), which
+  covers the requests and the body reads.
+  - On a timeout or any failure, the remaining requests are aborted and nothing from
+    the batch is committed. The last good render stays up.
+  - The in-flight guard is released in `finally`, and the next scheduled poll retries.
 - **Taps survive a redraw.** The display redraws every poll, and every second on a
   clock screen. A redraw can replace the tab under a finger between pointer-down and
   pointer-up. So:
@@ -335,6 +340,9 @@ These run once, when the new version first starts:
     - a grey tab does nothing;
     - responses released in reverse order do not roll settings back: a delayed
       registration answered after a newer status poll, and a delayed device-status reply;
+    - a stalled poll recovers: one request held forever, and a body stalled after its
+      headers. In both, the display keeps its last render, polls again after the
+      deadline, and updates on the next good poll without reloading;
     - a settings change reaches an open display without a reload, and keeps the current
       screen when it is still listed. The cases are a reorder, a mode switch with the
       same theme, and moving into and out of an empty Kiosk plan.
