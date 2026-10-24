@@ -158,6 +158,28 @@ function kioskSkin(key, bg, font) {
   return _kioskSkins[id];
 }
 
+/* A look's variant of an existing skin (the Retro looks keep their family's glass,
+   glow and instruments): a frozen copy with the look's changes, cached by id, so a
+   shared skin object is never written and a theme switch cannot leak into it. */
+const _kioskVariants = {};
+function kioskSkinFrom(id, base, extra) {
+  if (!_kioskVariants[id]) _kioskVariants[id] = Object.freeze(Object.assign({}, base, extra || {}));
+  bsSkin(_kioskVariants[id]);
+  return _kioskVariants[id];
+}
+
+/* The alert list that scales with the count: big rows up to 4, then two compact
+   columns of up to 8 rows (the design), more rows past 16 alerts in a frame tall
+   enough to keep each at least 30 units. With more than fit, the last cell is the
+   "+N MORE" line. */
+function kioskIssueLayout(n, h) {
+  if (n <= 4) return { cols: 1, rows: Math.max(1, n), rowH: Math.min(76, Math.floor(h / Math.max(1, n))), big: true, shown: n, more: 0 };
+  let rows = Math.min(8, Math.ceil(Math.min(n, 16) / 2));
+  if (n > 16) rows = Math.max(8, Math.min(Math.ceil(n / 2), Math.floor(h / 30)));
+  const shown = n > rows * 2 ? rows * 2 - 1 : n;
+  return { cols: 2, rows: rows, rowH: Math.floor(h / rows), big: false, shown: shown, more: n - shown };
+}
+
 /* The empty-plan notice for a theme: its look's own, else today's. */
 function kioskNoticeFor(fam, v) {
   const k = KIOSK_RENDERERS[fam + '/' + v];

@@ -90,7 +90,7 @@ function cleanModel() {
 // shared_helpers.js reads PANEL_SPEC at load time, so it must already be bound
 // (it is, above). Concatenated into a single eval -- see the note at the top.
 // The Kiosk looks follow screen_functions.js, as server.py inlines them.
-const KIOSK_JS = ['kiosk_looks.js', 'kiosk_scifi.js', 'kiosk_terminal.js'];
+const KIOSK_JS = ['kiosk_looks.js', 'kiosk_scifi.js', 'kiosk_terminal.js', 'kiosk_retro.js'];
 eval(
   fs.readFileSync(path.join(UI, 'shared_helpers.js'), 'utf8') + '\n' +
   fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8') + '\n' +
@@ -866,6 +866,27 @@ __HARNESS.skins.forEach(function (skin) {
   // Renderer metadata: today's Kiosk renderers stay fluid, plain true.
   eq('TOS fluid', screenRenderer('lab', 'Sci-Fi', 'TOS').fluid, true);
   eq('plan notice', typeof screenPlan({ mode: 'kiosk', screens: [], family: 'Sci-Fi', variant: 'TOS' }).notice, 'function');
+  // Look skins from any base (phase 2): frozen, cached by id, the base never written.
+  const SCAN = __HARNESS.allSkins()[4];
+  const v1 = kioskSkinFrom('t-core', SCAN, { kHour: '#123456' });
+  eq('skinFrom frozen', Object.isFrozen(v1), true);
+  eq('skinFrom cached', kioskSkinFrom('t-core', SCAN, { kHour: '#123456' }) === v1, true);
+  eq('skinFrom selects', bsS() === v1, true);
+  eq('skinFrom values', [v1.kHour, v1.key, SCAN.kHour], ['#123456', 'scan', undefined]);
+  // The scaling alert list.
+  const lay = function (n, h) { const L = kioskIssueLayout(n, h); return [L.cols, L.rows, L.big, L.shown, L.more]; };
+  eq('issues 3', lay(3, 300), [1, 3, true, 3, 0]);
+  eq('issues 3 rowH', kioskIssueLayout(3, 300).rowH, 76);
+  eq('issues 15', lay(15, 284), [2, 8, false, 15, 0]);
+  eq('issues 16', lay(16, 284), [2, 8, false, 16, 0]);
+  eq('issues 20', lay(20, 284), [2, 9, false, 17, 3]);
+  eq('issues 40 tall', lay(40, 480), [2, 16, false, 31, 9]);
+  eq('issues 0', lay(0, 284), [1, 1, true, 0, 0]);
+  // A skin may say how GPU states are coloured; today's skins do not.
+  kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
+  eq('gpuState hook', gpuStateColor('busy'), '#abcabc');
+  bsSkin(__HARNESS.skins[0]);
+  eq('gpuState default', gpuStateColor('busy'), __HARNESS.skins[0].a4);
   // Distro roles.
   ['Arch', 'Ubuntu', 'openSUSE', 'Mandriva'].forEach(function (v) {
     ['warnA', 'crit', 'ok', 'off', 'ghost', 'ghostText'].forEach(function (k) {
@@ -892,6 +913,13 @@ __HARNESS.skins.forEach(function (skin) {
     return ids.map(function (id) { const s = SCREEN_SPEC.screens[id]; return { id: id, label: s.label, color: s.color, built: s.built, live: s.built }; });
   };
   const SKIN_SNAP = JSON.stringify(__HARNESS.allSkins());
+  // JSON drops functions: their identities are compared too.
+  const fnSnap = function () {
+    const out = [];
+    __HARNESS.allSkins().forEach(function (sk) { Object.keys(sk).forEach(function (k) { if (typeof sk[k] === 'function') out.push(sk[k]); }); });
+    return out;
+  };
+  const SKIN_FNS = fnSnap();
   KIOSK_THEMES.forEach(function (fv) {
     const key = fv.join('/'), W = wordsFor(fv[0], fv[1]);
     if (!W || !W.status) return;          // TOS and Claude: checked above, unchanged
@@ -1055,6 +1083,7 @@ __HARNESS.skins.forEach(function (skin) {
     setTabPlan(null);
   });
   if (JSON.stringify(__HARNESS.allSkins()) !== SKIN_SNAP) fail('LOOKS', 'skins', 'a shared skin object was written');
+  { const now = fnSnap(); if (now.length !== SKIN_FNS.length || now.some(function (f, i) { return f !== SKIN_FNS[i]; })) fail('LOOKS', 'skins', 'a shared skin function was replaced'); }
   metrics = FIX.FULL;
 })();
 
