@@ -342,6 +342,13 @@ const HL_UNCONFIGURED = (function () {
   f['homelab.status'] = mval('unconfigured');
   return f;
 })();
+/* A Kiosk house with neither Kiosk screen set up: both tabs grey, the notice shows. */
+const KIOSK_EMPTY = (function () {
+  const f = Object.assign({}, HL_UNCONFIGURED);
+  delete f['sessions.list']; delete f['sessions.checked_at'];
+  f['sessions.status'] = mval('unconfigured');
+  return f;
+})();
 const HL_HOSTILE = (function () {
   const f = homelab('crit', [
     { host: XSS, severity: 'crit', title: XSS, detail: XSS, since: NOW_S },
@@ -350,7 +357,7 @@ const HL_HOSTILE = (function () {
   return f;
 })();
 
-module.exports = { HL_YELLOW, HL_RED, HL_STALE, HL_PENDING, HL_UNCONFIGURED, HL_HOSTILE,
+module.exports = { KIOSK_EMPTY, HL_YELLOW, HL_RED, HL_STALE, HL_PENDING, HL_UNCONFIGURED, HL_HOSTILE,
                    SESS_EMPTY, SESS_MANY, SESS_OFFLINE, SESS_PENDING, SESS_UNCONFIGURED, SESS_HOSTILE,
                    FULL, EMPTY, UNAVAILABLE, NULL_VALUES, LARGE_DISK, HOSTILE, OLLAMA,
                    GPU_NONE, GPU_DUAL, GPU_QUAD, GPU_MANY, GPU_SPARSE,

@@ -3664,6 +3664,20 @@ function bsTabIcon(key, c, px) {
       `<path d="M24 7v5M10 13l3.5 3.5M38 13l-3.5 3.5M4 27h5M39 27h5" ${st}/>` +
       `<path d="M2 45c6-9 14-12 22-12s16 3 22 12z" fill="${body}" ${st}/>` +
       `<path d="M8 41c5-4.5 10-6 16-6s11 1.5 16 6" fill="none" stroke="#fff" stroke-width="1.4" opacity="0.6"/>`,
+    // Overview: a display wall of four panes, the top-left one lit.
+    overview:
+      `<rect x="4" y="6" width="40" height="30" rx="3" fill="${body}" ${st}/>` +
+      `<rect x="8" y="10" width="15" height="10" rx="1.5" fill="#fff"/>` +
+      `<rect x="25" y="10" width="15" height="10" rx="1.5" fill="${c}" opacity="0.7"/>` +
+      `<rect x="8" y="22" width="15" height="10" rx="1.5" fill="${c}" opacity="0.5"/>` +
+      `<rect x="25" y="22" width="15" height="10" rx="1.5" fill="${c}" opacity="0.35"/>` +
+      `<path d="M17 42h14M24 36v6" ${st}/>`,
+    // GPUs: a card with two fans, white-hot hubs and its edge connector.
+    gpus:
+      `<rect x="3" y="12" width="42" height="22" rx="3" fill="${body}" ${st}/>` +
+      `<circle cx="15" cy="23" r="7" fill="none" ${st}/><circle cx="33" cy="23" r="7" fill="none" ${st}/>` +
+      `<circle cx="15" cy="23" r="2.5" fill="#fff"/><circle cx="33" cy="23" r="2.5" fill="#fff"/>` +
+      `<path d="M8 34v5h6v-5M18 34v5h6v-5M28 34v5h6v-5" fill="${c}" opacity="0.6"/>`,
     // Warp core: a column of lit coils with a white-hot reaction chamber.
     lab:
       `<rect x="16" y="3" width="16" height="42" rx="4" fill="${body}" ${st}/>` +
@@ -3677,18 +3691,24 @@ function bsTabIcon(key, c, px) {
   return `<svg viewBox="0 0 48 48" style="width:${gq(px)};height:${gq(px)};overflow:visible">${defs}${art}</svg>`;
 }
 
+/* The tab bar is drawn from the display's plan (setTabPlan), so a coloured tab
+   always leads to a screen the display has: the Surface Go once drew a Home Lab
+   tab from hlConfigured() while its rotation had Home Lab switched off, and the
+   tap went nowhere. Without a plan -- the harness, the site, a preview -- every
+   Kiosk screen gets a tab, lit if it is built and has its data. */
+let TAB_PLAN = null;
+function setTabPlan(tabs) { TAB_PLAN = Array.isArray(tabs) ? tabs : null; }
 function bsTabList() {
   const S = bsS();
-  // `built` flips to true as each screen ships; `screen` is the registry id
-  // a tap on the tab jumps to.
-  return [
-    // Claude's own coral, in every theme: the tab is the Claude mark.
-    { key: 'sessions', label: 'SESSIONS', color: '#D97757', built: true, screen: 'screen7' },
-    { key: 'harness', label: 'AI HARNESS', color: S.a2, built: false },
-    { key: 'home', label: 'HOME', color: S.a4, built: false },
-    { key: 'myday', label: 'MY DAY', color: S.a3, built: false },
-    { key: 'lab', label: 'HOME LAB', color: S.dRam, built: hlConfigured(), screen: 'screen6' },
-  ];
+  const tabs = TAB_PLAN || SCREEN_SPEC.modes.kiosk.screens.map(function (id) {
+    const s = SCREEN_SPEC.screens[id];
+    return { id: id, label: s.label, color: s.color, built: s.built, live: s.built && screenReady(id) };
+  });
+  // `built` here means "draw it lit"; `screen` is the id a tap goes to (live tabs only).
+  return tabs.map(function (t) {
+    return { key: t.id, label: t.label, color: t.color.charAt(0) === '#' ? t.color : S[t.color],
+             built: t.live, screen: t.live ? t.id : null };
+  });
 }
 
 /* Which areas need attention, as the colour their tab should take:
@@ -3713,7 +3733,7 @@ function bsTabs(active, vertical) {
       const col = t.built ? (alert[t.key] || t.color) : S.dim;
       const glow = t.built ? `filter:drop-shadow(0 0 ${gq(on ? 7 : 4)} ${col}${on ? 'cc' : '88'});` : '';
       const pulse = t.built && alert[t.key] ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
-      return `<div${t.screen ? ` data-screen="${t.screen}"` : ''} style="width:${gq(78)};display:flex;flex-direction:column;align-items:center;gap:${gq(5)};` +
+      return `<div data-tab="${t.key}"${t.screen ? ` data-screen="${t.screen}"` : ''} style="width:${gq(78)};display:flex;flex-direction:column;align-items:center;gap:${gq(5)};` +
           `padding:${gq(6)} 0 ${gq(5)};opacity:${t.built ? (on ? 1 : 0.8) : 0.35};` +
           (on ? `background:linear-gradient(to top, ${col}30, ${col}00);` : '') + `` +
           `border-bottom:${gq(3)} solid ${on ? col : 'transparent'};${on ? `box-shadow:0 ${gq(4)} ${gq(10)} -${gq(4)} ${col}aa;` : ''}">` +
@@ -3724,21 +3744,25 @@ function bsTabs(active, vertical) {
 }
 
 /* The strip's tabs: a column of icons down the far left, no labels (there
-   is no height for them). The showing screen's tab is lit from the left. */
+   is no height for them). The showing screen's tab is lit from the left.
+   Five fit at full size; more shrink to fit the column. */
 function bsTabsColumn(active) {
   const S = bsS();
   const alert = bsTabAttention();
+  const tabs = bsTabList();
+  const per = Math.min(40, Math.floor((frameH() - 12) / Math.max(1, tabs.length)));
+  const icon = Math.min(30, Math.round(per * 0.75));
   return `<div style="display:flex;flex-direction:column;justify-content:space-evenly;height:100%">` +
-    bsTabList().map(function (t) {
+    tabs.map(function (t) {
       const on = t.key === active;
       const col = t.built ? (alert[t.key] || t.color) : S.dim;
       const glow = t.built ? `filter:drop-shadow(0 0 ${gq(on ? 5 : 3)} ${col}${on ? 'cc' : '88'});` : '';
       const pulse = t.built && alert[t.key] ? 'animation:hlPulse 2s ease-in-out infinite;' : '';
-      return `<div${t.screen ? ` data-screen="${t.screen}"` : ''} style="display:flex;align-items:center;` +
-          `justify-content:center;height:${gq(40)};opacity:${t.built ? (on ? 1 : 0.8) : 0.35};` +
+      return `<div data-tab="${t.key}"${t.screen ? ` data-screen="${t.screen}"` : ''} style="display:flex;align-items:center;` +
+          `justify-content:center;height:${gq(per)};opacity:${t.built ? (on ? 1 : 0.8) : 0.35};` +
           `border-left:${gq(3)} solid ${on ? col : 'transparent'};` +
           (on ? `background:linear-gradient(to right, ${col}30, ${col}00);` : '') + `">` +
-        `<div style="display:flex;${glow}${pulse}">${bsTabIcon(t.key, col, 30)}</div>` +
+        `<div style="display:flex;${glow}${pulse}">${bsTabIcon(t.key, col, icon)}</div>` +
         `</div>`;
     }).join('') + `</div>`;
 }
@@ -3902,8 +3926,6 @@ function bsStripFrame(o) {
 }
 
 function sfTosSessions(c) { bsSkin(BS_SKIN_TOS); return bsSessionsScreen(c); }
-function sfTngSessions(c) { bsSkin(BS_SKIN_TNG); return bsSessionsScreen(c); }
-function sfDs9Sessions(c) { bsSkin(BS_SKIN_DS9); return bsSessionsScreen(c); }
 
 
 /* Others / Claude wrappers. The clock is the 9.3" display's: big plain
@@ -4111,6 +4133,107 @@ function bsHomelabStrip(c) {
 }
 
 function sfTosHomelab(c) { bsSkin(BS_SKIN_TOS); return bsHomelabScreen(c); }
-function sfTngHomelab(c) { bsSkin(BS_SKIN_TNG); return bsHomelabScreen(c); }
-function sfDs9Homelab(c) { bsSkin(BS_SKIN_DS9); return bsHomelabScreen(c); }
 function claudeHomelab(c) { bsSkin(BS_SKIN_CLAUDE); return bsHomelabScreen(c); }
+
+
+/* ── Screens: one description (screens.json, inlined as SCREEN_SPEC) ─────
+ * screenRenderer() says how a theme draws a screen; screenPlan() says what a
+ * display shows. The display, the control panel, the harness and the site all
+ * use these two, so they cannot disagree (there used to be four registries). */
+function themeAllowed(mode, key) {
+  const md = SCREEN_SPEC.modes[mode];
+  return !!md && (md.themes === 'all' || md.themes.indexOf(key) !== -1);
+}
+/* Whether a screen's data is set up: its <ns>.status is there and not
+   'unconfigured' (offline still counts -- the screen says so itself). */
+function screenReady(id) {
+  const s = SCREEN_SPEC.screens[id];
+  if (!s || !s.needs) return true;
+  const st = m(s.needs + '.status');
+  return st.available && st.value !== 'unconfigured';
+}
+/* The Self screens (this machine's stats) in each family's own renderers.
+   Nothing falls through to another family: screen 4 once handed the Terminal
+   palettes the Sci-Fi TOS panel. */
+function selfScreens(fam, v) {
+  if (fam === 'Sci-Fi') {
+    return v === 'DS9' ? [sfDs9Screen1, sfDs9NpuScreen, sfDs9ClaudeScreen, sfDs9GpuScreen, sfDs9Screen2]
+      : v === 'TNG' ? [sfTngScreen1, sfTngNpuScreen, sfTngClaudeScreen, sfTngGpuScreen, sfTngScreen2]
+      : [sfTosScreen1, sfTosNpuScreen, sfTosClaudeScreen, sfTosGpuScreen, sfTosScreen2];
+  }
+  if (fam === 'Vintage') {
+    return v === 'Tubes' ? [tubeScreen1, tubeNpuScreen, tubeClaudeScreen, tubeGpuScreen, tubeScreen2]
+      : v === 'VFD' ? [vfdScreen1, vfdNpuScreen, vfdClaudeScreen, vfdGpuScreen, vfdScreen2]
+      : [scanScreen1, scanNpuScreen, scanClaudeScreen, scanGpuScreen, scanScreen2];
+  }
+  if (fam === 'Others') return [claudeScreen1, claudeNpuScreen, claudeClaudeScreen, claudeGpuScreen, claudeClockScreen];
+  // The distro boards draw the time on screen 1, so Terminal has no clock screen.
+  if (DISTRO_SCREENS[v]) return [DISTRO_SCREENS[v], DISTRO_AI_SCREENS[v], DISTRO_CLAUDE_SCREENS[v], DISTRO_GPU_SCREENS[v], null];
+  return [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen, null];
+}
+/* The Kiosk screens exist only in the Kiosk themes. */
+const KIOSK_RENDERERS = {
+  'Sci-Fi/TOS': { lab: sfTosHomelab, sessions: sfTosSessions },
+  'Others/Claude': { lab: claudeHomelab, sessions: claudeSessions },
+};
+function screenRenderer(id, fam, v) {
+  const k = KIOSK_RENDERERS[fam + '/' + v];
+  if (k && k[id]) return { fn: k[id], fluid: true };
+  const slot = /^screen([1-5])$/.exec(id);
+  if (!slot) return null;
+  const fn = selfScreens(fam, v)[Number(slot[1]) - 1];
+  // The Sci-Fi and Claude clocks are fluid: they fill any landscape shape.
+  return fn ? { fn: fn, fluid: id === 'screen5' && (fam === 'Sci-Fi' || fam === 'Others') } : null;
+}
+/* What a display shows, from its mode and its own ordered screens:
+   list  -- selected, built, set-up screens the theme draws, in order;
+   tabs  -- (Kiosk) one per selected screen, in order; live = it is in list;
+   empty -- (Kiosk) nothing to show: draw kioskNotice;
+   fallback -- (Self) nothing selected could show, so list is the first Self
+               screen the theme has. */
+function screenPlan(o) {
+  const mode = SCREEN_SPEC.modes[o.mode] ? o.mode : 'self';
+  const md = SCREEN_SPEC.modes[mode];
+  const sel = (Array.isArray(o.screens) ? o.screens : md.defaults).filter(function (id, i, a) {
+    return md.screens.indexOf(id) !== -1 && a.indexOf(id) === i;
+  });
+  const list = [];
+  sel.forEach(function (id) {
+    const s = SCREEN_SPEC.screens[id];
+    const r = s.built && screenReady(id) ? screenRenderer(id, o.family, o.variant) : null;
+    if (r) list.push({ id: id, name: s.name, fn: r.fn, fluid: r.fluid });
+  });
+  const plan = { mode: mode, list: list, tabs: [], fallback: false, empty: false };
+  if (mode === 'kiosk') {
+    plan.tabs = sel.map(function (id) {
+      const s = SCREEN_SPEC.screens[id];
+      return { id: id, label: s.label, color: s.color, built: s.built,
+               live: list.some(function (x) { return x.id === id; }) };
+    });
+    plan.empty = list.length === 0;
+  } else if (!list.length) {
+    for (const id of md.screens) {
+      const r = screenRenderer(id, o.family, o.variant);
+      if (r) { list.push({ id: id, name: SCREEN_SPEC.screens[id].name, fn: r.fn, fluid: r.fluid }); break; }
+    }
+    plan.fallback = true;
+  }
+  return plan;
+}
+/* A Kiosk display with nothing to show: its own chrome, its tabs, and why. */
+function kioskNotice(c) {
+  bsSkin(activeFamily === 'Others' ? BS_SKIN_CLAUDE : BS_SKIN_TOS);
+  const S = bsS();
+  const text = 'NO SCREENS TO SHOW · CHOOSE THEM IN THE CONTROL PANEL';
+  if (layoutClass() === 'strip') {
+    return bsStripFrame({ active: '', status: S.edge, lead: '', leadColor: S.label, foot: '', footColor: S.dim, more: 0,
+      body: `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:${S.dim};` +
+        `font-size:${gq(18)};letter-spacing:${S.ls}">${text}</div>` });
+  }
+  const H = fluidH();
+  return bsFrame(`<div style="position:absolute;left:0;right:0;top:50%;height:${gq(H)};transform:translateY(-50%)">` +
+    bsHeader('') +
+    `<div style="position:absolute;left:${gq(28)};right:${gq(28)};top:${gq(118)};bottom:${gq(40)};display:flex;` +
+      `align-items:center;justify-content:center;text-align:center;color:${S.dim};font-size:${gq(30)};` +
+      `letter-spacing:${S.ls}">${text}</div></div>`, true);
+}

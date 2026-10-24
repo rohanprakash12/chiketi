@@ -42,6 +42,10 @@ const PANEL_SPEC = blob.spec;
 const FAMILIES = blob.families;
 
 let metrics = FIX.FULL;
+// What the pages inline as SCREEN_SPEC (assets/ui/screens.json), and the
+// display global kioskNotice() picks its skin from.
+const SCREEN_SPEC = JSON.parse(fs.readFileSync(path.join(UI, 'screens.json'), 'utf8'));
+let activeFamily = null;
 
 // Copied verbatim from display_app.js. If display_app.js changes these,
 // change them here too.
@@ -64,42 +68,28 @@ function cleanModel() {
 // (it is, above). Concatenated into a single eval -- see the note at the top.
 eval(
   fs.readFileSync(path.join(UI, 'shared_helpers.js'), 'utf8') + '\n' +
-  fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8')
+  fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8') +
+  // const bindings stay inside this eval; hand out what the checks below need.
+  '\nglobalThis.__HARNESS = { skins: [BS_SKIN_TOS, BS_SKIN_CLAUDE] };'
 );
 
-// Mirrors getScreenRegistry() in display_app.js. Every family names all of
-// its own screens: nothing here may fall through to another family's
-// renderer, which is exactly the bug this list used to encode -- `gpu`
-// defaulted to sfTosGpuScreen, so the six Terminal palettes were "tested"
-// against a Sci-Fi board and the four distro GPU screens were never rendered
-// at all.
-const REGISTRY = [
-  { family: 'Sci-Fi', variant: 'TOS',
-    fns: [sfTosScreen1, sfTosNpuScreen, sfTosClaudeScreen, sfTosGpuScreen, sfTosScreen2, sfTosSessions, sfTosHomelab] },
-  { family: 'Sci-Fi', variant: 'TNG',
-    fns: [sfTngScreen1, sfTngNpuScreen, sfTngClaudeScreen, sfTngGpuScreen, sfTngScreen2, sfTngSessions, sfTngHomelab] },
-  { family: 'Sci-Fi', variant: 'DS9',
-    fns: [sfDs9Screen1, sfDs9NpuScreen, sfDs9ClaudeScreen, sfDs9GpuScreen, sfDs9Screen2, sfDs9Sessions, sfDs9Homelab] },
-  { family: 'Vintage', variant: 'Scanlines',
-    fns: [scanScreen1, scanNpuScreen, scanClaudeScreen, scanGpuScreen, scanScreen2] },
-  { family: 'Vintage', variant: 'Tubes',
-    fns: [tubeScreen1, tubeNpuScreen, tubeClaudeScreen, tubeGpuScreen, tubeScreen2] },
-  { family: 'Vintage', variant: 'VFD',
-    fns: [vfdScreen1, vfdNpuScreen, vfdClaudeScreen, vfdGpuScreen, vfdScreen2] },
-  { family: 'Others', variant: 'Claude',
-    fns: [claudeScreen1, claudeNpuScreen, claudeClaudeScreen, claudeGpuScreen, claudeClockScreen, claudeSessions, claudeHomelab] },
-  { family: 'Terminal', variant: 'hacker',
-    fns: [terminalScreen1, terminalScreen2, terminalClaudeScreen, terminalGpuScreen] },
-  // The distro variants swap every screen for a conky-style board.
-  { family: 'Terminal', variant: 'Arch',
-    fns: [distroArchScreen1, distroArchAi, distroArchClaude, distroArchGpu] },
-  { family: 'Terminal', variant: 'Ubuntu',
-    fns: [distroUbuntuScreen1, distroUbuntuAi, distroUbuntuClaude, distroUbuntuGpu] },
-  { family: 'Terminal', variant: 'openSUSE',
-    fns: [distroSuseScreen1, distroSuseAi, distroSuseClaude, distroSuseGpu] },
-  { family: 'Terminal', variant: 'Mandriva',
-    fns: [distroMandrivaScreen1, distroMandrivaAi, distroMandrivaClaude, distroMandrivaGpu] },
-];
+// Every theme with every screen its modes offer, from the one resolver the
+// display, the control panel and the site use (screenRenderer). Nothing may
+// fall through to another family's renderer: `gpu` once defaulted to
+// sfTosGpuScreen, so the six Terminal palettes were "tested" against a Sci-Fi
+// board and the four distro GPU screens were never rendered at all.
+const THEME_LIST = [];
+for (const fam of Object.keys(FAMILIES)) for (const v of Object.keys(FAMILIES[fam])) THEME_LIST.push([fam, v]);
+const REGISTRY = THEME_LIST.map(function (fv) {
+  const key = fv[0] + '/' + fv[1];
+  const ids = Object.keys(SCREEN_SPEC.modes).filter(function (md) { return themeAllowed(md, key); })
+    .reduce(function (a, md) { return a.concat(SCREEN_SPEC.modes[md].screens); }, []);
+  const screens = ids.map(function (id) {
+    const r = screenRenderer(id, fv[0], fv[1]);
+    return r && { id: id, fn: r.fn, fluid: r.fluid };
+  }).filter(Boolean);
+  return { family: fv[0], variant: fv[1], screens: screens, fns: screens.map(function (x) { return x.fn; }) };
+});
 
 /* ── The frame model: the frame follows the screen's shape ── */
 (function () {
@@ -283,7 +273,8 @@ for (const fixtureName of Object.keys(FIX)) {
     const colors = FAMILIES[entry.family][entry.variant];
     const fns = entry.fns;
     fns.forEach(function (fn, i) {
-      const label = entry.family + '/' + entry.variant + ' screen' + (i + 1) + ' (' + fn.name + ')';
+      const sid = entry.screens[i].id;
+      const label = entry.family + '/' + entry.variant + ' ' + sid + ' (' + fn.name + ')';
       let html;
       try {
         html = fn(colors);
@@ -336,7 +327,7 @@ for (const fixtureName of Object.keys(FIX)) {
       // getScreenRegistry's fixed order). Matching on the function NAME instead
       // let the four distro boards -- distroArchGpu and friends -- skip all
       // three assertions below, so they were rendered but never checked.
-      if ((fixtureName === 'FULL' || fixtureName === 'GPU_IDLE') && i === 3) {
+      if ((fixtureName === 'FULL' || fixtureName === 'GPU_IDLE') && sid === 'screen4') {
         if (/NOT EXPOSED BY NVIDIA/i.test(html)) {
           fail(fixtureName, label, 'claims NVIDIA does not expose per-process VRAM');
         }
@@ -378,14 +369,14 @@ for (const fixtureName of Object.keys(FIX)) {
       // Case-insensitive, and either phrasing: the Sci-Fi and Vintage boards
       // shout NO GPU DETECTED, the Terminal and distro boards say it in their
       // own lowercase voice. What matters is that the blank screen says why.
-      if (fixtureName === 'GPU_NONE' && i === 3 &&
+      if (fixtureName === 'GPU_NONE' && sid === 'screen4' &&
           !/no (readable )?(gpu|graphics)/i.test(html)) {
         fail(fixtureName, label, 'no-GPU state does not explain itself');
       }
 
       // More cards than the grid holds: declare the overflow, never truncate
       // silently. GPU_MANY carries seven.
-      if (fixtureName === 'GPU_MANY' && i === 3 &&
+      if (fixtureName === 'GPU_MANY' && sid === 'screen4' &&
           !/\+3 more not shown/i.test(html)) {
         fail(fixtureName, label, 'cards dropped from the grid without saying so');
       }
@@ -440,7 +431,7 @@ for (const key of STRING_KEYS) {
     fns.forEach(function (fn, i) {
       metrics = Object.assign({}, FIX.FULL);
       metrics[key] = Object.assign({}, FIX.FULL[key], { value: PAYLOAD });
-      const label = entry.family + '/' + entry.variant + ' screen' + (i + 1)
+      const label = entry.family + '/' + entry.variant + ' ' + entry.screens[i].id
         + ' (' + fn.name + ') <- ' + key;
       let html;
       try {
@@ -462,9 +453,9 @@ for (const key of STRING_KEYS) {
   setFrameH(h);
   ['FULL', 'SESS_MANY', 'SESS_OFFLINE', 'HL_RED', 'HL_YELLOW'].forEach(function (fx) {
     metrics = FIX[fx];
-    REGISTRY.filter(function (e) { return e.family === 'Sci-Fi' || e.family === 'Others'; }).forEach(function (entry) {
+    REGISTRY.forEach(function (entry) {
       const colors = FAMILIES[entry.family][entry.variant];
-      [entry.fns[4], entry.fns[5], entry.fns[6]].forEach(function (fn) {
+      entry.screens.filter(function (x) { return x.fluid; }).map(function (x) { return x.fn; }).forEach(function (fn) {
         const label = 'h=' + h + ' ' + entry.variant + ' ' + fn.name;
         let html;
         try { html = fn(colors); } catch (e) { fail(fx, label, 'threw ' + e.message); return; }
@@ -477,6 +468,91 @@ for (const key of STRING_KEYS) {
   });
 });
 setFrameH(600);
+
+/* ── Registry completeness ── */
+THEME_LIST.forEach(function (fv) {
+  const key = fv[0] + '/' + fv[1];
+  ['screen1', 'screen2', 'screen3', 'screen4'].forEach(function (id) {
+    if (!screenRenderer(id, fv[0], fv[1])) fail('REGISTRY', key, 'no renderer for ' + id);
+  });
+  if (fv[0] !== 'Terminal' && !screenRenderer('screen5', fv[0], fv[1])) fail('REGISTRY', key, 'no clock');
+  SCREEN_SPEC.modes.kiosk.screens.forEach(function (id) {
+    const built = SCREEN_SPEC.screens[id].built, r = screenRenderer(id, fv[0], fv[1]);
+    if (themeAllowed('kiosk', key) && built && !r) fail('REGISTRY', key, 'no Kiosk renderer for ' + id);
+    if (!themeAllowed('kiosk', key) && r) fail('REGISTRY', key, 'Kiosk renderer outside the Kiosk themes: ' + id);
+  });
+});
+/* Every tab colour role exists in the Kiosk skins. */
+__HARNESS.skins.forEach(function (skin) {
+  SCREEN_SPEC.modes.kiosk.screens.forEach(function (id) {
+    const col = SCREEN_SPEC.screens[id].color;
+    if (col.charAt(0) !== '#' && !skin[col]) fail('REGISTRY', skin.key, 'tab colour role ' + col + ' missing');
+  });
+});
+
+/* ── Plans: the Go bug. Every coloured tab leads to a listed screen, every
+   selected screen has a tab in order, and no unselected screen has one. The
+   expected lists come from the fixtures, not from the planner itself. ── */
+(function () {
+  const kiosk = SCREEN_SPEC.modes.kiosk.screens;
+  const READY = { FULL: ['lab', 'sessions'], HL_UNCONFIGURED: ['sessions'], SESS_UNCONFIGURED: ['lab'], KIOSK_EMPTY: [] };
+  const cases = [];
+  for (let mask = 0; mask < (1 << kiosk.length); mask += 5) cases.push(kiosk.filter(function (_, i) { return mask & (1 << i); }));
+  cases.push(['lab', 'sessions'], ['sessions', 'lab'], ['lab'], [], kiosk.slice().reverse());
+  const ids = function (html, attr) {
+    const re = new RegExp(attr + '="([a-z0-9]+)"', 'g'), out = [];
+    let mm;
+    while ((mm = re.exec(html))) out.push(mm[1]);
+    return out;
+  };
+  Object.keys(READY).forEach(function (fx) {
+    metrics = FIX[fx];
+    [['Sci-Fi', 'TOS'], ['Others', 'Claude']].forEach(function (fv) {
+      activeFamily = fv[0];
+      cases.forEach(function (sel) {
+        const label = fx + ' ' + fv[1] + ' [' + sel.join(',') + ']';
+        const expected = sel.filter(function (id) { return READY[fx].indexOf(id) !== -1; });
+        const plan = screenPlan({ mode: 'kiosk', screens: sel, family: fv[0], variant: fv[1] });
+        const listed = plan.list.map(function (x) { return x.id; });
+        if (listed.join() !== expected.join()) fail('PLAN', label, 'list ' + listed.join() + ' != ' + expected.join());
+        if (plan.empty !== (expected.length === 0)) fail('PLAN', label, 'empty flag wrong');
+        if (plan.tabs.map(function (t) { return t.id; }).join() !== sel.join()) fail('PLAN', label, 'tabs are not the selection');
+        plan.tabs.forEach(function (t) {
+          if (t.live !== (expected.indexOf(t.id) !== -1)) fail('PLAN', label, 'tab ' + t.id + ' live=' + t.live);
+        });
+        [600, 683, 246].forEach(function (h) {
+          setFrameH(h);
+          setTabPlan(plan.tabs);
+          const fn = plan.empty ? kioskNotice : plan.list[0].fn;
+          let html;
+          try { html = fn(FAMILIES[fv[0]][fv[1]]); } catch (e) { fail('PLAN', label, 'threw ' + e.message); return; }
+          if (ids(html, 'data-screen').join() !== expected.join()) {
+            fail('PLAN', label + ' h=' + h, 'tappable tabs ' + ids(html, 'data-screen').join() + ' != ' + expected.join());
+          }
+          if (ids(html, 'data-tab').join() !== sel.join()) fail('PLAN', label + ' h=' + h, 'tab order ' + ids(html, 'data-tab').join());
+          if (plan.empty && html.indexOf('NO SCREENS TO SHOW') === -1) fail('PLAN', label, 'empty plan without the notice');
+          const dirty = html.match(/undefined|NaN|\[object Object\]/);
+          if (dirty) fail('PLAN', label + ' h=' + h, 'output contains ' + dirty[0]);
+          const px = layoutPxHits(html);
+          if (px.length) fail('PLAN', label + ' h=' + h, 'layout px -- ' + px.slice(0, 4).join(' '));
+        });
+      });
+    });
+  });
+  setTabPlan(null); setFrameH(600); metrics = FIX.FULL;
+  // Self fallbacks live in the plan too.
+  let p = screenPlan({ mode: 'self', screens: [], family: 'Terminal', variant: 'hacker' });
+  if (!(p.fallback && p.list.length === 1 && p.list[0].id === 'screen1')) fail('PLAN', 'self []', 'no fallback');
+  p = screenPlan({ mode: 'self', screens: ['screen5'], family: 'Terminal', variant: 'hacker' });
+  if (!(p.fallback && p.list.length === 1 && p.list[0].id === 'screen1')) fail('PLAN', 'self [clock] on Terminal', 'no fallback');
+  p = screenPlan({ mode: 'self', screens: ['screen3', 'screen1'], family: 'Vintage', variant: 'VFD' });
+  if (p.fallback || p.list.map(function (x) { return x.id; }).join() !== 'screen3,screen1') fail('PLAN', 'self order', 'order lost');
+  if (p.tabs.length) fail('PLAN', 'self', 'Self has no tabs');
+  p = screenPlan({ mode: 'kiosk', screens: ['overview', 'lab'], family: 'Sci-Fi', variant: 'TOS' });
+  if (p.list.map(function (x) { return x.id; }).join() !== 'lab' || p.tabs[0].live) fail('PLAN', 'placeholder', 'grey tab live');
+  p = screenPlan({ mode: 'bogus', screens: null, family: 'Sci-Fi', variant: 'TOS' });
+  if (p.mode !== 'self' || p.list.length !== 5) fail('PLAN', 'unknown mode', 'not treated as Self defaults');
+})();
 
 if (failures.length) {
   failures.forEach(function (f) { console.error(f); });
