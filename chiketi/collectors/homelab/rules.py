@@ -173,15 +173,16 @@ def throttling(g: Gpu) -> bool:
     return g.throttle is not None and bool(g.throttle & THROTTLE_BITS)
 
 
-def gpu_state(g: Gpu, thr: dict, outcome: str) -> str:
-    """The one-word state of a GPU (spec decision 3); the first match wins."""
+def gpu_state(g: Gpu, thr: dict, outcome: str, throttled: bool | None = None) -> str:
+    """The one-word state of a GPU (spec decision 3); the first match wins. throttled: the
+    poller's view over recent polls (spec §6.2); None judges this sample alone."""
     if outcome in ("offline", "unreadable"):
         return outcome
     if g.temp is not None and g.temp >= thr["gpu_crit_c"]:
         return "critical"
     if g.temp is not None and g.temp >= thr["gpu_warn_c"]:
         return "hot"
-    if throttling(g):
+    if throttling(g) if throttled is None else throttled:
         return "throttling"
     if not g.detail:
         return "nodetail"
@@ -192,16 +193,19 @@ def gpu_state(g: Gpu, thr: dict, outcome: str) -> str:
     return "unknown"
 
 
-def gpu_condition(g: Gpu, thr: dict) -> Condition | None:
+def gpu_condition(g: Gpu, thr: dict, throttled: bool | None = None, fast: bool = False) -> Condition | None:
     """One condition per GPU, from heat or throttling: a change between the two keeps the
-    same key, so a raised alert never drops in the handover."""
+    same key, so a raised alert never drops in the handover. throttled: the poller's
+    windowed decision (spec §6.3), None judges this sample alone; fast: hold 1, because
+    the window has already done the holding."""
     key = f"gpu_temp:{g.index}"
+    hold = 1 if fast else HOLD_TEMP
     if g.temp is not None:
         sev = _level(g.temp, thr["gpu_warn_c"], thr["gpu_crit_c"])
         if sev:
-            return Condition(key, sev, f"GPU {g.index} {g.temp:.0f}°C", "", HOLD_TEMP)
-    if throttling(g):
-        return Condition(key, "warn", f"GPU {g.index} throttling", "clock slowdown reported by the driver", HOLD_TEMP)
+            return Condition(key, sev, f"GPU {g.index} {g.temp:.0f}°C", "", hold)
+    if throttling(g) if throttled is None else throttled:
+        return Condition(key, "warn", f"GPU {g.index} throttling", "clock slowdown reported by the driver", hold)
     return None
 
 
@@ -351,6 +355,14 @@ class IssueTracker:
             t.good, t.bad = t.good + 1, 0
             if not t.raised or t.good >= CLEAR_AFTER:
                 del self._t[k]
+
+    def raised(self, host: str, key: str) -> Condition | None:
+        t = self._t.get((host, key))
+        return t.cond if t is not None and t.raised else None
+
+    def holds(self, host: str, key: str) -> bool:
+        """Whether the tracker has any record of the key, raised or still counting."""
+        return (host, key) in self._t
 
     def issues(self) -> list[dict]:
         out = [{"host": h, "severity": t.cond.severity, "title": t.cond.title,

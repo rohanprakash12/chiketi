@@ -7,6 +7,7 @@ from chiketi.collectors.homelab.config import DEFAULT_THRESHOLDS as THR
 from chiketi.collectors.homelab.probe import Disk, Gpu, ProbeReport
 from chiketi.collectors.homelab.rules import (
     HOLD_DOWN,
+    HOLD_TEMP,
     Baseline,
     Condition,
     IssueTracker,
@@ -303,3 +304,36 @@ def test_baseline_without_uuid_or_mem_temp_loads(tmp_path):
     p.write_text('{"smart": {}, "sec": {}, "gpus": {"x": {"seen_at": 1, "gpus": [{"index": 0, "temp": 50}]}}}')
     g = Baseline(str(p)).gpu_memory()["x"][0][0]
     assert (g.uuid, g.mem_temp, g.temp) == ("", None, 50)
+
+
+# --- smoothed throttling and the fast hold (spec §6.2, §6.3) ---
+
+def test_gpu_state_uses_smoothed_throttle():
+    assert gpu_state(G(throttle=0, util=50.0), THR, "ok", throttled=True) == "throttling"
+    assert gpu_state(G(throttle=0x20, util=50.0), THR, "ok", throttled=False) == "busy"
+    assert gpu_state(G(throttle=0x20, util=50.0), THR, "ok") == "throttling"
+    assert gpu_state(G(throttle=0, util=50.0, temp=90.0), THR, "ok", throttled=True) == "hot"
+
+
+def test_gpu_condition_fast_hold():
+    c = gpu_condition(G(throttle=0), THR, throttled=True, fast=True)
+    assert (c.severity, c.title, c.hold) == ("warn", "GPU 0 throttling", 1)
+    c = gpu_condition(G(temp=90.0), THR, throttled=True, fast=True)
+    assert (c.title, c.hold) == ("GPU 0 90°C", 1)
+    assert gpu_condition(G(temp=90.0), THR, throttled=False).hold == HOLD_TEMP
+    assert gpu_condition(G(throttle=0x20), THR, throttled=False) is None
+    c = gpu_condition(G(throttle=0x20), THR)
+    assert (c.title, c.hold) == ("GPU 0 throttling", HOLD_TEMP)
+
+
+def test_tracker_raised_and_holds():
+    t = IssueTracker()
+    c = Condition("gpu_temp:0", "warn", "GPU 0 throttling", "", 2)
+    t.update("h", [c], 0)
+    assert t.raised("h", "gpu_temp:0") is None and t.holds("h", "gpu_temp:0")
+    t.update("h", [c], 1)
+    assert t.raised("h", "gpu_temp:0") is c
+    t.update("h", [], 2)
+    assert t.raised("h", "gpu_temp:0") is c
+    t.update("h", [], 3)
+    assert t.raised("h", "gpu_temp:0") is None and not t.holds("h", "gpu_temp:0")
