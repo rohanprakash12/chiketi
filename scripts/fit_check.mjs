@@ -36,9 +36,9 @@ const KIOSK_THEMES = SPEC0.modes.kiosk.themes.map(k => k.split('/'))
   .filter(fv => !process.env.THEMES || process.env.THEMES.split(',').includes(fv.join('/')));
 const SELF_THEMES = [['Sci-Fi', 'TOS'], ['Others', 'Claude'], ['Sci-Fi', 'TNG'], ['Sci-Fi', 'DS9']];
 const CASES = (process.env.CASES ||
-  'lab:KIOSK_CALM,lab:FULL,lab:HL_RED,lab:HL_BUSY,lab:HL_PENDING,lab:HL_STALE,lab:HL_UNCONFIGURED,lab:HL_HOSTILE,' +
-  'sessions:FULL,sessions:SESS_BUSY,sessions:SESS_MANY,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,sessions:SESS_PENDING,sessions:SESS_HOSTILE,' +
-  'gpus:GPU_HOUSE,gpus:GPU_HOUSE_BUSY,gpus:GPU_HOUSE_BUSY9,gpus:GPU_HOUSE_MANY,gpus:GPU_HOUSE_OLD,gpus:GPU_HOUSE_STALE,gpus:GPU_HOUSE_NONE,' +
+  'lab:KIOSK_CALM,lab:FULL,lab:HL_RED,lab:HL_BUSY,lab:HL_LONG12,lab:HL_PENDING,lab:HL_STALE,lab:HL_UNCONFIGURED,lab:HL_HOSTILE,' +
+  'sessions:FULL,sessions:SESS_BUSY,sessions:SESS_MANY,sessions:SESS_MSG7,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,sessions:SESS_PENDING,sessions:SESS_HOSTILE,' +
+  'gpus:GPU_HOUSE,gpus:GPU_HOUSE_BUSY,gpus:GPU_HOUSE_BUSY9,gpus:GPU_HOUSE_STALE11,gpus:GPU_HOUSE_MANY,gpus:GPU_HOUSE_OLD,gpus:GPU_HOUSE_STALE,gpus:GPU_HOUSE_NONE,' +
   'gpus:GPU_HOUSE_HOSTILE,gpus:GPU_HOUSE_LONG_HOSTS,sessions:LIVE,screen5:FULL')
   .split(',').map(c => c.split(':'));
 const TABS = Math.max(1, Number(process.env.TABS || 2));
