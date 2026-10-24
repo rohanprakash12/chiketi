@@ -1,8 +1,10 @@
 # tests/test_homelab_rules.py
 from __future__ import annotations
 
+import pytest
+
 from chiketi.collectors.homelab.config import DEFAULT_THRESHOLDS as THR
-from chiketi.collectors.homelab.probe import Disk, ProbeReport
+from chiketi.collectors.homelab.probe import Disk, Gpu, ProbeReport
 from chiketi.collectors.homelab.rules import (
     HOLD_DOWN,
     Baseline,
@@ -11,6 +13,10 @@ from chiketi.collectors.homelab.rules import (
     down,
     evaluate_backup,
     evaluate_report,
+    gpu_condition,
+    gpu_keep_keys,
+    gpu_state,
+    throttling,
 )
 
 
@@ -43,7 +49,7 @@ def test_memory_uses_available(tmp_path):
 
 def test_temperatures(tmp_path):
     b = Baseline(str(tmp_path / "b.json"))
-    c = evaluate_report("h", rep(cpu_temp_c=96.0, gpu_temps=[86.0],
+    c = evaluate_report("h", rep(cpu_temp_c=96.0, gpus=[Gpu(index=0, temp=86.0, detail=False)],
                                  disks=[Disk("sda", temp_c=55.0, health="PASSED")]), THR, b, 0)
     assert keys(c) == {"cpu_temp": "crit", "gpu_temp:0": "warn", "disk_temp:sda": "warn"}
 
@@ -173,3 +179,99 @@ def test_linux_mnt_disk_is_still_checked(tmp_path):
     b = Baseline(str(tmp_path / "b.json"))
     r = rep(kind="linux", filesystems={"/mnt/disk1": 97.0})
     assert keys(evaluate_report("devbox", r, THR, b, 0)) == {"fs:/mnt/disk1": "crit"}
+
+
+# ── GPUs ──────────────────────────────────────────────────────────────────
+
+def G(**kw):
+    base = dict(index=0, name="V100", util=None, vram_used=None, vram_total=None, temp=50.0,
+                power=None, power_limit=None, fan=None, throttle=0, bus_id="b", procs=None, detail=True)
+    base.update(kw)
+    return Gpu(**base)
+
+
+@pytest.mark.parametrize("util,procs,want", [
+    (None, None, "unknown"), (None, 0, "unknown"), (None, 1, "busy"),
+    (0, None, "unknown"), (0, 0, "idle"), (0, 1, "busy"),
+    (9, None, "unknown"), (9, 0, "idle"), (9, 1, "busy"),
+    (10, None, "busy"), (10, 0, "busy"), (10, 1, "busy"),
+])
+def test_activity_cross_product(util, procs, want):
+    assert gpu_state(G(util=util, procs=procs), THR, "ok") == want
+
+
+def test_state_precedence_and_boundaries():
+    assert gpu_state(G(temp=99.0), THR, "offline") == "offline"
+    assert gpu_state(G(temp=99.0), THR, "unreadable") == "unreadable"
+    assert gpu_state(G(temp=92.0), THR, "ok") == "critical"
+    assert gpu_state(G(temp=91.9), THR, "ok") == "hot"
+    assert gpu_state(G(temp=85.0), THR, "ok") == "hot"
+    assert gpu_state(G(temp=84.9, throttle=0x20, util=50), THR, "ok") == "throttling"
+    assert gpu_state(G(throttle=0x04, util=50), THR, "ok") == "busy"           # SW power cap is normal
+    assert gpu_state(G(detail=False, temp=40.0), THR, "legacy") == "nodetail"
+    for bit in (0x08, 0x20, 0x40, 0x80):
+        assert throttling(G(throttle=bit))
+    assert not throttling(G(throttle=None))
+
+
+def test_one_condition_per_gpu():
+    assert gpu_condition(G(temp=95.0), THR).severity == "crit"
+    c = gpu_condition(G(temp=60.0, throttle=0x40), THR)
+    assert (c.key, c.severity, c.title) == ("gpu_temp:0", "warn", "GPU 0 throttling")
+    assert gpu_condition(G(temp=60.0), THR) is None
+
+
+def test_throttle_to_crit_never_drops_the_alert():
+    t = IssueTracker()
+    for i in range(4):
+        t.update("gpubox", [gpu_condition(G(temp=60.0, throttle=0x20), THR)], i)
+    assert t.issues()[0]["title"] == "GPU 0 throttling"
+    for i in range(4, 7):                       # turns into heat: same key, raised throughout
+        t.update("gpubox", [gpu_condition(G(temp=95.0, throttle=0x20), THR)], i)
+        assert t.issues() and t.issues()[0]["severity"] == "crit"
+    t.update("gpubox", [gpu_condition(G(temp=60.0, throttle=0x20), THR)], 7)
+    assert t.issues()[0]["title"] == "GPU 0 throttling"
+
+
+def test_keep_preserves_named_keys_only():
+    t = IssueTracker()
+    for i in range(10):
+        t.update("gpubox", [gpu_condition(G(temp=95.0), THR), Condition("mem", "warn", "m", "", 1)], i)
+    for i in range(10, 14):
+        t.update("gpubox", [], i, keep=lambda k: k.startswith("gpu_temp:"))
+    assert [x["title"] for x in t.issues()] == ["GPU 0 95°C"]      # the GPU alert stays, memory cleared
+
+
+def test_keep_keys_for_missing_fields():
+    r2 = ProbeReport(version=2, gpus=[G(index=0, temp=None), G(index=1, throttle=None), G(index=2)])
+    assert gpu_keep_keys(r2) == {"gpu_temp:0", "gpu_temp:1"}
+    legacy = ProbeReport(version=1, gpus=[G(index=0, temp=None, throttle=None, detail=False),
+                                          G(index=1, temp=40.0, throttle=None, detail=False)])
+    assert gpu_keep_keys(legacy) == {"gpu_temp:0"}
+
+
+def test_baseline_remembers_gpus(tmp_path):
+    b = Baseline(str(tmp_path / "b.json"))
+    b.remember_gpus("gpubox", [G(index=1, temp=70.0)], 123.0)
+    b.save()
+    gpus, seen = Baseline(str(tmp_path / "b.json")).gpu_memory()["gpubox"]
+    assert seen == 123.0 and gpus[0].index == 1 and gpus[0].temp == 70.0
+    b.forget_gpus("gpubox")
+    b.save()
+    assert Baseline(str(tmp_path / "b.json")).gpu_memory() == {}
+
+
+@pytest.mark.parametrize("gpus", [
+    '{"x": {"seen_at": "no", "gpus": [{"index": 0}]}}',
+    '{"x": {"seen_at": 1, "gpus": [null]}}',
+    '{"x": {"seen_at": NaN, "gpus": [{"index": 0}]}}',
+    '{"x": {"seen_at": 1, "gpus": [{"index": true}]}}',
+    '{"x": {"seen_at": 1, "gpus": [{"index": 0, "temp": "hot"}]}}',
+    '{"x": {"seen_at": 1, "gpus": [{"index": 0, "name": 5}]}}',
+    '{"x": 5}',
+    '[1, 2]',
+])
+def test_baseline_ignores_bad_gpu_memory(tmp_path, gpus):
+    p = tmp_path / "b.json"
+    p.write_text('{"smart": {}, "sec": {}, "gpus": ' + gpus + '}')
+    assert Baseline(str(p)).gpu_memory() == {}
