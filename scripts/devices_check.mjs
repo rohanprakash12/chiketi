@@ -302,6 +302,31 @@ await pp.waitForSelector('.pick-row[data-id="sessions"]');
 await pp.uncheck('.pick-row[data-id="sessions"] .pick-on');
 await pp.waitForTimeout(3500);
 if (await pp.isChecked('.pick-row[data-id="sessions"] .pick-on')) fail('switching devices then a refresh discarded the edit');
+// A theme change (here: back to the house theme) keeps the unsaved edit.
+await pp.click('#variantRow button:has-text("House theme")');
+await pp.waitForTimeout(800);
+if (await pp.isChecked('.pick-row[data-id="sessions"] .pick-on')) fail('a theme change discarded the edit');
+// A device list that arrives after a newer one is dropped, not applied over the edit.
+let holdList = null, listHeld = false;
+await pp.route('**/api/devices', async r => {
+  if (listHeld) return r.continue();
+  listHeld = true;
+  const body = await (await r.fetch()).json();       // the state before Save, delivered late
+  holdList = () => r.fulfill({ json: body });
+});
+for (let i = 0; i < 30 && !holdList; i++) await pp.waitForTimeout(200);
+await pp.click('#devSave');                           // saves Other with Sessions unticked
+for (let i = 0; i < 20; i++) {
+  if (!(await api('GET', '/api/devices')).devices.find(d => d.id === other).screens.includes('sessions')) break;
+  await pp.waitForTimeout(200);
+}
+await pp.waitForTimeout(500);
+await pp.check('.pick-row[data-id="overview"] .pick-on');   // a new edit after the save
+await holdList();
+await pp.waitForTimeout(800);
+if (!(await pp.isChecked('.pick-row[data-id="overview"] .pick-on')) ||
+    await pp.isChecked('.pick-row[data-id="sessions"] .pick-on')) fail('a late device list replaced the draft');
+await pp.unroute('**/api/devices');
 console.log('ok   panel mode, screens, order and Save reach the display; edits survive refreshes');
 
 // 16. A late registration reply does not roll settings back.
@@ -354,7 +379,15 @@ const stall = http.createServer((req, res) => {
 await new Promise(r => stall.listen(0, '127.0.0.1', r));
 const stallBase = 'http://127.0.0.1:' + stall.address().port;
 const withHost = (h) => Object.assign({}, FIX.FULL, { 'sys.hostname': Object.assign({}, FIX.FULL['sys.hostname'], { value: h }) });
-await api('POST', `/api/devices/${oid}`, { mode: 'self', screens: ['screen1'], theme: 'Sci-Fi/TOS', auto_rotate: false });
+// The display follows the house theme, pinned to TOS here, so a theme reply
+// committed from a failed batch (Claude, below) would show.
+await api('POST', `/api/devices/${oid}`, { mode: 'self', screens: ['screen1'], theme: '', auto_rotate: false });
+const themesAs = (fam, variant) => async r => {
+  const j = await (await r.fetch()).json();
+  j.active_family = fam; j.active_variant = variant;
+  r.fulfill({ json: j });
+};
+await op2.route('**/api/themes', themesAs('Sci-Fi', 'TOS'));
 await op2.route('**/api/metrics', r => r.fulfill({ json: withHost('before-stall') }));
 await op2.waitForFunction(() => metrics && metrics['sys.hostname'] && metrics['sys.hostname'].value === 'before-stall' &&
   enabledScreens[0].id === 'screen1' && activeVariant === 'TOS', null, { timeout: 8000 });
@@ -364,11 +397,7 @@ for (const phase of ['/hold', '/body']) {
   await op2.unroute('**/api/metrics');
   await op2.unroute('**/api/themes');
   await op2.route('**/api/metrics', r => r.continue({ url: stallBase + phase }));
-  await op2.route('**/api/themes', async r => {                       // a distinguishable success
-    const j = await (await r.fetch()).json();
-    j.active_family = 'Others'; j.active_variant = 'Claude';
-    r.fulfill({ json: j });
-  });
+  await op2.route('**/api/themes', themesAs('Others', 'Claude'));     // a distinguishable success
   const hits = stallHits;
   for (let i = 0; i < 40 && stallHits === hits; i++) await op2.waitForTimeout(250);
   if (stallHits === hits) fail('the stall server was never asked (' + phase + ')');
@@ -381,6 +410,7 @@ for (const phase of ['/hold', '/body']) {
 }
 await op2.unroute('**/api/metrics');
 await op2.unroute('**/api/themes');
+await op2.route('**/api/themes', themesAs('Sci-Fi', 'TOS'));
 await op2.route('**/api/metrics', r => r.fulfill({ json: withHost('after-stall') }));
 await op2.waitForFunction(() => metrics['sys.hostname'].value === 'after-stall' &&
   document.getElementById('display').textContent.toUpperCase().includes('AFTER-STALL'), null, { timeout: 20000 });

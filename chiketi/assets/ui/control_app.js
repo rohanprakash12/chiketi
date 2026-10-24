@@ -61,10 +61,18 @@ function ago(t, now) {
 function currentDevice() {
   return devices.devices.find(d => d.id === selectedDevice) || null;
 }
+/* Device lists are numbered: one that arrives after a newer one is dropped,
+   or it would put back old screens and throw away the edit in progress. */
+let devicesSeq = 0, devicesApplied = 0;
 async function loadDevices() {
+  const seq = ++devicesSeq;
+  let got;
   try {
-    devices = await (await fetch(API + '/api/devices')).json();
+    got = await (await fetch(API + '/api/devices')).json();
   } catch (e) { return; }
+  if (seq < devicesApplied) return;
+  devicesApplied = seq;
+  devices = got;
   if (selectedDevice && !currentDevice()) {
     // Forgotten elsewhere: drop back to the house scope everywhere, so no
     // control keeps writing to a device that no longer exists.
@@ -133,7 +141,10 @@ function applyDeviceScope() {
   document.getElementById('deviceSettings').hidden = !d;
   document.getElementById('houseModeRow').hidden = !!d;
   if (!currentData) { renderDeviceBar(); return; }
-  if (d) {
+  // Rebuild the card from the server only for a different display or when its
+  // mode or screens changed there; a theme change keeps unsaved edits.
+  const fresh = !d || !pick || pickKey(d) !== pickBase;
+  if (d && fresh) {
     document.getElementById('devAutoRotate').checked = d.auto_rotate;
     document.getElementById('devSeconds').value = d.seconds;
     document.getElementById('devGear').checked = d.gear;
@@ -142,7 +153,7 @@ function applyDeviceScope() {
     pick = pickFrom(d);
     pickBase = pickKey(d);
     if (d.caps && d.caps.w && d.caps.h) updatePreviewAspectRatio(d.caps.w, d.caps.h);
-  } else {
+  } else if (!d) {
     pick = null;
     pickBase = null;
     loadSettings();
@@ -200,13 +211,31 @@ function renderPick() {
     row.querySelector('.pick-up').onclick = function () { pick.splice(i - 1, 0, pick.splice(i, 1)[0]); pickChanged(); };
     row.querySelector('.pick-down').onclick = function () { pick.splice(i + 1, 0, pick.splice(i, 1)[0]); pickChanged(); };
   });
+  renderPickWarnings();
+}
+/* Statuses and warnings follow the metrics (a feed comes up, a config appears).
+   Text only: rebuilding the rows every refresh would steal focus mid-click. */
+function refreshPickStatus() {
+  if (!pick || !currentDevice()) return;
+  document.querySelectorAll('#devScreens .pick-row').forEach(function (row) {
+    const st = row.querySelector('.pick-status');
+    const want = screenStatus(row.dataset.id);
+    if (st.textContent !== want) st.textContent = want;
+  });
+  renderPickWarnings();
+}
+function renderPickWarnings() {
+  const d = currentDevice();
+  const warnBox = document.getElementById('devWarn');
+  if (!d || !pick) { warnBox.textContent = ''; return; }
   const warn = [];
   const plan = screenPlan({ mode: d.mode, screens: pickedIds(), family: selectedFamily, variant: selectedVariant });
   if (d.mode === 'kiosk' && d.caps && d.caps.layout === 'strip' && pickedIds().length > 5) {
     warn.push('The side column fits 5 at full size; icons will shrink.');
   }
   if (plan.empty) warn.push("This display will show 'No screens to show'.");
-  warnBox.textContent = warn.join(' ');
+  const text = warn.join(' ');
+  if (warnBox.textContent !== text) warnBox.textContent = text;
 }
 function pickChanged() { renderPick(); renderScreens(); }
 
@@ -491,6 +520,7 @@ setInterval(async () => {
     const res = await fetch(API + '/api/metrics');
     metrics = await res.json();
     renderScreens();
+    refreshPickStatus();
   } catch(e) {}
 }, 3000);
 document.getElementById('devSave').addEventListener('click', async () => {
