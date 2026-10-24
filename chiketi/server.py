@@ -978,7 +978,7 @@ def _ui_asset(name: str) -> str:
 
 
 # The Kiosk looks: appended to screen_functions.js wherever it is inlined.
-KIOSK_JS = ("kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js")
+KIOSK_JS = ("kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js", "kiosk_retro.js")
 _DISPLAY_ASSETS = ("display.html", "display.css", "display_app.js", "shared_helpers.js",
                    "fonts.css", "screen_functions.js", "pairing.js", "screens.json") + KIOSK_JS
 

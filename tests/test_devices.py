@@ -417,7 +417,8 @@ def test_saved_screens_survive_new_defaults():
 # Phase 1 of the Kiosk looks: these themes draw the Kiosk screens.
 KIOSK_LOOKS_1 = ["Sci-Fi/TNG", "Sci-Fi/DS9", "Terminal/cyan", "Terminal/amber", "Terminal/phosphor",
                  "Terminal/red_alert", "Terminal/blue", "Terminal/hacker", "Terminal/Arch", "Terminal/Ubuntu",
-                 "Terminal/openSUSE", "Terminal/Mandriva"]
+                 "Terminal/openSUSE", "Terminal/Mandriva",
+                 "Vintage/Scanlines"]
 
 
 @pytest.mark.parametrize("theme", KIOSK_LOOKS_1)

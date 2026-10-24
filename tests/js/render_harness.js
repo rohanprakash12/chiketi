@@ -166,6 +166,8 @@ KIOSK_WORDS['Sci-Fi/TNG'] = LOOK_WORDS({ HL_YELLOW: 'CONDITION YELLOW' }, { gpuG
 });
 KIOSK_WORDS['Sci-Fi/DS9'] = LOOK_WORDS({ FULL: 'GREEN', KIOSK_CALM: 'GREEN', HL_YELLOW: 'YELLOW', HL_RED: 'RED', HL_BUSY: 'RED' }, {
   status: { ok: '#2A9D8F', warn: '#F2A33A', crit: '#FF3B30' } });
+// Phase 2. Scanlines speaks today's TOS words; its frame has no worst-colour part.
+KIOSK_WORDS['Vintage/Scanlines'] = LOOK_WORDS({}, { status: { ok: '', warn: '', crit: '' }, tallSess770: 7 });
 const wordsFor = function (fam, v) { return KIOSK_WORDS[fam + '/' + v]; };
 // Whether html says `word`, in the look's case (the Terminal looks speak lower case).
 const has = function (W, html, word) {
@@ -1008,7 +1010,7 @@ __HARNESS.skins.forEach(function (skin) {
         metrics = Object.assign({}, FIX.SESS_MANY, { 'sessions.list': Object.assign({}, sl, { value: sl.value.map(function (x, i) {
           return Object.assign({}, x, i < 2 ? { state: 'waiting', message: 'Claude is waiting for your input' } : { state: 'idle', message: '' }); }) }) });
         const got = attrs(R('sessions')(colors), 'data-session').length;
-        if (got < (h >= 770 ? 8 : (W.tallSess683 || 6))) fail('LOOKS', where + ' SESS_MANY', 'only ' + got + ' sessions in a tall frame');
+        if (got < (h >= 770 ? (W.tallSess770 || 8) : (W.tallSess683 || 6))) fail('LOOKS', where + ' SESS_MANY', 'only ' + got + ' sessions in a tall frame');
       }
       // GPUs: 8 cards at least.
       [['GPU_HOUSE_BUSY', 8], ['GPU_HOUSE_BUSY9', 9]].forEach(function (c) {

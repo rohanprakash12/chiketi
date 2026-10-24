@@ -637,7 +637,7 @@ class TestScreenModesServer:
         monkeypatch.setitem(server._UI_ASSET_CACHE, "screens.json", server._ui_asset("screens.json") + " ")
         assert server._display_build() != before
 
-    @pytest.mark.parametrize("name", ["kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js"])
+    @pytest.mark.parametrize("name", ["kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js", "kiosk_retro.js"])
     def test_kiosk_looks_are_inlined_and_in_the_build(self, monkeypatch, name):
         # The looks are part of the renderer script on both pages, and a change to one
         # reloads open displays.

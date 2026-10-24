@@ -4,7 +4,7 @@
       "name": "Kiosk",
       "themes": ["Sci-Fi/TOS", "Others/Claude", "Sci-Fi/TNG", "Sci-Fi/DS9",
                  "Terminal/cyan", "Terminal/amber", "Terminal/phosphor", "Terminal/red_alert", "Terminal/blue", "Terminal/hacker",
-                 "Terminal/Arch", "Terminal/Ubuntu", "Terminal/openSUSE", "Terminal/Mandriva"],
+                 "Terminal/Arch", "Terminal/Ubuntu", "Terminal/openSUSE", "Terminal/Mandriva", "Vintage/Scanlines"],
       "default_theme": "Sci-Fi/TOS",
       "screens": ["overview", "myday", "home", "lab", "sessions", "harness", "gpus"],
       "defaults": ["lab", "sessions", "gpus"]
