@@ -1962,3 +1962,76 @@ dictionary in the approval test (`:63` area) gains
 `"mode": "self", "screens": ["screen1", "screen2", "screen3", "screen4", "screen5"]`. It
 stays an exact comparison. Do the same in any other test comparing a whole `_public()`
 dictionary; find them with `grep -n '"gear":' tests/`.
+
+### Revisions, round 3
+
+**R21 (Task 6, a draft's baseline belongs to its device).** `applyDeviceScope()` sets
+`pickBase = d ? d.id + '|' + d.mode + '|' + d.screens.join() : null` whenever it builds
+`pick`. `loadDevices()` compares the selected device's current
+`d.id + '|' + d.mode + '|' + d.screens.join()` with `pickBase`, and calls
+`applyDeviceScope()` only if they differ. Switching devices therefore resets the baseline
+at once, and a refresh never discards an edit unless the server changed that device.
+
+devices_check step 18 adds the case:
+1. Select device A.
+2. Select device B and untick a box at once.
+3. Wait 3.5 s, past one refresh.
+4. Assert the box is still unticked.
+
+**R22 (Task 8, the uppercase hostname).** The TOS System Stats screen uppercases the
+hostname. R17's render checks therefore use
+`display.textContent.toUpperCase().includes('BEFORE-STALL')` (and `'AFTER-STALL'`),
+while the metric checks compare `metrics['sys.hostname'].value` exactly in lowercase.
+
+**R23 (Task 3, the backup is a precondition of every save; replaces R11, R13 and R18's
+mechanics).**
+- `load_state()` makes no backup. When `_needs_migration(raw)` holds, it adds
+  `"migrated": True` and `"migration_blob": <the bytes it read>` to its result.
+  `_sanitize` keeps neither.
+- `server.adopt_saved_state(saved, own_screen)`:
+  1. sets the global `_pending_backup = saved.get("migration_blob")`;
+  2. calls `apply_saved_state(saved)`;
+  3. calls `ensure_local` when `own_screen`;
+  4. calls `_persist()` if migrated or local was created.
+- `_persist()`, inside `_PERSIST_LOCK` and before building the snapshot:
+
+```python
+            global _pending_backup
+            if _pending_backup is not None:
+                from chiketi.state import migration_backup, state_path
+                if migration_backup(state_path(), _pending_backup) is None:
+                    return          # no usable backup: keep the old file untouched
+                _pending_backup = None
+```
+
+  Every write path goes through `_persist()`: start-up, admin routes, the coalesced
+  self-service flush and capability changes. No write can replace the old file without
+  a complete backup, and each later write retries the backup.
+
+`migration_backup(path, blob) -> "made" | "exists" | None`:
+1. Use `os.lstat(bak)` first:
+   - a **regular file** returns `"exists"`;
+   - anything else that exists (a symlink, dangling or not, a directory, a FIFO) returns
+     `None`, leaving it untouched;
+   - if nothing exists, go on.
+2. Write `tmp = f"{bak}.tmp-{os.getpid()}"` with
+   `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600`, then write, `flush` and `fsync`.
+3. Run `os.link(tmp, bak)`. On `FileExistsError`, re-run the `lstat` check, which lands
+   on `"exists"` or `None`.
+4. Unlink `tmp` in `finally`. Any `OSError` returns `None`.
+
+Tests (`tests/test_state.py`, `tests/test_server.py`):
+- **Made:** the backup equals the bytes read even after the source is replaced, and it is
+  made once (`"exists"` the second time).
+- **Dangling symlink at `bak`:** with an old file, `adopt_saved_state(saved, False)` leaves
+  the source byte-for-byte unchanged and the symlink untouched. A later `_persist()` (a
+  setting changed) also leaves it unchanged.
+- **Failed write:** with `os.fsync` monkeypatched to raise, there is no `bak` and no temp
+  file, and the source is unchanged after `adopt_saved_state` **and** after a
+  registration whose capabilities changed (call `DEVICES.register` and `_persist()`
+  directly). With `fsync` restored, the next `_persist()` makes the backup and then
+  writes the migrated file.
+- **Second start:** a second start with the migrated file sets no `migration_blob`, makes
+  no backup and does no start-up write.
+
+`tests/conftest.py` resets `_pending_backup` to `None`.
