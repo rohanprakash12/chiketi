@@ -103,6 +103,10 @@ call it. It returns:
 - `tabs` (Kiosk only): one entry per selected ID that belongs to the mode, in the same
   order, as `{id, label, color, built, live}`. `live` is true exactly when the ID is in
   `list`.
+- **Fallbacks are part of the plan**, so the display and the previews always agree:
+  - **Self:** when nothing selected can show (an empty list, or Terminal with only Clock
+    selected), `list` holds the first Self screen the theme has, and `fallback` is true.
+  - **Kiosk:** an empty `list` sets `empty: true`, and the "No screens" notice is drawn.
 
 This replaces `getScreenRegistry()` ×2, the harness `REGISTRY`, the site generator's
 `siteScreens()` and the hard-coded `bsTabList()`.
@@ -138,9 +142,11 @@ Each approved display gains two settings:
 - `mode` must be a known mode.
 - `screens` must be a list (at most 16 entries) of IDs that belong to the
   *resulting* mode, with no duplicates.
-- **Changing `mode` without `screens`** gives the new mode's defaults, and clears a
-  theme that the new mode does not allow.
-- `theme` must be `""` or a theme allowed in the resulting mode.
+- **Changing `mode` without `screens`** gives the new mode's defaults.
+- **Any actual mode change** clears a *stored* theme that the new mode does not allow,
+  whether or not `screens` is supplied.
+- A `theme` supplied in the request must be `""` or a theme allowed in the resulting
+  mode. Otherwise the whole request is rejected.
 - `mode` and `screens` are control-panel fields (`admin_update`). The display's own
   `POST /api/device/<id>` cannot change them.
 - The field allowlist is applied first. For self-service, a `mode` in the body is
@@ -181,9 +187,13 @@ gone, so nothing else used it.
   Any change of settings (`chiketiApplyDevice`) or of theme data calls it. Nothing
   keeps an index into an older plan. Rotation, swipes and number keys rebuild the plan
   and step through `plan.list`; a tab tap navigates to an ID.
-- **Settings arrive in order.** `pairing.js` numbers its device-status requests and
-  drops a response older than the newest one already applied. A slow reply can never
-  roll the display back to older settings.
+- **Settings arrive in order.** `pairing.js` numbers **every** request whose response
+  reaches `handle()`: registration (including the re-registration after a resize) and
+  device status alike. It drops a response older than the newest one already applied,
+  so a slow reply can never roll the display back to older settings.
+- **Polls do not overlap.** The display's 2.5 s poll is skipped while the previous one
+  is still in flight. Theme and metric batches are therefore applied in the order they
+  were requested, and an old batch cannot rebuild an old plan.
 - **Taps survive a redraw.** The display redraws every poll, and every second on a
   clock screen. A redraw can replace the tab under a finger between pointer-down and
   pointer-up. So:
@@ -271,8 +281,11 @@ These run once, when the new version first starts:
 - **A rollback loses the new fields.** An older chiketi loads the file fine and shows
   every screen, but its next save drops `mode`, `screens` and `kiosk_theme`. Upgrading
   again migrates the displays afresh to the defaults above.
-  - To keep chosen screens across a rollback, copy `state.json` before rolling back and
-    put the copy back after upgrading again.
+  - To keep chosen screens across a rollback, stop chiketi and copy `state.json` before
+    rolling back.
+  - To restore that copy after upgrading again: stop the service, put the copy back,
+    then start it. The server holds the state in memory, and a deploy restarts it, so a
+    file swapped under a running server would be overwritten on its next save.
   - The pre-migration backup restores the state as it was before this version.
 
 ## 6. Testing
@@ -285,7 +298,8 @@ These run once, when the new version first starts:
   - every colour is a known role or `#rrggbb`.
 - **pytest, devices:**
   - mode and screens validation (unknown ID, wrong mode, duplicates, non-list, too long);
-  - a mode switch resets screens and an unsupported theme;
+  - a mode switch resets screens and an unsupported theme; combined `{mode, screens}` and
+    `{mode, screens, theme}` requests clear or reject an unsupported theme;
   - a request with one valid and one invalid field changes nothing;
   - the starting mode follows the house's Kiosk data, for missing, empty, malformed and
     valid configs;
@@ -304,6 +318,8 @@ These run once, when the new version first starts:
   - Kiosk renderers exist for every Kiosk theme, and Self screens 1–4 exist for all
     17 themes;
   - the "No screens" notice renders, landscape and strip;
+  - Self fallback: an empty selection, and Terminal with only Clock, give a one-screen
+    `fallback` plan;
   - tab bars with 1, 2, 5 and 7 tabs stay within the layout-px rules;
   - **regression for the Go bug:** for many plans, the `data-screen` values in the tab
     bar are exactly the IDs of `plan.list`, and no unselected screen has a tab.
@@ -317,6 +333,8 @@ These run once, when the new version first starts:
     - **on a touch display, tap each live tab and see the screen change**;
     - a tap whose pointer-down and pointer-up straddle a forced redraw still navigates;
     - a grey tab does nothing;
+    - responses released in reverse order do not roll settings back: a delayed
+      registration answered after a newer status poll, and a delayed device-status reply;
     - a settings change reaches an open display without a reload, and keeps the current
       screen when it is still listed. The cases are a reorder, a mode switch with the
       same theme, and moving into and out of an empty Kiosk plan.
