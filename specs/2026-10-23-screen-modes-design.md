@@ -115,9 +115,15 @@ Each approved display gains two settings:
 
 **New displays:**
 - A new display starts in **Kiosk** with the Kiosk defaults if the house has Kiosk data
-  configured (`sessions.toml` or `homelab.toml` exists). Otherwise it starts in **Self**
-  with the Self defaults. This refines section 1 as agreed: on a stock install, Kiosk
-  would only show an empty screen.
+  configured. Otherwise it starts in **Self** with the Self defaults. This refines
+  section 1: on a stock install, Kiosk would only show an empty screen.
+  - "Configured" means the config loads: `sessions.toml` passes the sessions
+    collector's own loader, or `homelab.toml` passes `load_config()` with at least one
+    host.
+  - A missing, empty or malformed file does not count. Whether the feed is online does
+    not matter.
+  - It is worked out once at start-up (`kiosk_capable()`). A config change needs a
+    server restart anyway.
 - **chiketi's own screen:**
   - The kiosk browser that `chiketi` launches itself opens
     `/display?device=local`.
@@ -137,6 +143,10 @@ Each approved display gains two settings:
 - `theme` must be `""` or a theme allowed in the resulting mode.
 - `mode` and `screens` are control-panel fields (`admin_update`). The display's own
   `POST /api/device/<id>` cannot change them.
+- The field allowlist is applied first. For self-service, a `mode` in the body is
+  ignored, and a `theme` is checked against the *stored* mode. A forbidden field can
+  never cause an indirect reset.
+- Any invalid field rejects the whole request, and nothing changes.
 
 **The house theme per mode:**
 - The existing house theme (`theme` in `state.json`, `POST /api/theme/…`) is the
@@ -160,12 +170,28 @@ gone, so nothing else used it.
 
 ## 3. What a display does (`display_app.js`)
 
-- **Every poll**, the display:
-  1. resolves the theme (§2);
-  2. calls `screenPlan` with its own `mode` and `screens`;
-  3. sets the tab state from `plan.tabs`.
+- **One committed render state.** `renderDisplay()` is the only place that turns
+  settings into a screen. In one synchronous step it:
+  1. resolves the theme (§2) from the current `device` settings and theme data;
+  2. calls `screenPlan`;
+  3. sets the tab state from `plan.tabs`;
+  4. finds the current screen **by ID** in `plan.list`;
+  5. draws it.
 
-  Rotation, swipes, number keys and tab taps all move through `plan.list`.
+  Any change of settings (`chiketiApplyDevice`) or of theme data calls it. Nothing
+  keeps an index into an older plan. Rotation, swipes and number keys rebuild the plan
+  and step through `plan.list`; a tab tap navigates to an ID.
+- **Settings arrive in order.** `pairing.js` numbers its device-status requests and
+  drops a response older than the newest one already applied. A slow reply can never
+  roll the display back to older settings.
+- **Taps survive a redraw.** The display redraws every poll, and every second on a
+  clock screen. A redraw can replace the tab under a finger between pointer-down and
+  pointer-up. So:
+  - the tab's ID is taken at **pointer-down**, from the pressed element's
+    `data-screen`, together with the pointer ID;
+  - on pointer-up with the same pointer and less than 12 px of movement, the display
+    goes to that ID if it is still in the current plan, whatever element the pointer-up
+    landed on.
 - **Tabs (Kiosk):**
   - a tab is drawn for each selected screen, in order;
   - a `live` tab is coloured and carries `data-screen`;
@@ -189,6 +215,8 @@ gone, so nothing else used it.
   manual move pauses rotation for 30 s.
 - **Self mode** renders the original screens unchanged, with no tab bar.
 - `/api/display` no longer sends `screen_rotation` or `default_duration`.
+- `screens.json` is part of the display build ID (`_DISPLAY_ASSETS` in `server.py`). A
+  deploy that changes only the screen sets still makes open displays reload.
 
 ## 4. Control panel
 
@@ -239,8 +267,13 @@ These run once, when the new version first starts:
   the Go.
 - **`kiosk_theme` missing:** it becomes the house theme if that is a Kiosk theme,
   otherwise `Sci-Fi/TOS`.
-- `STATE_VERSION` stays 1. The change only adds fields, and an older chiketi ignores
-  them, so rolling back is safe: the old code shows every screen.
+- `STATE_VERSION` stays 1, because the change only adds fields.
+- **A rollback loses the new fields.** An older chiketi loads the file fine and shows
+  every screen, but its next save drops `mode`, `screens` and `kiosk_theme`. Upgrading
+  again migrates the displays afresh to the defaults above.
+  - To keep chosen screens across a rollback, copy `state.json` before rolling back and
+    put the copy back after upgrading again.
+  - The pre-migration backup restores the state as it was before this version.
 
 ## 6. Testing
 
@@ -253,12 +286,17 @@ These run once, when the new version first starts:
 - **pytest, devices:**
   - mode and screens validation (unknown ID, wrong mode, duplicates, non-list, too long);
   - a mode switch resets screens and an unsupported theme;
-  - the starting mode follows the house's Kiosk data;
+  - a request with one valid and one invalid field changes nothing;
+  - the starting mode follows the house's Kiosk data, for missing, empty, malformed and
+    valid configs;
   - the `local` device;
-  - the display's self-service call cannot change mode or screens;
+  - the display's self-service call cannot change mode or screens, and a self-service
+    `{mode, theme}` body checks the theme against the stored mode;
   - state migration (old device, bad `mode`, `screen_rotation` dropped, backup made once);
-  - the `kiosk_theme` route and validation;
-  - `/api/display` no longer carries `screen_rotation`.
+  - the `kiosk_theme` route: validation, a token required when one is configured, and a
+    foreign Origin rejected;
+  - `/api/display` no longer carries `screen_rotation`;
+  - changing only `screens.json` changes the display build ID.
 - **Renderer harness:**
   - the registry comes from `screens.json` and `screenRenderer`;
   - every built screen renders in every theme of its mode, with every fixture, at
@@ -277,7 +315,11 @@ These run once, when the new version first starts:
     - switch a display's mode;
     - tick and reorder its screens and see the display follow;
     - **on a touch display, tap each live tab and see the screen change**;
-    - a grey tab does nothing.
+    - a tap whose pointer-down and pointer-up straddle a forced redraw still navigates;
+    - a grey tab does nothing;
+    - a settings change reaches an open display without a reload, and keeps the current
+      screen when it is still listed. The cases are a reorder, a mode switch with the
+      same theme, and moving into and out of an empty Kiosk plan.
 - **The site generator** uses `screenRenderer` for the Self set, and `docs/site` is
   regenerated.
 
@@ -292,6 +334,6 @@ These run once, when the new version first starts:
   2. The plan, reviewed by Codex until approved.
   3. Build.
   4. The branch, reviewed by Codex until approved.
-  5. `chiketi-site deploy server` as a dry run.
+  5. `chiketi-site deploy server --dry-run`. Without `--dry-run`, the command deploys.
   6. Rohan's OK, then deploy.
   7. Check the Go (tap both tabs), the LCD (rotates through both) and the control panel.
