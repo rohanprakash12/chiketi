@@ -125,7 +125,7 @@ class Baseline:
             self._dirty = False
 
 
-_GPU_FLOATS = ("util", "vram_used", "vram_total", "temp", "power", "power_limit", "fan")
+_GPU_FLOATS = ("util", "vram_used", "vram_total", "temp", "power", "power_limit", "fan", "mem_temp")
 
 
 def _finite(v) -> bool:
@@ -153,7 +153,7 @@ def _gpus_from_json(rec) -> list[Gpu] | None:
             return None
         if any(g.get(k) is not None and not _finite(g.get(k)) for k in _GPU_FLOATS):
             return None
-        if not isinstance(g.get("name", ""), str) or not isinstance(g.get("bus_id", ""), str):
+        if any(not isinstance(g.get(k, ""), str) for k in ("name", "bus_id", "uuid")):
             return None
         for k in ("throttle", "procs"):
             v = g.get(k)

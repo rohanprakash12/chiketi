@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 
 MAX_LINES = 2000
 MAX_GPUS = 16
+MEM_TEMP_RANGE = (-50.0, 200.0)
+_UUID = re.compile(r"^(GPU|MIG)-[0-9A-Za-z-]+$")
 
 
 class ProbeError(ValueError):
@@ -39,6 +42,8 @@ class Gpu:
     throttle: int | None = None
     bus_id: str = ""
     procs: int | None = None
+    uuid: str = ""                         # the card's own id (12-field v2 lines), else ""
+    mem_temp: float | None = None          # memory (HBM) temperature, from gpu_mem_temp
     detail: bool = True
 
 
@@ -95,6 +100,11 @@ def _opt(s: str) -> float | None:
     return _float(s) if s.strip() else None
 
 
+def _uuid(s: str) -> str:
+    s = s.strip()[:64]
+    return s if _UUID.match(s) else ""
+
+
 def parse_probe(text: str) -> ProbeReport:
     pairs = []
     for line in text.splitlines()[:MAX_LINES]:
@@ -106,6 +116,7 @@ def parse_probe(text: str) -> ProbeReport:
         raise ProbeError("no probe_version line")
     r = ProbeReport(version=version)
     procs: dict[str, int] = {}
+    mem: dict[str, float] = {}
     for k, v in pairs:
         if k == "kind":
             r.kind = v.strip()
@@ -162,18 +173,24 @@ def parse_probe(text: str) -> ProbeReport:
             c = _int(n)
             if bus.strip() and c is not None:
                 procs[bus.strip().lower()] = c
+        elif k == "gpu_mem_temp":
+            bus, _, t = v.partition("|")
+            c = _float(t)
+            if bus.strip() and c is not None and MEM_TEMP_RANGE[0] <= c <= MEM_TEMP_RANGE[1]:
+                mem[bus.strip().lower()] = c
         elif k == "gpu":
             f = v.split("|")
-            idx = _int(f[0]) if len(f) == 11 else None
+            idx = _int(f[0]) if len(f) in (11, 12) else None
             if idx is None or idx < 0 or len(r.gpus) >= MAX_GPUS or any(g.index == idx for g in r.gpus):
                 continue
             r.gpus.append(Gpu(index=idx, name=f[1].strip()[:40], util=_opt(f[2]), vram_used=_opt(f[3]),
                               vram_total=_opt(f[4]), temp=_opt(f[5]), power=_opt(f[6]),
                               power_limit=_opt(f[7]), fan=_opt(f[8]), throttle=_hex(f[9]),
-                              bus_id=f[10].strip()[:32]))
+                              bus_id=f[10].strip()[:32], uuid=_uuid(f[11]) if len(f) == 12 else ""))
     if r.version >= 2:
         for g in r.gpus:
             g.procs = procs.get(g.bus_id.lower(), 0) if r.gpu_procs_query == "ok" else None
+            g.mem_temp = mem.get(g.bus_id.lower()) if g.bus_id else None
     else:
         # A v1 probe only knows temperatures, in nvidia-smi's order.
         r.gpu_query = "legacy"

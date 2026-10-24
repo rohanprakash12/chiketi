@@ -268,6 +268,9 @@ def test_baseline_remembers_gpus(tmp_path):
     '{"x": {"seen_at": 1, "gpus": [{"index": true}]}}',
     '{"x": {"seen_at": 1, "gpus": [{"index": 0, "temp": "hot"}]}}',
     '{"x": {"seen_at": 1, "gpus": [{"index": 0, "name": 5}]}}',
+    '{"x": {"seen_at": 1, "gpus": [{"index": 0, "mem_temp": "x"}]}}',
+    '{"x": {"seen_at": 1, "gpus": [{"index": 0, "mem_temp": Infinity}]}}',
+    '{"x": {"seen_at": 1, "gpus": [{"index": 0, "uuid": 5}]}}',
     '{"x": 5}',
     '[1, 2]',
 ])
@@ -285,3 +288,18 @@ def test_baseline_ignores_huge_numbers(tmp_path, gpus):
     p = tmp_path / "b.json"
     p.write_text('{"smart": {}, "sec": {}, "gpus": ' + gpus + '}')
     assert Baseline(str(p)).gpu_memory() == {}
+
+
+def test_baseline_remembers_uuid_and_mem_temp(tmp_path):
+    b = Baseline(str(tmp_path / "b.json"))
+    b.remember_gpus("gpubox", [G(index=0, uuid="GPU-a", mem_temp=84.0)], 1.0)
+    b.save()
+    g = Baseline(str(tmp_path / "b.json")).gpu_memory()["gpubox"][0][0]
+    assert (g.uuid, g.mem_temp) == ("GPU-a", 84.0)
+
+
+def test_baseline_without_uuid_or_mem_temp_loads(tmp_path):
+    p = tmp_path / "b.json"
+    p.write_text('{"smart": {}, "sec": {}, "gpus": {"x": {"seen_at": 1, "gpus": [{"index": 0, "temp": 50}]}}}')
+    g = Baseline(str(p)).gpu_memory()["x"][0][0]
+    assert (g.uuid, g.mem_temp, g.temp) == ("", None, 50)

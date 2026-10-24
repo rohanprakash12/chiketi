@@ -128,3 +128,49 @@ def test_gpu_cap_and_tool_absent():
     assert len(parse_probe(f"probe_version=2\ngpu_query=ok|20\n{lines}").gpus) == 16
     assert parse_probe("probe_version=2\ngpu_tool=absent\n").gpu_tool == "absent"
     assert parse_probe("probe_version=2\ngpu_query=fail|9\n").gpu_query == "fail"
+
+
+# --- UUID and memory temperature (spec §6.4) ---
+
+def test_twelve_fields_carry_uuid_and_eleven_still_parse():
+    r = parse_probe("probe_version=2\ngpu_query=ok|2\n"
+                    "gpu=0|a|1|2|3|4|5|6|7|0x0|00:01.0|GPU-abc-123\n"
+                    "gpu=1|b|1|2|3|4|5|6|7|0x0|00:02.0\n")
+    assert [(g.index, g.uuid) for g in r.gpus] == [(0, "GPU-abc-123"), (1, "")]
+
+
+@pytest.mark.parametrize("line", [
+    "gpu=0|n|1|2|3|4|5|6|7|0x0|b|GPU-1|extra",     # 13 fields
+])
+def test_thirteen_fields_dropped(line):
+    assert parse_probe("probe_version=2\ngpu_query=ok|1\n" + line + "\n").gpus == []
+
+
+def test_uuid_must_look_like_one():
+    r = parse_probe("probe_version=2\ngpu_query=ok|1\ngpu=0|a|1|2|3|4|5|6|7|0x0|b|[N/A]\n")
+    assert r.gpus[0].uuid == ""
+
+
+def test_mem_temp_matched_by_bus_id():
+    r = parse_probe("probe_version=2\ngpu_query=ok|3\n"
+                    "gpu=0|a|1|2|3|4|5|6|7|0x0|00000000:01:00.0|GPU-a\n"
+                    "gpu=1|a|1|2|3|4|5|6|7|0x0|00000000:02:00.0|GPU-b\n"
+                    "gpu=2|a|1|2|3|4|5|6|7|0x0|00000000:03:00.0|GPU-c\n"
+                    "gpu_mem_temp=00000000:01:00.0|84\n"
+                    "gpu_mem_temp=00000000:02:00.0|nan\n"
+                    "gpu_mem_temp=00000000:09:00.0|70\n")
+    assert [g.mem_temp for g in r.gpus] == [84.0, None, None]
+
+
+@pytest.mark.parametrize("v, want", [("250", None), ("-60", None), ("200", 200.0), ("-50", -50.0),
+                                     ("inf", None), ("", None)])
+def test_mem_temp_range(v, want):
+    r = parse_probe("probe_version=2\ngpu_query=ok|1\ngpu=0|a|1|2|3|4|5|6|7|0x0|00:01.0|GPU-a\n"
+                    f"gpu_mem_temp=00:01.0|{v}\n")
+    assert r.gpus[0].mem_temp == want
+
+
+def test_mem_temp_bus_case_insensitive():
+    r = parse_probe("probe_version=2\ngpu_query=ok|1\ngpu=0|a|1|2|3|4|5|6|7|0x0|0000:0A:00.0|GPU-a\n"
+                    "gpu_mem_temp=0000:0a:00.0|71\n")
+    assert r.gpus[0].mem_temp == 71.0
