@@ -4427,7 +4427,11 @@ function selfScreens(fam, v) {
 const KIOSK_RENDERERS = {
   'Sci-Fi/TOS': { lab: sfTosHomelab, sessions: sfTosSessions, gpus: sfTosGpus },
   'Others/Claude': { lab: claudeHomelab, sessions: claudeSessions, gpus: claudeGpus },
+  // kiosk_scifi.js, kiosk_terminal.js: landscape-only, letterboxed on other shapes.
+  'Sci-Fi/TNG': { lab: tngHomelab, sessions: tngSessions, gpus: tngGpus, notice: tngNotice, fluid: 'landscape' },
+  'Sci-Fi/DS9': { lab: ds9Homelab, sessions: ds9Sessions, gpus: ds9Gpus, notice: ds9Notice, fluid: 'landscape' },
 };
+// kiosk_terminal.js adds the Terminal boards (it loads after this file).
 function screenRenderer(id, fam, v) {
   const k = KIOSK_RENDERERS[fam + '/' + v];
   if (k && k[id] && id !== 'notice' && id !== 'fluid') return { fn: k[id], fluid: k.fluid === undefined ? true : k.fluid };
