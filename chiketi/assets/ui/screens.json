@@ -1,0 +1,32 @@
+{
+  "modes": {
+    "kiosk": {
+      "name": "Kiosk",
+      "themes": ["Sci-Fi/TOS", "Others/Claude"],
+      "default_theme": "Sci-Fi/TOS",
+      "screens": ["overview", "myday", "home", "lab", "sessions", "harness", "gpus"],
+      "defaults": ["lab", "sessions"]
+    },
+    "self": {
+      "name": "Self",
+      "themes": "all",
+      "default_theme": "Sci-Fi/TOS",
+      "screens": ["screen1", "screen2", "screen3", "screen4", "screen5"],
+      "defaults": ["screen1", "screen2", "screen3", "screen4", "screen5"]
+    }
+  },
+  "screens": {
+    "overview": {"name": "Overview", "label": "OVERVIEW", "built": false, "color": "label", "needs": null},
+    "myday":    {"name": "My Day", "label": "MY DAY", "built": false, "color": "a3", "needs": null},
+    "home":     {"name": "My Home", "label": "MY HOME", "built": false, "color": "a4", "needs": null},
+    "lab":      {"name": "Home Lab", "label": "HOME LAB", "built": true, "color": "dRam", "needs": "homelab"},
+    "sessions": {"name": "Sessions", "label": "SESSIONS", "built": true, "color": "#D97757", "needs": "sessions"},
+    "harness":  {"name": "AI Harness", "label": "AI HARNESS", "built": false, "color": "a2", "needs": null},
+    "gpus":     {"name": "GPUs", "label": "GPUS", "built": false, "color": "a1", "needs": null},
+    "screen1":  {"name": "System Stats", "built": true},
+    "screen2":  {"name": "NPU / AI", "built": true},
+    "screen3":  {"name": "Claude Usage", "built": true},
+    "screen4":  {"name": "GPU", "built": true},
+    "screen5":  {"name": "Clock", "built": true}
+  }
+}
