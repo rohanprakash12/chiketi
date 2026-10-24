@@ -303,10 +303,10 @@ def test_bad_mode_or_screens_rejected_and_nothing_changes(body):
 def test_mode_switch_clears_unsupported_theme():
     r, _ = reg()
     approved(r)                                                      # self
-    r.admin_update("kiosk-1", {"theme": "Terminal/hacker"})
+    r.admin_update("kiosk-1", {"theme": "Vintage/Tubes"})
     out = r.admin_update("kiosk-1", {"mode": "kiosk"})
     assert out["theme"] == "" and out["screens"] == ["lab", "sessions", "gpus"]
-    r.admin_update("kiosk-1", {"mode": "self", "theme": "Terminal/hacker"})
+    r.admin_update("kiosk-1", {"mode": "self", "theme": "Vintage/Tubes"})
     out = r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["sessions"]})   # with screens too
     assert out["theme"] == "" and out["screens"] == ["sessions"]
     r.admin_update("kiosk-1", {"theme": "Others/Claude"})
@@ -319,7 +319,7 @@ def test_supplied_unsupported_theme_rejects():
     approved(r)
     before = r.snapshot()
     with pytest.raises(ValueError):
-        r.admin_update("kiosk-1", {"theme": "Terminal/hacker"})
+        r.admin_update("kiosk-1", {"theme": "Vintage/Tubes"})
     with pytest.raises(ValueError):
         r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["lab"], "theme": "Vintage/VFD"})
     assert r.snapshot() == before
@@ -334,7 +334,7 @@ def test_self_service_cannot_change_mode_or_screens():
     assert out["mode"] == "kiosk" and out["screens"] == ["lab", "sessions", "gpus"] and out["seconds"] == 40
     # The theme is checked against the STORED mode, not the ignored one in the body.
     with pytest.raises(ValueError):
-        r.self_update("kiosk-1", {"mode": "self", "theme": "Terminal/hacker"})
+        r.self_update("kiosk-1", {"mode": "self", "theme": "Vintage/Tubes"})
     assert r.snapshot()["kiosk-1"]["theme"] == ""
 
 
@@ -368,7 +368,7 @@ def test_local_survives_full_registry():
 def test_load_migrates_devices_without_mode():
     old = {"go": {"name": "Go", "auto_rotate": False, "seconds": 20, "theme": "Sci-Fi/TOS", "gear": True,
                   "caps": GO},
-           "wide": {"name": "Wide", "auto_rotate": True, "seconds": 30, "theme": "Terminal/hacker",
+           "wide": {"name": "Wide", "auto_rotate": True, "seconds": 30, "theme": "Vintage/Tubes",
                     "gear": False, "caps": LCD},
            "bad": {"name": "Bad", "mode": "tv", "screens": ["lab"], "caps": {}},
            "kept": {"name": "Kept", "mode": "kiosk", "screens": ["sessions", "zzz", "sessions"], "caps": {}}}
@@ -378,13 +378,13 @@ def test_load_migrates_devices_without_mode():
     s = r.snapshot()
     assert (s["go"]["mode"], s["go"]["screens"], s["go"]["seconds"], s["go"]["theme"]) == \
         ("kiosk", ["lab", "sessions", "gpus"], 20, "Sci-Fi/TOS")
-    assert (s["wide"]["mode"], s["wide"]["theme"]) == ("kiosk", "")          # Terminal is not a Kiosk theme
+    assert (s["wide"]["mode"], s["wide"]["theme"]) == ("kiosk", "")          # Tubes is not a Kiosk theme (yet)
     assert (s["bad"]["mode"], s["bad"]["screens"]) == ("kiosk", ["lab", "sessions", "gpus"])
     assert s["kept"]["screens"] == ["sessions"]
     r2, _ = reg()                                                            # no Kiosk data in this house
     r2.load(old)
     assert r2.snapshot()["go"]["mode"] == "self"
-    assert r2.snapshot()["wide"]["theme"] == "Terminal/hacker"
+    assert r2.snapshot()["wide"]["theme"] == "Vintage/Tubes"
 
 
 def test_clean_devices_keeps_missing_mode_as_none():
@@ -392,7 +392,7 @@ def test_clean_devices_keeps_missing_mode_as_none():
     assert out["go"]["mode"] is None and out["go"]["screens"] is None
     out = clean_devices({"go": {"name": "Go", "mode": "self", "screens": ["screen2"], "caps": {}}})
     assert out["go"]["mode"] == "self" and out["go"]["screens"] == ["screen2"]
-    out = clean_devices({"go": {"name": "Go", "mode": "kiosk", "theme": "Terminal/hacker", "caps": {}}})
+    out = clean_devices({"go": {"name": "Go", "mode": "kiosk", "theme": "Vintage/Tubes", "caps": {}}})
     assert out["go"]["theme"] == ""
 
 
@@ -412,3 +412,23 @@ def test_saved_screens_survive_new_defaults():
     r.kiosk_capable = True
     r.load({"wide": {"name": "Wide", "mode": "kiosk", "screens": ["lab", "sessions"], "caps": {}}})
     assert r.snapshot()["wide"]["screens"] == ["lab", "sessions"]
+
+
+# Phase 1 of the Kiosk looks: these themes draw the Kiosk screens.
+KIOSK_LOOKS_1 = ["Sci-Fi/TNG", "Sci-Fi/DS9", "Terminal/cyan", "Terminal/amber", "Terminal/phosphor",
+                 "Terminal/red_alert", "Terminal/blue", "Terminal/hacker", "Terminal/Arch", "Terminal/Ubuntu",
+                 "Terminal/openSUSE", "Terminal/Mandriva"]
+
+
+@pytest.mark.parametrize("theme", KIOSK_LOOKS_1)
+def test_kiosk_device_keeps_each_new_look_across_a_restart(theme):
+    r, _ = reg()
+    r.kiosk_capable = True
+    approved(r)
+    out = r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["gpus", "lab"], "theme": theme})
+    assert (out["mode"], out["theme"], out["screens"]) == ("kiosk", theme, ["gpus", "lab"])
+    fresh, _ = reg()
+    fresh.kiosk_capable = True
+    fresh.load(r.snapshot())                                  # what state.json holds
+    s = fresh.snapshot()["kiosk-1"]
+    assert (s["mode"], s["theme"], s["screens"]) == ("kiosk", theme, ["gpus", "lab"])

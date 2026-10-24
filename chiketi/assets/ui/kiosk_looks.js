@@ -10,6 +10,11 @@
  *   kioskMenu()       the menu, from the plan (order, live, planned, attention).
  * server.py appends this file (and the looks) to screen_functions.js. */
 
+/* gq() in exact units: n/1024 of the width, unrounded. gq() keeps three decimals
+   (today's screens are pinned to that), which draws 22 as 21.9955 px and moves
+   text anti-aliasing off the agreed mockups. */
+function kq(n) { return (n * 100 / 1024) + 'cqw'; }
+
 function kioskH() { return layoutClass() === 'landscape' ? frameH() : 600; }
 
 /* Each Kiosk screen's status, as a word: today's inputs and precedence. */

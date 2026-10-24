@@ -155,6 +155,15 @@ KIOSK_WORDS['Sci-Fi/TNG'] = LOOK_WORDS({ HL_YELLOW: 'CONDITION YELLOW' }, { gpuG
     memCount: function (html) { return (html.match(/data-mem/g) || []).length; },
     memHas: function (html, t) { return new RegExp('data-mem[^>]*>\\s*' + t + 'C<').test(html); } });
 });
+['Arch', 'Ubuntu', 'openSUSE', 'Mandriva'].forEach(function (v) {
+  KIOSK_WORDS['Terminal/' + v] = LOOK_WORDS({ FULL: 'green', KIOSK_CALM: 'green', HL_YELLOW: 'yellow', HL_RED: 'red', HL_BUSY: 'red',
+    HL_STALE: 'stale', HL_PENDING: 'pending', HL_UNCONFIGURED: 'home lab not configured' }, { ci: true, more: /\+(\d+) more/i,
+    alertsByHost: true, hostCap: 12,
+    gpus: Object.assign({}, BS_WORDS.gpus, { FULL: 'gpus ', HL_PENDING: 'acquiring telemetry' }),
+    gpuWord: function (st) { return GPU_WORDS[st].toLowerCase(); }, status: { ok: '', warn: '', crit: '' },
+    memCount: function (html) { return (html.match(/data-mem/g) || []).length; },
+    memHas: function (html, t) { return new RegExp('data-mem[^>]*>mem ' + t + '&deg;<').test(html); } });
+});
 KIOSK_WORDS['Sci-Fi/DS9'] = LOOK_WORDS({ FULL: 'GREEN', KIOSK_CALM: 'GREEN', HL_YELLOW: 'YELLOW', HL_RED: 'RED', HL_BUSY: 'RED' }, {
   status: { ok: '#2A9D8F', warn: '#F2A33A', crit: '#FF3B30' } });
 const wordsFor = function (fam, v) { return KIOSK_WORDS[fam + '/' + v]; };

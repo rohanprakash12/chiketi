@@ -349,7 +349,7 @@ __SCREEN_FUNCTIONS__
 
 /* Previews: what the selection would show, from the same plan as the display
    (the display's draft screens, or the whole set of the house mode). */
-const NOTICE = { id: 'none', name: 'No screens', fn: kioskNotice, fluid: true };
+
 function renderScreens() {
   const el = document.getElementById('screens'); el.innerHTML = '';
   const c = (currentData.families[selectedFamily] || {})[selectedVariant];
@@ -359,7 +359,7 @@ function renderScreens() {
   const plan = screenPlan({ mode: mode, screens: d ? pickedIds() : SCREEN_SPEC.modes[mode].screens,
                             family: selectedFamily, variant: selectedVariant });
   activeFamily = selectedFamily;
-  for (const s of (plan.empty ? [NOTICE] : plan.list)) {
+  for (const s of (plan.empty ? [{ id: 'none', name: 'No screens', fn: plan.notice, fluid: true }] : plan.list)) {
     setTabPlan(plan.mode === 'kiosk' ? plan.tabs : null);
     const div = document.createElement('div');
     div.innerHTML = `<div class="screen-label">${esc(s.name)}</div>${s.fn(c)}`;
