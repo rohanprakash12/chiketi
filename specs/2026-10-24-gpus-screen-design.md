@@ -110,14 +110,15 @@ gpu_procs=<pci bus id>|<count>
   limited to 5 s, and the process query to 4 s, so the GPU part takes at most 14 s. Where it
   does not, there is no per-call bound, and the poller's SSH limit is the only one.
   - That limit (`run_probe`) rises from 20 s to 30 s.
-  - A poll takes as long as its slowest batch of hosts (eight run at once), and the next
-    poll starts `poll_seconds` after it finishes. §3's staleness allowance is built from
+  - A poll finishes after all hosts have been checked, with at most eight checks running at
+    once, and the next poll starts `poll_seconds` after it finishes. §3's staleness allowance is built from
     that schedule.
 
 ## 2. Parsing, state and alerts (`collectors/homelab/`)
 
 **`probe.py`**
-- New fields: `ProbeReport.gpu_query` (`"ok"`, `"fail"` or `None` when there was no query)
+- New fields: `ProbeReport.gpu_query` (`"ok"`, `"fail"`, `"legacy"` for a version-1
+  probe, or `None` when there was no query)
   and `ProbeReport.gpus`.
 - A `Gpu` dataclass: `index`, `name`, `util`, `vram_used`, `vram_total`, `temp`, `power`,
   `power_limit`, `fan`, `throttle` (an int or None), `bus_id`, `procs` (an int or None).
@@ -182,7 +183,7 @@ After each poll the snapshot gains:
     and their `seen_at`.
   - An `unreadable` sample is never used, not even partly, so every GPU on such a host is
     either remembered (UNREADABLE, with its age) or absent. Since no GPU of that host has
-    fresh evidence, preserving all its `gpu_temp:` keys (`keep_prefixes`) is exact.
+    fresh evidence, preserving all its `gpu_temp:` keys (the `keep` predicate) is exact.
   - Only a full `ok` confirms the inventory: a known GPU missing from it is removed (a
     pulled card does not linger).
   - A `legacy` sample replaces that host's rows entirely with its temperature list. A
