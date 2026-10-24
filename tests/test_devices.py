@@ -45,9 +45,15 @@ def test_clean_caps_truncates_and_strips():
     assert "\n" not in clean_caps({"browser": "a\nb"})["browser"]
 
 
+SELF_DEFAULT = ["screen1", "screen2", "screen3", "screen4", "screen5"]
+
+
 def test_starting_settings():
-    assert starting_settings(clean_caps(GO)) == {"auto_rotate": False, "seconds": 30, "theme": "", "gear": True}
-    assert starting_settings(clean_caps(LCD)) == {"auto_rotate": True, "seconds": 30, "theme": "", "gear": False}
+    assert starting_settings(clean_caps(GO)) == {"auto_rotate": False, "seconds": 30, "theme": "", "gear": True,
+                                                 "mode": "self", "screens": SELF_DEFAULT}
+    assert starting_settings(clean_caps(LCD))["auto_rotate"] is True
+    assert starting_settings(clean_caps(GO), kiosk=True)["mode"] == "kiosk"
+    assert starting_settings(clean_caps(GO), kiosk=True)["screens"] == ["lab", "sessions"]
     touch_picture = dict(GO, feed="picture")
     assert starting_settings(clean_caps(touch_picture))["auto_rotate"] is True
 
@@ -61,7 +67,7 @@ def test_register_pending_then_approve():
     assert again["code"] == out["code"]                      # same request, same code
     s = r.approve("kiosk-1", "Surface Go")
     assert s == {"id": "kiosk-1", "name": "Surface Go", "auto_rotate": False, "seconds": 30,
-                 "theme": "", "gear": True}
+                 "theme": "", "gear": True, "mode": "self", "screens": SELF_DEFAULT}
     assert r.status("kiosk-1", "192.0.2.202") == {"status": "approved", "settings": s}
     assert "kiosk-1" in r.snapshot()
 
@@ -247,3 +253,155 @@ def test_reregister_after_expiry_keeps_fresh_sighting():
 def test_ids_with_trailing_newline_rejected():
     for bad in ["go\n", "go\r\n", "go\n\n"]:
         assert not valid_id(bad)
+
+
+# ── Modes and screens ──────────────────────────────────────────────────────
+
+def approved(r, dev_id="kiosk-1", caps=GO):
+    r.register(dev_id, clean_caps(caps), "192.0.2.202")
+    return r.approve(dev_id, "Go")
+
+
+def test_new_display_mode_follows_kiosk_capability():
+    r, _ = reg()
+    assert approved(r)["mode"] == "self"
+    r2, _ = reg()
+    r2.kiosk_capable = True
+    s = approved(r2)
+    assert s["mode"] == "kiosk" and s["screens"] == ["lab", "sessions"]
+
+
+def test_admin_sets_mode_and_screens():
+    r, _ = reg()
+    r.kiosk_capable = True
+    approved(r)
+    out = r.admin_update("kiosk-1", {"screens": ["sessions", "overview", "lab"]})
+    assert out["screens"] == ["sessions", "overview", "lab"]
+    out = r.admin_update("kiosk-1", {"mode": "self"})
+    assert out["mode"] == "self" and out["screens"] == SELF_DEFAULT
+    out = r.admin_update("kiosk-1", {"mode": "kiosk", "screens": []})
+    assert out["mode"] == "kiosk" and out["screens"] == []
+    out = r.admin_update("kiosk-1", {"mode": "kiosk"})              # not a change: screens kept
+    assert out["screens"] == []
+
+
+@pytest.mark.parametrize("body", [
+    {"mode": "tv"}, {"mode": 1}, {"screens": "lab"}, {"screens": ["lab", "lab"]},
+    {"screens": ["screen1"]}, {"screens": ["zzz"]}, {"screens": [None]},
+    {"screens": ["lab"] * 17}, {"mode": "self", "screens": ["lab"]},
+])
+def test_bad_mode_or_screens_rejected_and_nothing_changes(body):
+    r, _ = reg()
+    r.kiosk_capable = True
+    approved(r)
+    before = r.snapshot()
+    with pytest.raises(ValueError):
+        r.admin_update("kiosk-1", dict(body, seconds=99))
+    assert r.snapshot() == before
+
+
+def test_mode_switch_clears_unsupported_theme():
+    r, _ = reg()
+    approved(r)                                                      # self
+    r.admin_update("kiosk-1", {"theme": "Terminal/hacker"})
+    out = r.admin_update("kiosk-1", {"mode": "kiosk"})
+    assert out["theme"] == "" and out["screens"] == ["lab", "sessions"]
+    r.admin_update("kiosk-1", {"mode": "self", "theme": "Terminal/hacker"})
+    out = r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["sessions"]})   # with screens too
+    assert out["theme"] == "" and out["screens"] == ["sessions"]
+    r.admin_update("kiosk-1", {"theme": "Others/Claude"})
+    assert r.admin_update("kiosk-1", {"mode": "self"})["theme"] == "Others/Claude"   # allowed: kept
+
+
+def test_supplied_unsupported_theme_rejects():
+    r, _ = reg()
+    r.kiosk_capable = True
+    approved(r)
+    before = r.snapshot()
+    with pytest.raises(ValueError):
+        r.admin_update("kiosk-1", {"theme": "Terminal/hacker"})
+    with pytest.raises(ValueError):
+        r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["lab"], "theme": "Vintage/VFD"})
+    assert r.snapshot() == before
+    assert r.admin_update("kiosk-1", {"mode": "self", "theme": "Vintage/VFD"})["theme"] == "Vintage/VFD"
+
+
+def test_self_service_cannot_change_mode_or_screens():
+    r, _ = reg()
+    r.kiosk_capable = True
+    approved(r)
+    out = r.self_update("kiosk-1", {"mode": "self", "screens": ["screen1"], "seconds": 40})
+    assert out["mode"] == "kiosk" and out["screens"] == ["lab", "sessions"] and out["seconds"] == 40
+    # The theme is checked against the STORED mode, not the ignored one in the body.
+    with pytest.raises(ValueError):
+        r.self_update("kiosk-1", {"mode": "self", "theme": "Terminal/hacker"})
+    assert r.snapshot()["kiosk-1"]["theme"] == ""
+
+
+def test_ensure_local():
+    r, _ = reg()
+    assert r.ensure_local("demo-host") is True
+    s = r.listing()["devices"][0]
+    assert (s["id"], s["name"], s["mode"], s["auto_rotate"], s["gear"]) == ("local", "demo-host", "self", True, False)
+    r.admin_update("local", {"seconds": 45, "name": "Desk"})
+    assert r.ensure_local("demo-host") is False
+    assert r.snapshot()["local"]["seconds"] == 45 and r.snapshot()["local"]["name"] == "Desk"
+    assert r.status("local", "127.0.0.1")["status"] == "approved"
+
+
+def test_local_survives_full_registry():
+    r, _ = reg()
+    for i in range(MAX_DEVICES):
+        r.register(f"d-{i}", {}, "192.0.2.5")
+        r.approve(f"d-{i}", f"D{i}")
+    r.ensure_local("demo-host")
+    r.admin_update("local", {"seconds": 45})
+    again, _ = reg()
+    again.load(clean_devices(r.snapshot()))
+    assert again.snapshot()["local"]["seconds"] == 45
+    assert len(again.snapshot()) == MAX_DEVICES + 1
+    r.register("d-extra", {}, "192.0.2.5")
+    with pytest.raises(ValueError):                               # local does not count, 32 others do
+        r.approve("d-extra", "Extra")
+
+
+def test_load_migrates_devices_without_mode():
+    old = {"go": {"name": "Go", "auto_rotate": False, "seconds": 20, "theme": "Sci-Fi/TOS", "gear": True,
+                  "caps": GO},
+           "wide": {"name": "Wide", "auto_rotate": True, "seconds": 30, "theme": "Terminal/hacker",
+                    "gear": False, "caps": LCD},
+           "bad": {"name": "Bad", "mode": "tv", "screens": ["lab"], "caps": {}},
+           "kept": {"name": "Kept", "mode": "kiosk", "screens": ["sessions", "zzz", "sessions"], "caps": {}}}
+    r, _ = reg()
+    r.kiosk_capable = True
+    r.load(old)
+    s = r.snapshot()
+    assert (s["go"]["mode"], s["go"]["screens"], s["go"]["seconds"], s["go"]["theme"]) == \
+        ("kiosk", ["lab", "sessions"], 20, "Sci-Fi/TOS")
+    assert (s["wide"]["mode"], s["wide"]["theme"]) == ("kiosk", "")          # Terminal is not a Kiosk theme
+    assert (s["bad"]["mode"], s["bad"]["screens"]) == ("kiosk", ["lab", "sessions"])
+    assert s["kept"]["screens"] == ["sessions"]
+    r2, _ = reg()                                                            # no Kiosk data in this house
+    r2.load(old)
+    assert r2.snapshot()["go"]["mode"] == "self"
+    assert r2.snapshot()["wide"]["theme"] == "Terminal/hacker"
+
+
+def test_clean_devices_keeps_missing_mode_as_none():
+    out = clean_devices({"go": {"name": "Go", "caps": {}}})
+    assert out["go"]["mode"] is None and out["go"]["screens"] is None
+    out = clean_devices({"go": {"name": "Go", "mode": "self", "screens": ["screen2"], "caps": {}}})
+    assert out["go"]["mode"] == "self" and out["go"]["screens"] == ["screen2"]
+    out = clean_devices({"go": {"name": "Go", "mode": "kiosk", "theme": "Terminal/hacker", "caps": {}}})
+    assert out["go"]["theme"] == ""
+
+
+def test_rotate_interval_seeds_new_devices(monkeypatch):
+    import dataclasses
+
+    from chiketi import devices
+    monkeypatch.setattr(devices, "TIMING", dataclasses.replace(devices.TIMING, rotate_interval_s=12))
+    r, _ = reg()
+    assert approved(r)["seconds"] == 12
+    r.load({"old": {"name": "Old", "seconds": 50, "caps": {}}})
+    assert r.snapshot()["old"]["seconds"] == 50

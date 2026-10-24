@@ -11,7 +11,7 @@ class TestTimingDefaults:
     def test_default_values(self):
         t = Timing()
         assert t.collect_interval_ms == 1500
-        assert t.rotate_interval_s == 10
+        assert t.rotate_interval_s == 30
         assert t.pause_duration_s == 30
 
     def test_is_frozen(self):
