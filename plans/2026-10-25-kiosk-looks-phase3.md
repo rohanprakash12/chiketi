@@ -156,3 +156,5 @@ Measured in the Go's own Chromium over CDP, the WebP parts served by the chiketi
 | GPUs, 9 states (GPU_HOUSE) | 464–620 ms | 117 ms | 150 ms |
 
 Budgets (spec): cold ≤ 1.5 s, warm median ≤ 150 ms, p95 ≤ 300 ms: all met.
+
+Memory: Chromium's renderer processes on the Go, sampled each minute over 60 minutes of Tubes tab rotation (every 10 s): 523 MB at the start, 530 MB at the end (+7 MB; budget < 50 MB).
