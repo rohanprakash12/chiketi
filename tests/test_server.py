@@ -1078,6 +1078,12 @@ class TestTubesAssets:
         assert server._tube_file("eye-back") is None
         assert isinstance(server._display_build(), str)
 
+    def test_a_listed_file_missing_on_disk_is_404(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(server, "_TUBES_DIR", str(tmp_path))
+        monkeypatch.setattr(server, "_TUBES_MANIFEST", {"hash": "abc", "files": {"gone": {}}})
+        monkeypatch.setattr(server, "_TUBES_CACHE", {})
+        assert server._tube_file("gone") is None
+
     def test_the_manifest_hash_is_in_the_display_build(self, monkeypatch):
         before = server._display_build()
         changed = dict(server._tubes_manifest(), hash="000000000000")

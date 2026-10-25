@@ -4180,7 +4180,7 @@ function gpuHouseData() {
   hosts.forEach(function (h, i) { if (!hostOrder.has(String(h.host))) hostOrder.set(String(h.host), i); });
   const ord = function (host) { return hostOrder.has(host) ? hostOrder.get(host) : 99; };
   const rows = ((gm.available && Array.isArray(gm.value)) ? gm.value.filter(isObj) : []).map(function (r) {
-    return Object.assign({}, r, { state: GPU_ORDER[r.state] !== undefined ? r.state : 'unknown',
+    return Object.assign({}, r, { state: Object.prototype.hasOwnProperty.call(GPU_ORDER, r.state) ? r.state : 'unknown',
                                   host: String(r.host == null ? '' : r.host), index: gpuFin(r.index) || 0 });
   });
   rows.sort(function (a, b) {

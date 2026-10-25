@@ -1023,8 +1023,11 @@ def _tube_file(key: str) -> bytes | None:
     if key not in _tubes_manifest()["files"]:
         return None
     if key not in _TUBES_CACHE:
-        with open(os.path.join(_TUBES_DIR, key + ".webp"), "rb") as fh:
-            _TUBES_CACHE[key] = fh.read()
+        try:
+            with open(os.path.join(_TUBES_DIR, key + ".webp"), "rb") as fh:
+                _TUBES_CACHE[key] = fh.read()
+        except OSError:
+            return None                     # listed but missing on disk: 404, not a dropped request
     return _TUBES_CACHE[key]
 _DISPLAY_ASSETS = ("display.html", "display.css", "display_app.js", "shared_helpers.js",
                    "fonts.css", "screen_functions.js", "pairing.js", "screens.json") + KIOSK_JS

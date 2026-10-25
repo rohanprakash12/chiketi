@@ -138,19 +138,27 @@ function renderDisplay() {
 
 /* Tubes draws rendered parts: keep the ones this display needs (its plan, its height)
    decoded, so a redraw or a tab change never waits on an image; release the rest. */
-let tubesKey = '', tubesHeld = [];
+const tubesHeldBy = {};
+let tubesHeld = [];
 function keepTubesDecoded(plan) {
   const want = plan.mode === 'kiosk' && activeFamily + '/' + activeVariant === 'Vintage/Tubes' ? tubNeeded(plan) : [];
-  const key = want.join('|');
-  if (key === tubesKey) return;
-  tubesKey = key;
-  tubesHeld = want.map(function (name) {
+  // Keep what is still wanted (the instrument parts stay put when only a panel changes).
+  Object.keys(tubesHeldBy).forEach(function (n) { if (want.indexOf(n) === -1) delete tubesHeldBy[n]; });
+  want.forEach(function (name) {
+    if (tubesHeldBy[name]) return;
     const im = new Image();
     im.src = tubUrl(name);
     if (im.decode) im.decode().catch(function () {});
-    return im;
+    tubesHeldBy[name] = im;
   });
+  tubesHeld = Object.keys(tubesHeldBy).map(function (n) { return tubesHeldBy[n]; });
 }
+/* A part that fails to load (a missing file, an old URL) is hidden, never a broken-image
+   icon: the panel steel and the windows' plain panes stay behind it. */
+document.addEventListener('error', function (e) {
+  const t = e.target;
+  if (t && t.tagName === 'IMG' && t.closest && t.closest('[data-look="Vintage/Tubes"]')) t.style.visibility = 'hidden';
+}, true);
 
 /* ── Polling: one at a time, each with a deadline. A stalled request must not
    stop the display updating (or noticing a new build), and a failed batch

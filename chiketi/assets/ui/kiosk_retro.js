@@ -528,9 +528,12 @@ function tubEye(cx, cy, d, pct, id) {
     `filter:drop-shadow(0 ${kq(3)} ${kq(4)} rgba(0,0,0,.75))`);
 }
 /* A backlit annunciator window (rendered frame and frosted glass, 9-slice) with lettering. */
+/* What a window shows if its image fails: a plain lit (or dark) pane, lettering readable. */
+const TU_ANN_PLAIN = { white: '#e8c9a0', amber: '#d9883a', red: '#c9503c', green: '#6fc46a', blue: '#7aa8d8', off: '#2a2620' };
 function tubAnn(x, y, w, h, col, inner, bw, attrs) {
   const b = bw || 7;
-  return tAbs(x, y, w, h, inner, `box-sizing:border-box;border:${kq(b)} solid transparent;border-image:url(${tubUrl('ann-' + col)}) 32 fill / ${kq(b)} stretch;` +
+  return tAbs(x, y, w, h, inner, `box-sizing:border-box;border:${kq(b)} solid transparent;background:${TU_ANN_PLAIN[col]};background-clip:padding-box;` +
+    `border-image:url(${tubUrl('ann-' + col)}) 32 fill / ${kq(b)} stretch;` +
     `color:${col === 'off' ? '#8a8172' : TU.ink};font-family:${TU_PLEX};font-weight:700;overflow:hidden;` +
     (col === 'off' ? '' : `box-shadow:0 0 ${kq(18)} ${TU_JC[col] || '#FFC070'}40`), attrs);
 }
@@ -547,13 +550,12 @@ function tubPanelH(h) {
   return best;
 }
 function tubSkin() { return kioskSkin('tube', TU.steel, PLEX); }
-const TU_MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 /* The frame: the panel for `variant` at this height, steel below it, the tab row in the
    display's order, the date window and the Nixie clock. Returns [html, layout]. */
 function tubFrame(variant, active, body) {
   const H = kioskH(), P = tubPanelH(H), L = TUBES_LAYOUT[variant][String(P)];
-  const D = kioskClock(), now = new Date();
+  const D = kioskClock();
   let h = tubImg('panel-' + variant + '-' + P, 0, 0, 1024, P);
   if (H > P) h += tAbs(0, P, 1024, H - P, '', `background:${TU.steel};box-shadow:inset 0 ${kq(1)} ${kq(2)} rgba(0,0,0,.8)`);
   const row = tubSlot(L, 'tabrow');
@@ -583,7 +585,7 @@ function tubFrame(variant, active, body) {
   });
   const dt = tubSlot(L, 'date'), ck = tubSlot(L, 'clock');
   h += tubAnn(dt.x, dt.y, dt.w, dt.h, 'white', `<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2">` +
-    `<span style="font-size:${kq(13)};letter-spacing:.12em">${D.day}</span><span style="font-size:${kq(15)};letter-spacing:.1em">${TU_MON[now.getMonth()]} ${now.getDate()}</span></div>`);
+    `<span style="font-size:${kq(13)};letter-spacing:.12em">${D.day}</span><span style="font-size:${kq(15)};letter-spacing:.1em">${D.date.slice(0, 3)} ${D.date.split(' ')[1]}</span></div>`);
   h += tubNixieRow(ck.x + 186, ck.y, ck.h, D.hm, 'r');
   return [bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;background:${TU.steel};overflow:hidden;font-size:${kq(16)}">` +
     h + body + `</div>`, 'landscape', 'Vintage/Tubes'), L];
@@ -621,7 +623,7 @@ function tubHomelab(c) {
     }).join('') + `</div>`;
     const hs = tubSlot(L, 'hosts'), fs = tubSlot(L, 'faults');
     const nh = A.hosts.length, ni = A.issues.length;
-    h += nh > 9 ? tubNixieRow(hs.x, hs.y + 6, 40, String(nh).slice(-2), 'l') : tubNixieRow(hs.x, hs.y, hs.h, pending && !nh ? ' ' : String(nh), 'l');
+    h += nh > 9 ? tubNixieRow(hs.x, hs.y + 6, 40, String(Math.min(nh, 99)), 'l') : tubNixieRow(hs.x, hs.y, hs.h, pending && !nh ? ' ' : String(nh), 'l');
     h += tubNixieRow(fs.x, fs.y, fs.h, pending ? '  ' : String(Math.min(ni, 99)).padStart(2, '0'), 'l');
     // Stations: nine slots; past nine, the eight worst and a plate for the rest.
     let shown = A.hosts, extra = [];
@@ -700,7 +702,7 @@ function tubSessions(c) {
           ? `<div style="height:100%;display:flex;align-items:center;justify-content:center;font-size:${kq(18)};letter-spacing:.1em">${tubPaint(note, 16, TU.ink, 'text-shadow:none')}</div>` : '');
         continue;
       }
-      const st = TU_SESS_WIN[s.state] ? s.state : 'idle';
+      const st = Object.prototype.hasOwnProperty.call(TU_SESS_WIN, s.state) ? s.state : 'idle';
       const tk = tubSlot(L, 'stok', k), sa = tubSlot(L, 'sagents', k), sr = tubSlot(L, 'srun', k);
       const fade = off ? 'opacity:.5;' : '';
       h += `<div data-session="${k}" style="${fade}">` + tubJewel(lp.x, lp.y, lp.d, TU_SESS_LAMP[st], st !== 'idle') +
@@ -710,9 +712,12 @@ function tubSessions(c) {
           `${esc(String(s.project || '').toUpperCase())} · <span data-lit>${TU_SESS_WORD[st]}</span>${st === 'waiting' && s.message ? ' · ' + esc(s.message) : ''}</div></div>`);
       const tok = kioskTok(s.tokens), unit = (/[KMB]$/.exec(tok) || [''])[0], num = tok === '--' ? '  ' : tok.replace(/[KMB]$/, '');
       h += tubNixieRow(tk.x - 20, tk.y, tk.h, num, 'r') + tAbs(tk.x - 16, tk.y + tk.h - 22, 18, 18, tubPaint(unit, 13));
-      h += tubNixieRow(sa.x, sa.y, sa.h, s.agents ? String(s.agents) : ' ', 'c');
-      const age = sessAge(s.since).split(' ')[0], u = /d/i.test(age) ? 'DAY' : /h/i.test(age) ? 'HR' : /m/i.test(age) ? 'MIN' : 'SEC';
-      h += tubNixieRow(sr.x - 36, sr.y, sr.h, age.replace(/[^0-9]/g, ''), 'r') + tAbs(sr.x - 32, sr.y + sr.h - 22, 34, 18, tubPaint(u, 12)) + `</div>`;
+      const ag = gpuFin(s.agents);
+      h += tubNixieRow(sa.x, sa.y, sa.h, ag ? String(Math.min(99, Math.max(0, Math.round(ag)))) : ' ', 'c');
+      const age = sessAge(s.since).split(' ')[0], digits = age.replace(/[^0-9]/g, '');
+      const u = /d/i.test(age) ? 'DAY' : /h/i.test(age) ? 'HR' : /m/i.test(age) ? 'MIN' : 'SEC';
+      h += (digits ? tubNixieRow(sr.x - 36, sr.y, sr.h, digits, 'r') + tAbs(sr.x - 32, sr.y + sr.h - 22, 34, 18, tubPaint(u, 12))
+        : tubNixieRow(sr.x - 36, sr.y, sr.h, '  ', 'r')) + `</div>`;
     }
     const f = tubSlot(L, 'sfoot');
     const left = off ? tubPaint('SESSION FEED OFFLINE · LAST UPDATE ' + (D.checkedAt ? hlClock(D.checkedAt) : 'NEVER'), 12, TU.warm)
@@ -729,11 +734,11 @@ function tubGpus(c) {
   return tubScreen(variant, 'gpus', function (L) {
     const empty = gpuEmptyNote(G);
     const f = tubSlot(L, 'gfoot');
-    const stale = G.stale ? tubPaint('TELEMETRY STALE · LAST UPDATE ' + G.checked + ' · ', 12, TU.warm) : '';
+    const stale = G.stale ? `<span data-lit style="color:${TU.warm}">TELEMETRY STALE · LAST UPDATE ${G.checked} · </span>` : '';
     if (empty) {
       return tubAnn(212, L.labels[0].y + 160, 600, 72, empty[1] === bsS().warn ? 'amber' : 'white',
         `<div style="height:100%;display:flex;align-items:center;justify-content:center;padding:0 ${kq(12)}">${tubPaint(empty[0], 14, TU.ink, 'text-shadow:none;white-space:normal;text-align:center')}</div>`) +
-        (stale ? tAbs(f.x, f.y, f.w, f.h, stale, 'display:flex;align-items:center') : '');
+        (stale ? tAbs(f.x, f.y, f.w, f.h, tubPaint(stale, 12), 'display:flex;align-items:center') : '');
     }
     const stc = function (g) { return g.state === 'critical' ? 'red' : g.state === 'throttling' || g.state === 'hot' || g.state === 'offline' || g.state === 'unreadable' ? 'amber' : g.state === 'busy' ? 'green' : 'blue'; };
     const tcol = function (t) { return t >= 85 ? TU.hot : t >= 75 ? TU.warm : TU.paint; };
@@ -770,11 +775,13 @@ function tubGpus(c) {
       b += tAbs(st.x, st.y - 9, big ? 204 : 212, 18, tubPaint('PROC ' + (gpuFin(g.procs) === null ? '--' : gpuFin(g.procs)), big ? 12 : 10), 'display:flex;justify-content:flex-end;align-items:center');
       h += `<div data-gpu-row="${esc(g.host)}|${g.index}" style="position:absolute;inset:0;${g.fresh ? '' : 'opacity:.6'}">${b}</div>`;
     });
-    const foot = stale + tubPaint(gpuFooterText(G), 12);
+    // The footer shrinks to the room the +N MORE count leaves, never over it.
+    const more = n > 8 ? '+' + (n - 8) + ' MORE' : '';
     const len = Array.from((stale + gpuFooterText(G)).replace(/<[^>]*>/g, '').replace(/&[a-z]+;|&#\d+;/g, 'x')).length;
-    const fz = Math.max(0.6, Math.min(1, 1000 / (len * 0.74 * 12)));
-    h += tAbs(f.x, f.y, f.w, f.h, `<span style="display:inline-flex;align-items:center;zoom:${fz.toFixed(3)}">${foot}</span>` +
-      (n > 8 ? tubPaint('+' + (n - 8) + ' MORE', 12) : ''), 'display:flex;justify-content:space-between;align-items:center;white-space:nowrap;overflow:hidden');
+    const room = f.w - (more ? (more.length + 2) * 0.74 * 12 : 0);
+    const fz = Math.max(0.6, Math.min(1, room / (len * 0.74 * 12)));
+    h += tAbs(f.x, f.y, f.w, f.h, `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;zoom:${fz.toFixed(3)}">${tubPaint(stale + gpuFooterText(G), 12)}</span>` +
+      (more ? tubPaint(more, 12, null, 'flex-shrink:0') : ''), 'display:flex;justify-content:space-between;align-items:center;gap:' + kq(12) + ';white-space:nowrap;overflow:hidden');
     return h;
   });
 }

@@ -990,6 +990,27 @@ __HARNESS.skins.forEach(function (skin) {
     eq('tubes needs notice', tubNeeded(plan([]))[0], 'panel-notice-720');
     setFrameH(600); metrics = FIX.FULL;
   }
+  // Tubes edge cases (build review): no bare unit for an unknown age, agents bounded,
+  // prototype-named states print nothing odd, 100+ hosts read 99, one clock for the date.
+  {
+    setFrameH(600); setTabPlan(null);
+    const sl = FIX.FULL['sessions.list'];
+    metrics = Object.assign({}, FIX.FULL, { 'sessions.list': Object.assign({}, sl, { value: [
+      { name: 'a', project: 'p', state: 'busy', since: null, tokens: 5, agents: 123456789 },
+      { name: 'b', project: 'p', state: 'constructor', since: Date.now() / 1000 - 60, tokens: 5, agents: 1 }] }) });
+    const sh = tubSessions(FAMILIES.Vintage.Tubes);
+    eq('tubes: unknown age has no bare unit', /data-session="0"[\s\S]*?>SEC</.test(sh.split('data-session="1"')[0]), false);
+    eq('tubes: agents capped at two tubes', (sh.split('data-session="0"')[1].split('data-session="1"')[0].match(/in12-back/g) || []).length <= 5, true);
+    eq('tubes: no prototype text', /native code|function Object/.test(sh), false);
+    const g = FIX.GPU_HOUSE['homelab.gpus'];
+    metrics = Object.assign({}, FIX.GPU_HOUSE, { 'homelab.gpus': Object.assign({}, g, { value: [Object.assign({}, g.value[1], { state: '__proto__' })] }) });
+    eq('tubes: gpu prototype state', /native code|function Object|\[object/.test(tubGpus(FAMILIES.Vintage.Tubes)), false);
+    const names = Array.from({ length: 105 }, function (_, i) { return 'h' + i; });
+    metrics = Object.assign({}, FIX.FULL, { 'homelab.hosts': Object.assign({}, FIX.FULL['homelab.hosts'], { value: names.map(function (n) { return { name: n, state: 'ok' }; }) }) });
+    const lh = tubHomelab(FAMILIES.Vintage.Tubes);
+    eq('tubes: +97 HOSTS', /\+97 HOSTS/.test(lh), true);
+    metrics = FIX.FULL;
+  }
   // A skin may say how GPU states are coloured; today's skins do not.
   kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
   eq('gpuState hook', gpuStateColor('busy'), '#abcabc');
