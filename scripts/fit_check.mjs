@@ -105,8 +105,19 @@ for (const [sid, fx] of CASES) {
           const scaleOf = a => { const m = /scale\(([\d.]+)\)/.exec(a && a.style ? a.style.transform || '' : ''); return m ? Number(m[1]) : 1; };
           const over = el => { for (let a = el; a; a = a.parentElement) { const k = scaleOf(a); if (k > 1) return (k - 1) / 2 * Math.max(vw, vh); } return 0; };
           document.querySelectorAll('.screen-frame *').forEach(el => {
-            const r = el.getBoundingClientRect();
-            if (r.width === 0 || r.height === 0) return;
+            const r0 = el.getBoundingClientRect();
+            if (r0.width === 0 || r0.height === 0) return;
+            // What shows: the box cut by every clipping ancestor (ellipsized text is fine).
+            const r = { left: r0.left, top: r0.top, right: r0.right, bottom: r0.bottom };
+            for (let a = el.parentElement; a && !a.classList.contains('screen-frame'); a = a.parentElement) {
+              const o = getComputedStyle(a).overflow;
+              if (o === 'hidden' || o === 'clip') {
+                const c = a.getBoundingClientRect();
+                r.left = Math.max(r.left, c.left); r.top = Math.max(r.top, c.top);
+                r.right = Math.min(r.right, c.right); r.bottom = Math.min(r.bottom, c.bottom);
+              }
+            }
+            if (r.right <= r.left || r.bottom <= r.top) return;
             const tol = 1 + over(el);
             if (r.right > vw + tol || r.bottom > vh + tol || r.left < -tol || r.top < -tol) {
               out.push(el.tagName + ' "' + (el.textContent || '').trim().slice(0, 30) + '" ' +

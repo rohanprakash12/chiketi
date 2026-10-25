@@ -6160,7 +6160,8 @@ function vfdGpus(c) {
     const word = VFD_GPU_WORD[st];
     // A cached row's age takes the model's line (compact rows: after the state word).
     const age = r.seen_at ? sessAge(r.seen_at) : '--';
-    const stateBox = `<div data-state data-fit style="white-space:nowrap;font-size:${kq(12)};line-height:1.1">` +
+    // A big row's legend wraps onto a second line, as the mockup; smaller rows keep one line.
+    const stateBox = `<div data-state data-fit style="white-space:${form === 'big' ? 'normal' : 'nowrap'};font-size:${kq(12)};line-height:1.1">` +
       (form === 'big' && word ? vleg(['BUSY', 'IDLE', 'THROT', 'HOT'], word, sc, 12) : vt(GPU_LABEL[st] || 'UNKNOWN', 12, sc, 2)) +
       (form === 'compact' && !r.fresh ? ' ' + vt('SEEN ' + age.split(' ')[0].toUpperCase(), 11, VF.gd, 1) : '') + `</div>`;
     const title = vfdUp(r.host) + ' ' + r.index;
