@@ -269,7 +269,10 @@ function tgrad(S, frac, n) {
 function tdsFrame(S, v, active, body) {
   const D = kioskClock();
   const worst = kioskWorst();
+  // The server's name, within the date line's 15 columns: the tabs start right after.
   const host = m('sys.hostname');
+  const name = host.available && host.value != null ? String(host.value) : '--';
+  const hostLine = Array.from('chiketi · ' + name).length <= 15 ? 'chiketi · ' + name : name;
   const tabs = kioskMenu(active).map(function (t, k) {
     const sup = TDS_SUP.charAt(k) || String(k + 1);
     if (t.active) {
@@ -283,7 +286,7 @@ function tdsFrame(S, v, active, body) {
       `font-size:${kq(19)};line-height:${kq(25)}">` +
     `<div style="position:absolute;left:${kq(14)};top:${kq(10)};display:flex;align-items:center;gap:${kq(16)}">${pixClock(S, D.hm)}` +
       `<div style="line-height:${kq(22)}"><div style="color:${S.label};font-size:${kq(17)}">${D.short} ${D.year}</div>` +
-      `<div style="color:${S.accent};font-size:${kq(17)};white-space:nowrap">chiketi · ${host.available ? esc(host.value) : '--'}</div></div></div>` +
+      `<div data-hostline style="color:${S.accent};font-size:${kq(17)};white-space:nowrap;max-width:${kq(156)};overflow:hidden;text-overflow:ellipsis">${esc(hostLine)}</div></div></div>` +
     `<div style="position:absolute;left:${kq(366)};right:${kq(8)};top:${kq(18)};display:flex;gap:${kq(4)};font-size:${kq(16)};line-height:${kq(24)};` +
       `white-space:nowrap;overflow:hidden">${tabs}</div>` +
     `<div style="position:absolute;left:${kq(8)};right:${kq(8)};top:${kq(80)};bottom:${kq(8)};border:1px solid ${S.dim};border-radius:${kq(8)};` +

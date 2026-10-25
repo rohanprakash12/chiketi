@@ -321,7 +321,7 @@ def test_supplied_unsupported_theme_rejects():
     with pytest.raises(ValueError):
         r.admin_update("kiosk-1", {"theme": "Vintage/Tubes"})
     with pytest.raises(ValueError):
-        r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["lab"], "theme": "Vintage/VFD"})
+        r.admin_update("kiosk-1", {"mode": "kiosk", "screens": ["lab"], "theme": "Vintage/Tubes"})
     assert r.snapshot() == before
     assert r.admin_update("kiosk-1", {"mode": "self", "theme": "Vintage/VFD"})["theme"] == "Vintage/VFD"
 
@@ -417,7 +417,8 @@ def test_saved_screens_survive_new_defaults():
 # Phase 1 of the Kiosk looks: these themes draw the Kiosk screens.
 KIOSK_LOOKS_1 = ["Sci-Fi/TNG", "Sci-Fi/DS9", "Terminal/cyan", "Terminal/amber", "Terminal/phosphor",
                  "Terminal/red_alert", "Terminal/blue", "Terminal/hacker", "Terminal/Arch", "Terminal/Ubuntu",
-                 "Terminal/openSUSE", "Terminal/Mandriva"]
+                 "Terminal/openSUSE", "Terminal/Mandriva",
+                 "Vintage/Scanlines", "Vintage/VFD"]
 
 
 @pytest.mark.parametrize("theme", KIOSK_LOOKS_1)

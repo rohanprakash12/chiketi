@@ -158,6 +158,59 @@ function kioskSkin(key, bg, font) {
   return _kioskSkins[id];
 }
 
+/* A look's variant of an existing skin (the Retro looks keep their family's glass,
+   glow and instruments): a frozen copy with the look's changes, cached by id, so a
+   shared skin object is never written and a theme switch cannot leak into it. */
+const _kioskVariants = {};
+function kioskSkinFrom(id, base, extra) {
+  if (!_kioskVariants[id]) _kioskVariants[id] = Object.freeze(Object.assign({}, base, extra || {}));
+  bsSkin(_kioskVariants[id]);
+  return _kioskVariants[id];
+}
+
+/* The alert list that scales with the count: big rows up to 4, then two compact
+   columns of up to 8 rows (the design), more rows past 16 alerts in a frame tall
+   enough to keep each at least 30 units. With more than fit, the last cell is the
+   "+N MORE" line. */
+function kioskIssueLayout(n, h) {
+  if (n <= 4) return { cols: 1, rows: Math.max(1, n), rowH: Math.min(76, Math.floor(h / Math.max(1, n))), big: true, shown: n, more: 0 };
+  let rows = Math.min(8, Math.ceil(Math.min(n, 16) / 2));
+  if (n > 16) rows = Math.max(8, Math.min(Math.ceil(n / 2), Math.floor(h / 30)));
+  const shown = n > rows * 2 ? rows * 2 - 1 : n;
+  return { cols: 2, rows: rows, rowH: Math.floor(h / rows), big: false, shown: shown, more: n - shown };
+}
+
+/* Text width for the looks' host grids, as an upper bound up to device-pixel rounding
+   at 1024 wide and up: the advance widths of the bundled fonts (Antonio at weight 400,
+   upper case; Share Tech Mono is monospace), letter spacing included, counted after
+   upper-casing (which can lengthen a name: ß is SS), plus a unit a character for the
+   rounding. A character outside the table makes the width unknown (Infinity), so the
+   grid falls back to equal columns. */
+const KIOSK_EM = {
+  antonio: {" ":0.241,"!":0.258,"\"":0.363,"#":0.417,"$":0.393,"%":1.063,"&":0.468,"'":0.202,"(":0.273,")":0.273,"*":0.427,"+":0.332,",":0.226,"-":0.34,".":0.26,"/":0.356,"0":0.417,"1":0.417,"2":0.417,"3":0.417,"4":0.417,"5":0.417,"6":0.417,"7":0.417,"8":0.417,"9":0.417,":":0.239,";":0.274,"<":0.356,"=":0.353,">":0.356,"?":0.417,"@":0.743,"A":0.443,"B":0.448,"C":0.448,"D":0.466,"E":0.369,"F":0.365,"G":0.458,"H":0.48,"I":0.242,"J":0.428,"K":0.444,"L":0.339,"M":0.633,"N":0.495,"O":0.461,"P":0.437,"Q":0.461,"R":0.458,"S":0.404,"T":0.307,"U":0.466,"V":0.431,"W":0.654,"X":0.389,"Y":0.404,"Z":0.337,"[":0.307,"\\":0.359,"]":0.307,"^":0.449,"_":0.365,"`":0.198,"{":0.321,"|":0.262,"}":0.321,"~":0.545},
+  stm: 0.54,
+};
+function kioskTextW(text, font, size, ls) {
+  return Array.from(String(text == null ? '' : text).toUpperCase()).reduce(function (w, ch) {
+    const em = font === 'stm' ? (ch >= ' ' && ch <= '~' ? KIOSK_EM.stm : null)
+      : (KIOSK_EM.antonio[ch] !== undefined ? KIOSK_EM.antonio[ch] : null);
+    return em === null ? Infinity : w + em * size + (ls || 0) + 1;
+  }, 0);
+}
+/* A three-column host grid, filled row by row: sized to the names, as the mockups
+   (repeat(3,1fr) gives a column with a long name more room), when each column's widest
+   row (`widths`, upper bounds from kioskTextW) adds up to no more than `avail`, the
+   three tracks' room; otherwise three equal columns with names cut short, so a long
+   name can never push the grid off the screen. */
+function kioskCols(widths, avail) {
+  const need = [0, 1, 2].reduce(function (sum, c) {
+    let most = 0;
+    widths.forEach(function (w, i) { if (i % 3 === c) most = Math.max(most, w); });
+    return sum + most;
+  }, 0);
+  return need <= avail ? 'repeat(3,1fr)' : 'repeat(3,minmax(0,1fr))';
+}
+
 /* The empty-plan notice for a theme: its look's own, else today's. */
 function kioskNoticeFor(fam, v) {
   const k = KIOSK_RENDERERS[fam + '/' + v];

@@ -30,7 +30,7 @@ function tngFrame(active, title, summary, body) {
       `color:#000;font-size:${kq(16)};font-weight:600;letter-spacing:.05em;border-left:${kq(4)} solid #000;white-space:nowrap;` +
       `min-width:0;overflow:hidden;text-overflow:ellipsis">${x[0]}</span>`;
   }).join('');
-  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:#000;font-family:Antonio;color:${K.text};text-transform:uppercase">` +
+  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:#000;font-family:Antonio;font-size:${kq(16)};color:${K.text};text-transform:uppercase">` +
     `<div style="position:absolute;left:${kq(10)};top:${kq(10)};width:${kq(150)};height:${kq(96)};background:${sc};border-radius:${kq(40)} 0 0 0">` +
       `<i style="position:absolute;right:0;bottom:0;width:${kq(26)};height:${kq(84)};background:#000;border-radius:${kq(18)} 0 0 0"></i>` +
       `<div style="position:absolute;left:${kq(12)};right:${kq(30)};bottom:${kq(6)};text-align:right;color:#000;line-height:1">` +
@@ -134,7 +134,7 @@ function tngHomelab(c) {
   else {
     const systems = new Set(L.issues.map(function (i) { return String(i.host); })).size;
     body = tngSec(K.violet, 'SYSTEMS', 'UP / HEALTH') +
-      `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
+      `<div style="display:grid;grid-template-columns:${kioskCols(L.hosts.map(function (h) { const fs = SH > 40 ? 25 : 21; return 146 + kioskTextW(h.name, 'antonio', fs, fs * 0.04); }), 830)};gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
       `<div style="margin-top:${kq(12)}">` +
         tngSec(n ? sc(L.issues[0]) : K.blue, 'ALERTS', L.mode === 'pending' ? 'ACQUIRING TELEMETRY' : `${n} OPEN · ${systems} SYSTEMS`) + `</div>` +
       `<div style="margin-top:${kq(6)};height:${kq(AH)};overflow:hidden">${list}</div>`;
@@ -149,14 +149,14 @@ function tngSessions(c) {
   const D = kioskSess();
   const H = kioskH();
   const cols = [22, 'minmax(0,1fr)', 130, 160, 100, 64, 86].map(function (w) { return typeof w === 'number' ? kq(w) : w; }).join(' ');
-  // Five rows at the design height, more in a taller frame, never more than fit.
+  // Five rows at the design height (the mockup), as many as fit in a taller frame.
   const budget = H - 76 - 22, rowsH = function (list) {
     return list.reduce(function (a, s) { return a + (s.message ? 80 : 68) + 6; }, 0);
   };
   const capFor = function (room) {
     let k = 0;
     while (k < D.list.length && rowsH(D.list.slice(0, k + 1)) <= room) k++;
-    return Math.min(k, 5 + Math.max(0, Math.floor((H - 600) / 74)));
+    return H <= 600 ? Math.min(k, 5) : k;
   };
   const f = kioskFit(D.list.length, capFor(budget), capFor(budget - 34));
   const shown = D.list.slice(0, f.shown);
@@ -224,6 +224,8 @@ function tngGpus(c) {
   const budget = room - (inline ? 0 : groupsIn(f.shown) * 34);
   const rowH = Math.max(42, Math.min(78, Math.floor((budget - (f.more ? 26 : 0)) / Math.max(1, f.shown))));
   const big = rowH >= 62;
+  // A row near its 42-unit minimum takes smaller figures so its two-line cells fit.
+  const tight = rowH < 52;
   const bar = function (pct, color) {
     const w = pct === null ? 0 : Math.max(0, Math.min(100, pct));
     return `<div style="height:${kq(16)};border-radius:${kq(8)};background:${K.track};overflow:hidden">` +
@@ -235,20 +237,20 @@ function tngGpus(c) {
     const v = gpuVram(g);
     const mt = gpuFin(g.mem_temp);
     const mem = mt !== null && mt >= -50 && mt <= 200
-      ? `<div style="font-size:${kq(15)};color:${mt >= 85 ? K.peach : K.dim}">MEM ${Math.round(mt)}&deg;</div>` : '';
+      ? `<div style="font-size:${kq(15)};${tight ? 'line-height:1;' : ''}color:${mt >= 85 ? K.peach : K.dim}">MEM ${Math.round(mt)}&deg;</div>` : '';
     const seen = g.fresh ? '' : `<div style="font-size:${kq(12)};color:${K.dim};letter-spacing:.06em">SEEN ${g.seen_at ? sessAge(g.seen_at) : '--'} AGO</div>`;
     return `<div data-gpu-row="${esc(g.host)}|${g.index}" style="display:grid;grid-template-columns:${kq(big ? 120 : 104)} ${kq(128)} minmax(0,1fr) minmax(0,1fr) ${kq(84)} ${kq(140)};` +
         `gap:0 ${kq(14)};align-items:center;height:${kq(rowH)};${g.fresh ? '' : 'opacity:.6'}">` +
       `<div style="min-width:0"><div style="font-size:${kq(big ? 26 : 22)};color:${K.text};line-height:1">GPU ${g.index}</div>` +
         `<div style="font-size:${kq(14)};color:${K.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${inline ? esc(g.host) + ' · ' : ''}${esc(g.short)}</div></div>` +
       `<div>${tngPill(col, GPU_LABEL[g.state], 24)}${seen}</div>` +
-      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};color:${K.dim};letter-spacing:.1em"><span>LOAD</span>` +
+      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};${tight ? 'line-height:1.2;' : ''}color:${K.dim};letter-spacing:.1em"><span>LOAD</span>` +
         `<span style="color:${K.gold};font-size:${kq(19)}">${util === null ? '--' : Math.round(util) + '%'}</span></div>${bar(util, col)}</div>` +
-      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};color:${K.dim};letter-spacing:.1em"><span>VRAM</span>` +
+      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};${tight ? 'line-height:1.2;' : ''}color:${K.dim};letter-spacing:.1em"><span>VRAM</span>` +
         `<span style="color:${K.gold};font-size:${kq(19)}">${v.text}</span></div>${bar(v.pct, K.lilac)}</div>` +
-      `<div style="text-align:right;line-height:1"><span style="font-size:${kq(big ? 36 : 30)};color:${temp === null ? K.dim : temp >= 85 ? K.peach : K.blue}">` +
+      `<div style="text-align:right;line-height:1;${tight ? 'font-size:' + kq(24) : ''}"><span style="font-size:${kq(big ? 36 : tight ? 24 : 30)};color:${temp === null ? K.dim : temp >= 85 ? K.peach : K.blue}">` +
         `${temp === null ? '--' : Math.round(temp) + '&deg;'}</span>${mem}</div>` +
-      `<div style="text-align:right;line-height:1.1"><span style="font-size:${kq(big ? 27 : 23)};color:${K.text}">${pw === null ? '--' : Math.round(pw)}</span>` +
+      `<div style="text-align:right;line-height:1.1;${tight ? 'font-size:' + kq(20) : ''}"><span style="font-size:${kq(big ? 27 : tight ? 20 : 23)};color:${K.text}">${pw === null ? '--' : Math.round(pw)}</span>` +
         `<span style="font-size:${kq(16)};color:${K.dim}"> / ${lim === null ? '--' : Math.round(lim)} W</span>` +
         `<div style="font-size:${kq(15)};color:${K.dim}">${pr === null ? '--' : pr} PROC${pr === 1 ? '' : 'S'}</div></div></div>`;
   };
@@ -310,7 +312,7 @@ function ds9Frame(active, body, foot) {
   }).join('');
   const D = kioskClock();
   const worst = kioskWorst(), bar = D9_STATUS[worst];
-  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:${K.bg};font-family:Rajdhani;font-weight:600;` +
+  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:${K.bg};font-family:Rajdhani;font-weight:600;font-size:${kq(16)};` +
       `color:${K.steel};text-transform:uppercase">` +
     `<div style="position:absolute;left:0;right:0;top:0;height:${kq(6)};background:${bar};${worst === 'ok' ? '' : `box-shadow:0 0 ${kq(14)} ${bar}88;`}"></div>` +
     `<div style="position:absolute;left:${kq(14)};top:${kq(18)};display:flex;gap:${kq(4)}">${tabs}</div>` +
@@ -427,7 +429,7 @@ function ds9Sessions(c) {
   const capFor = function (room) {
     let k = 0, used = 0;
     while (k < D.list.length && used + (D.list[k].message ? RH[0] : RH[1]) + 6 <= room) { used += (D.list[k].message ? RH[0] : RH[1]) + 6; k++; }
-    return Math.min(k, 5 + Math.max(0, Math.floor((H - 600) / 66)));
+    return H <= 600 ? Math.min(k, 5) : k;
   };
   if (capFor(budget - 30) < Math.min(5, D.list.length) && D.list.length > capFor(budget)) RH = [62, 52];
   const f = kioskFit(D.list.length, capFor(budget), capFor(budget - 30));

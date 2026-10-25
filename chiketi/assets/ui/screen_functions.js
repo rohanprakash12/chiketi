@@ -4164,6 +4164,7 @@ const GPU_GAP = 12;   // tighter than Sessions: seven columns
 function gpuFin(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 function gpuStateColor(st) {
   const S = bsS();
+  if (typeof S.gpuState === 'function') return S.gpuState(st);   // a Kiosk look's own colours
   return st === 'critical' ? S.crit
     : (st === 'hot' || st === 'throttling' || st === 'unreadable' || st === 'offline') ? S.warn
     : st === 'busy' ? S.a4 : st === 'idle' ? S.label : S.dim;

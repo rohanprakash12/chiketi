@@ -484,10 +484,47 @@ const SESS_BUSY = sessionsFixture('ok', [
   { name: 'home-b0', project: '~', state: 'idle', since: NOW_S - 25200, message: null, tokens: 1175947, agents: 0 },
 ]);
 
+/* Phase 2 busy cases (spec: readable with 15 alerts, 7+ GPUs). Twelve hosts with
+   long names, fifteen issues across them, and the data stale. */
+const HL_LONG12 = (function () {
+  const names = ['build-runner-eleven', 'storage-array-main', 'backup-target-two', 'media-transcoder', 'home-assistant-core',
+                 'gateway-firewall', 'gpu-training-node', 'dev-workstation-a', 'kiosk-server-hub', 'print-and-scan',
+                 'camera-recorder-nvr', 'lab-switch-uplink'];
+  const issues = Array.from({ length: 15 }, function (_, i) {
+    return { host: names[i % 12], key: i === 1 ? 'down' : 'k' + i, severity: i < 3 ? 'crit' : 'warn',
+             title: i === 1 ? 'Unreachable' : 'Long issue title number ' + i + ' on this host', detail: 'detail ' + i,
+             since: NOW_S - 9000 + i * 300 };
+  });
+  const f = homelab('crit', issues, null, 3600);
+  f['homelab.hosts'] = mval(names.map(function (n) {
+    const mine = issues.filter(function (i) { return i.host === n; });
+    return { name: n, state: mine.some(function (i) { return i.severity === 'crit'; }) ? 'crit' : mine.length ? 'warn' : 'ok' };
+  }));
+  return f;
+})();
+/* Twelve hosts whose names are as wide as letters get (and lengthen when upper-cased). */
+const HL_WIDE12 = (function () {
+  const names = Array.from({ length: 12 }, function (_, i) { return i % 4 === 3 ? 'großstraßeßß' + i : 'WWWWWWWWWW' + String(i).padStart(2, '0'); });
+  const f = homelab('warn', [{ host: names[0], key: 'k', severity: 'warn', title: 'Wide name check', detail: '', since: NOW_S - 60 }]);
+  f['homelab.hosts'] = mval(names.map(function (n, i) { return { name: n, state: i ? 'ok' : 'warn' }; }));
+  return f;
+})();
+/* Eleven GPUs on four hosts, stale: every look's stale overflow path. */
+const GPU_HOUSE_STALE11 = (function () {
+  const f = gpuBusy(9);
+  const rows = f['homelab.gpus'].value.concat([gpuRow('gpubox', 3, 'busy'), gpuRow('devbox', 3, 'idle', { util: 0 })]);
+  return gpuHouse(rows, f['homelab.gpu_hosts'].value, { published_at: NOW_S - 9999 });
+})();
+/* Seven sessions, every one waiting with a message. */
+const SESS_MSG7 = sessionsFixture('ok', Array.from({ length: 7 }, function (_, i) {
+  return { name: 'waiting-session-' + i, project: 'proj' + i, state: 'waiting', since: NOW_S - 60 * (i + 1),
+           message: 'Claude needs your permission to use Bash (' + i + ')', tokens: 100000 * (i + 1), agents: i % 3 };
+}));
+
 /* Every Kiosk screen calm: Home Lab nominal, nobody waiting, GPUs fine. */
 const KIOSK_CALM = sessionsFixture('ok', FULL['sessions.list'].value.filter(function (s) { return s.state !== 'waiting'; }));
 
-module.exports = { HL_BUSY, HL_UNKNOWN, GPU_HOUSE_BUSY, GPU_HOUSE_BUSY9, SESS_BUSY, KIOSK_CALM, GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
+module.exports = { HL_BUSY, HL_UNKNOWN, HL_LONG12, HL_WIDE12, GPU_HOUSE_STALE11, SESS_MSG7, GPU_HOUSE_BUSY, GPU_HOUSE_BUSY9, SESS_BUSY, KIOSK_CALM, GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
                    GPU_HOUSE_INCOMPLETE_WITH_ROWS, GPU_HOUSE_STALE, GPU_HOUSE_STALE_EMPTY, GPU_HOUSE_SPARSE,
                    GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE, GPU_HOUSE_OLD, GPU_HOUSE_LONG_HOSTS,
                    GPU_HOUSE_MEM_EDGE, GPU_HOUSE_MEM_NULL,

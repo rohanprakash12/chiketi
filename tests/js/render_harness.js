@@ -90,7 +90,7 @@ function cleanModel() {
 // shared_helpers.js reads PANEL_SPEC at load time, so it must already be bound
 // (it is, above). Concatenated into a single eval -- see the note at the top.
 // The Kiosk looks follow screen_functions.js, as server.py inlines them.
-const KIOSK_JS = ['kiosk_looks.js', 'kiosk_scifi.js', 'kiosk_terminal.js'];
+const KIOSK_JS = ['kiosk_looks.js', 'kiosk_scifi.js', 'kiosk_terminal.js', 'kiosk_retro.js'];
 eval(
   fs.readFileSync(path.join(UI, 'shared_helpers.js'), 'utf8') + '\n' +
   fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8') + '\n' +
@@ -145,7 +145,7 @@ const KIOSK_WORDS = { 'Sci-Fi/TOS': BS_WORDS, 'Others/Claude': BS_WORDS };
 const LOOK_WORDS = function (lab, over) {
   return Object.assign({}, BS_WORDS, { lab: Object.assign({}, BS_WORDS.lab, lab) }, over || {});
 };
-KIOSK_WORDS['Sci-Fi/TNG'] = LOOK_WORDS({ HL_YELLOW: 'CONDITION YELLOW' }, { gpuGrouped: true,
+KIOSK_WORDS['Sci-Fi/TNG'] = LOOK_WORDS({ HL_YELLOW: 'CONDITION YELLOW' }, { gpuGrouped: true, tallSess683: 7,
   status: { ok: '#CC99CC', warn: '#FFCC66', crit: '#FF5544' } });
 ['cyan', 'amber', 'phosphor', 'red_alert', 'blue', 'hacker'].forEach(function (v) {
   KIOSK_WORDS['Terminal/' + v] = LOOK_WORDS({ FULL: 'GREEN', KIOSK_CALM: 'GREEN', HL_YELLOW: 'YELLOW', HL_RED: 'RED', HL_BUSY: 'RED',
@@ -166,11 +166,48 @@ KIOSK_WORDS['Sci-Fi/TNG'] = LOOK_WORDS({ HL_YELLOW: 'CONDITION YELLOW' }, { gpuG
 });
 KIOSK_WORDS['Sci-Fi/DS9'] = LOOK_WORDS({ FULL: 'GREEN', KIOSK_CALM: 'GREEN', HL_YELLOW: 'YELLOW', HL_RED: 'RED', HL_BUSY: 'RED' }, {
   status: { ok: '#2A9D8F', warn: '#F2A33A', crit: '#FF3B30' } });
+// Phase 2. Scanlines speaks today's TOS words; its frame has no worst-colour part.
+KIOSK_WORDS['Vintage/Scanlines'] = LOOK_WORDS({}, { status: { ok: '', warn: '', crit: '' }, tallSess770: 7 });
+// VFD lights its words: checked only where lit, and states in their own legends.
+KIOSK_WORDS['Vintage/VFD'] = LOOK_WORDS({ FULL: 'NORMAL', KIOSK_CALM: 'NORMAL', HL_YELLOW: 'CAUTION', HL_RED: 'ALERT', HL_BUSY: 'ALERT',
+  HL_STALE: 'STALE · CHECKED', HL_PENDING: 'ACQUIRING TELEMETRY', HL_UNCONFIGURED: 'HOME LAB NOT CONFIGURED' }, {
+  lit: true, tallSess770: 7, condWords: ['NORMAL', 'CAUTION', 'ALERT'], legend: ['BUSY', 'IDLE', 'THROT', 'HOT'],
+  gpuWord: function (st) { return { busy: 'BUSY', idle: 'IDLE', throttling: 'THROT', hot: 'HOT', critical: 'HOT' }[st] || GPU_WORDS[st]; },
+  // Big rows light the legend word, smaller rows the full word.
+  gpuLit: function (st) { return [{ busy: 'BUSY', idle: 'IDLE', throttling: 'THROT', hot: 'HOT', critical: 'HOT' }[st], GPU_WORDS[st]].filter(Boolean); },
+  status: { ok: '', warn: '', crit: '' },
+  memCount: function (html) { return (html.match(/data-mem/g) || []).length; },
+  memHas: function (html, t) { return new RegExp('data-mem[^>]*>(?:<span[^>]*>)?MEM ' + t + '&deg;<').test(html); },
+  upper: true });
 const wordsFor = function (fam, v) { return KIOSK_WORDS[fam + '/' + v]; };
 // Whether html says `word`, in the look's case (the Terminal looks speak lower case).
+const reEsc = function (t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
 const has = function (W, html, word) {
+  // A lit look (VFD) spells every state in its unlit legends too: only lit text counts.
+  if (W && W.lit) return new RegExp('data-lit[^>]*>[^<]*' + reEsc(word)).test(html);
   return W && W.ci ? html.toLowerCase().indexOf(word.toLowerCase()) !== -1 : html.indexOf(word) !== -1;
 };
+/* State containers (VFD): <div data-cond> / <div data-state>, markup up to its </div>. */
+const containers = function (html, marker) {
+  return html.split('<div ' + marker).slice(1).map(function (x) { return x.slice(0, x.indexOf('</div>')); });
+};
+const litIn = function (box, word) { return new RegExp('data-lit[^>]*>\\s*' + reEsc(word) + '\\s*<').test(box); };
+const litOnly = function (box, word, legend) {
+  return litIn(box, word) && legend.every(function (w) { return w === word || !litIn(box, w); });
+};
+// The helpers must reject: a ghost-only word, the wrong legend word lit, and the word lit
+// outside the container.
+(function () {
+  const ghost = '<span style="color:#13241e">BUSY</span>', lit = function (w) { return '<span data-lit style="color:#0f0">' + w + '</span>'; };
+  const L = ['BUSY', 'IDLE', 'THROT', 'HOT'];
+  const t1 = containers('<div data-state>' + ghost + lit('IDLE') + '</div>', 'data-state')[0];
+  const t2 = containers('<div data-state>' + lit('BUSY') + lit('HOT') + '</div>', 'data-state')[0];
+  const t3 = containers('<div data-state>' + ghost + '</div>' + lit('BUSY'), 'data-state')[0];
+  const t4 = containers('<div data-state>' + ghost + lit('THROT') + '</div>', 'data-state')[0];
+  if (litOnly(t1, 'BUSY', L) || litOnly(t2, 'BUSY', L) || litOnly(t3, 'BUSY', L) || !litOnly(t4, 'THROT', L)) {
+    console.error('HARNESS BROKEN: litOnly accepts a ghost, a second lit word or a word outside its container'); process.exit(2);
+  }
+})();
 /* Which layout a frame drew: 'strip' only when it says so. A full layout
    letterboxed on a strip is still the full layout (its MEM lines are fine). */
 const layoutOf = function (html) { return /class="screen-frame[^"]*\bstrip\b/.test(html) ? 'strip' : 'full'; };
@@ -446,7 +483,12 @@ for (const fixtureName of Object.keys(FIX)) {
       // Keyed by screen id, in each look's own words (KIOSK_WORDS).
       if (sid === 'lab') {
         const want = W.lab[fixtureName];
-        if (want && !has(W, html, want)) fail(fixtureName, label, 'banner missing "' + want + '"');
+        if (want && W.condWords && W.condWords.indexOf(want) !== -1) {
+          const box = containers(html, 'data-cond')[0];
+          if (!box || !litOnly(box, want, W.condWords)) fail(fixtureName, label, 'condition "' + want + '" not the one lit');
+        } else if (want && !has(W, html, want)) fail(fixtureName, label, 'banner missing "' + want + '"');
+        if (W.condWords && fixtureName === 'HL_STALE' && !litOnly(containers(html, 'data-cond')[0] || '', 'CAUTION', W.condWords)) fail(fixtureName, label, 'stale must light CAUTION only');
+        if (W.condWords && fixtureName === 'HL_PENDING' && W.condWords.some(function (w) { return litIn(containers(html, 'data-cond')[0] || '', w); })) fail(fixtureName, label, 'pending lights a condition');
         // (The new looks show what fits and count the rest exactly: the LOOKS block.)
         if (fixtureName === 'HL_RED' && !W.status && !W.more.test(html)) {
           fail(fixtureName, label, 'issues dropped without saying how many');
@@ -459,8 +501,10 @@ for (const fixtureName of Object.keys(FIX)) {
       if (sid === 'sessions') {
         const want = W.sessions[fixtureName];
         if (want && !has(W, html, want)) fail(fixtureName, label, 'missing "' + want + '"');
-        if (fixtureName === 'FULL' && !(html.indexOf('nfs2seredux-e0') < html.indexOf('kiosk-deploy-ef') &&
-            html.indexOf('kiosk-deploy-ef') < html.indexOf('tests-a1') && html.indexOf('tests-a1') < html.indexOf('ai-fabric-5f'))) {
+        // (VFD writes names in capitals.)
+        const at = function (t) { return html.indexOf(W.upper ? t.toUpperCase() : t); };
+        if (fixtureName === 'FULL' && !(at('nfs2seredux-e0') < at('kiosk-deploy-ef') &&
+            at('kiosk-deploy-ef') < at('tests-a1') && at('tests-a1') < at('ai-fabric-5f') && at('nfs2seredux-e0') !== -1)) {
           fail(fixtureName, label, 'sessions not ordered waiting, working, shell, idle');
         }
         if (fixtureName === 'SESS_MANY' && !W.more.test(html)) fail(fixtureName, label, 'sessions dropped silently');
@@ -475,7 +519,7 @@ for (const fixtureName of Object.keys(FIX)) {
         if (fixtureName === 'FULL' && !has(W, html, 'W NOW')) fail(fixtureName, label, 'no W NOW total');
         if (fixtureName === 'GPU_HOUSE_ONE_OFFLINE' && has(W, html, 'W NOW')) fail(fixtureName, label, 'subtotal sold as W NOW');
         if (fixtureName === 'GPU_HOUSE_NONE' && / W( |<|$)/.test(html.replace(/GPUS/g, ''))) fail(fixtureName, label, 'power shown for no GPUs');
-        if (fixtureName === 'GPU_HOUSE_STALE' && !has(W, html, 'CRITICAL')) fail(fixtureName, label, 'cached CRITICAL word lost');
+        if (fixtureName === 'GPU_HOUSE_STALE' && !has(W, html, W.gpuWord('critical'))) fail(fixtureName, label, 'cached CRITICAL word lost');
         if (fixtureName === 'GPU_HOUSE_SPARSE' && (/>\s*0%\s*</.test(html) || /NaN/.test(html))) fail(fixtureName, label, 'missing value shown as 0% or NaN');
         if (fixtureName === 'GPU_HOUSE_MANY' && !W.more.test(html)) fail(fixtureName, label, 'GPUs dropped silently');
         if (html.indexOf('screen-frame fluid') === -1) fail(fixtureName, label, 'GPUs must be fluid');
@@ -682,7 +726,7 @@ __HARNESS.skins.forEach(function (skin) {
         [600, 683, 246].forEach(function (h) {
           setFrameH(h);
           setTabPlan(plan.tabs);
-          const fn = plan.empty ? kioskNotice : plan.list[0].fn;
+          const fn = plan.empty ? plan.notice : plan.list[0].fn;
           let html;
           try { html = fn(FAMILIES[fv[0]][fv[1]]); } catch (e) { fail('PLAN', label, 'threw ' + e.message); return; }
           if (ids(html, 'data-screen').join() !== expected.join()) {
@@ -747,7 +791,8 @@ __HARNESS.skins.forEach(function (skin) {
                       procs: 1, state: st, detail: st !== 'nodetail', seen_at: nowS - 300 };
         metrics = withRows([row]);
         const html = t[2](colors);
-        if (!new RegExp('>\\s*' + W.gpuWord(st) + '\\s*<').test(html)) fail('GPUS', st + ' ' + where, 'state word missing');
+        if (W.lit ? !litOnly(containers(html, 'data-state')[0] || '', W.gpuWord(st), W.legend)
+                  : !new RegExp('>\\s*' + W.gpuWord(st) + '\\s*<').test(html)) fail('GPUS', st + ' ' + where, 'state word missing');
         if ((st === 'offline' || st === 'unreadable') && !has(W, html, 'SEEN')) fail('GPUS', st + ' ' + where, 'no SEEN age on a cached row');
       });
       ['GPU_HOUSE', 'GPU_HOUSE_TIES', 'GPU_HOUSE_MANY'].forEach(function (name) {
@@ -866,6 +911,38 @@ __HARNESS.skins.forEach(function (skin) {
   // Renderer metadata: today's Kiosk renderers stay fluid, plain true.
   eq('TOS fluid', screenRenderer('lab', 'Sci-Fi', 'TOS').fluid, true);
   eq('plan notice', typeof screenPlan({ mode: 'kiosk', screens: [], family: 'Sci-Fi', variant: 'TOS' }).notice, 'function');
+  // Look skins from any base (phase 2): frozen, cached by id, the base never written.
+  const SCAN = __HARNESS.allSkins()[4];
+  const v1 = kioskSkinFrom('t-core', SCAN, { kHour: '#123456' });
+  eq('skinFrom frozen', Object.isFrozen(v1), true);
+  eq('skinFrom cached', kioskSkinFrom('t-core', SCAN, { kHour: '#123456' }) === v1, true);
+  eq('skinFrom selects', bsS() === v1, true);
+  eq('skinFrom values', [v1.kHour, v1.key, SCAN.kHour], ['#123456', 'scan', undefined]);
+  // The scaling alert list.
+  const lay = function (n, h) { const L = kioskIssueLayout(n, h); return [L.cols, L.rows, L.big, L.shown, L.more]; };
+  eq('issues 3', lay(3, 300), [1, 3, true, 3, 0]);
+  eq('issues 3 rowH', kioskIssueLayout(3, 300).rowH, 76);
+  eq('issues 15', lay(15, 284), [2, 8, false, 15, 0]);
+  eq('issues 16', lay(16, 284), [2, 8, false, 16, 0]);
+  eq('issues 20', lay(20, 284), [2, 9, false, 17, 3]);
+  eq('issues 40 tall', lay(40, 480), [2, 16, false, 31, 9]);
+  eq('issues 0', lay(0, 284), [1, 1, true, 0, 0]);
+  // Host grids: sized to the names when they fit, equal columns when they would not.
+  const tngW = function (n) { return 146 + kioskTextW(n, 'antonio', 21, 21 * 0.04); };
+  eq('cols fit', kioskCols(['atlas', 'vesta', 'home assistant'].map(tngW), 830), 'repeat(3,1fr)');
+  eq('cols long', kioskCols(['build-runner-eleven', 'storage-array-main', 'backup-target-two'].map(tngW), 830), 'repeat(3,minmax(0,1fr))');
+  eq('cols wide letters', kioskCols(['WWWWWWWWWW00', 'WWWWWWWWWW01', 'WWWWWWWWWW02'].map(tngW), 830), 'repeat(3,minmax(0,1fr))');
+  eq('text width grows when upper-casing does', kioskTextW('ß', 'stm', 10, 0), 2 * (0.54 * 10 + 1));
+  eq('unknown glyphs make the width unknown', kioskTextW('ab漢', 'antonio', 20, 0), Infinity);
+  eq('unknown glyphs give equal columns', kioskCols([tngW('‰'), 200, 200], 830), 'repeat(3,minmax(0,1fr))');
+  // Either side of the threshold (830).
+  eq('cols just under', kioskCols([276, 277, 277], 830), 'repeat(3,1fr)');
+  eq('cols just over', kioskCols([276, 277, 278], 830), 'repeat(3,minmax(0,1fr))');
+  // A skin may say how GPU states are coloured; today's skins do not.
+  kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
+  eq('gpuState hook', gpuStateColor('busy'), '#abcabc');
+  bsSkin(__HARNESS.skins[0]);
+  eq('gpuState default', gpuStateColor('busy'), __HARNESS.skins[0].a4);
   // Distro roles.
   ['Arch', 'Ubuntu', 'openSUSE', 'Mandriva'].forEach(function (v) {
     ['warnA', 'crit', 'ok', 'off', 'ghost', 'ghostText'].forEach(function (k) {
@@ -892,6 +969,13 @@ __HARNESS.skins.forEach(function (skin) {
     return ids.map(function (id) { const s = SCREEN_SPEC.screens[id]; return { id: id, label: s.label, color: s.color, built: s.built, live: s.built }; });
   };
   const SKIN_SNAP = JSON.stringify(__HARNESS.allSkins());
+  // JSON drops functions: their identities are compared too.
+  const fnSnap = function () {
+    const out = [];
+    __HARNESS.allSkins().forEach(function (sk) { Object.keys(sk).forEach(function (k) { if (typeof sk[k] === 'function') out.push(sk[k]); }); });
+    return out;
+  };
+  const SKIN_FNS = fnSnap();
   KIOSK_THEMES.forEach(function (fv) {
     const key = fv.join('/'), W = wordsFor(fv[0], fv[1]);
     if (!W || !W.status) return;          // TOS and Claude: checked above, unchanged
@@ -951,6 +1035,57 @@ __HARNESS.skins.forEach(function (skin) {
         const hidden = c[1] - got.length;
         if (hidden ? !(more && Number(more[1]) === hidden) : !!more) fail('LOOKS', where + ' ' + c[0], 'MORE ' + (more && more[1]) + ' for ' + hidden + ' hidden');
       });
+      // Phase 2 busy cases, in every new look: twelve long-named hosts with fifteen
+      // stale alerts; seven sessions all with messages; eleven stale GPUs.
+      {
+        metrics = FIX.HL_LONG12;
+        const html = R('lab')(colors);
+        const hosts = attrs(html, 'data-host');
+        if (W.hostCap !== undefined ? hosts.length < 12 : hosts.length !== 12) fail('LOOKS', where + ' HL_LONG12', 'shows ' + hosts.length + ' of 12 hosts');
+        if (!W.alertsByHost) {
+          const got = attrs(html, 'data-alert').map(Number), more = W.more.exec(html);
+          if (got.length < 8 || got.join() !== got.map(function (_, i) { return i; }).join()) fail('LOOKS', where + ' HL_LONG12', 'alerts ' + got.join());
+          const hidden = 15 - got.length;
+          if (hidden ? !(more && Number(more[1]) === hidden) : !!more) fail('LOOKS', where + ' HL_LONG12', 'MORE ' + (more && more[1]) + ' for ' + hidden);
+        }
+        metrics = FIX.SESS_MSG7;
+        const sh = R('sessions')(colors), sg = attrs(sh, 'data-session').map(Number), sm = W.more.exec(sh);
+        if (sg.length < 5 || sg.join() !== sg.map(function (_, i) { return i; }).join()) fail('LOOKS', where + ' SESS_MSG7', 'sessions ' + sg.join());
+        if (7 - sg.length ? !(sm && Number(sm[1]) === 7 - sg.length) : !!sm) fail('LOOKS', where + ' SESS_MSG7', 'MORE ' + (sm && sm[1]));
+        metrics = FIX.GPU_HOUSE_STALE11;
+        const gh = R('gpus')(colors), gg = attrs(gh, 'data-gpu-row'), gm = W.more.exec(gh);
+        if (gg.length < 8) fail('LOOKS', where + ' GPU_HOUSE_STALE11', 'only ' + gg.length + ' GPUs');
+        if (11 - gg.length ? !(gm && Number(gm[1]) === 11 - gg.length) : !!gm) fail('LOOKS', where + ' GPU_HOUSE_STALE11', 'MORE ' + (gm && gm[1]));
+      }
+      // A lit look: each session's and GPU's own legend lights its state, and only that.
+      if (W.lit) {
+        const SW = { waiting: 'INPUT', busy: 'WORK', shell: 'SHELL', idle: 'IDLE' };
+        ['FULL', 'SESS_BUSY', 'SESS_MSG7'].forEach(function (fx) {
+          metrics = FIX[fx];
+          const list = sessData().list, html = R('sessions')(colors);
+          html.split('data-session="').slice(1).forEach(function (r, i) {
+            const box = containers(r, 'data-state')[0] || '';
+            if (!litOnly(box, SW[list[i].state] || 'IDLE', ['INPUT', 'WORK', 'SHELL', 'IDLE'])) fail('LOOKS', where + ' ' + fx + ' session ' + i, 'state legend wrong');
+          });
+        });
+        ['GPU_HOUSE_BUSY', 'GPU_HOUSE_BUSY9', 'GPU_HOUSE_STALE11'].forEach(function (fx) {
+          metrics = FIX[fx];
+          const rows = gpuHouseData().rows, html = R('gpus')(colors);
+          html.split('data-gpu-row="').slice(1).forEach(function (r, i) {
+            const box = containers(r, 'data-state')[0] || '';
+            if (!W.gpuLit(rows[i].state).some(function (w) { return litOnly(box, w, W.legend.concat(Object.values(GPU_WORDS))); })) fail('LOOKS', where + ' ' + fx + ' gpu ' + i, 'state not lit alone');
+          });
+        });
+      }
+      // No wasted space (the Go's 683, and 770): a taller frame shows more sessions, not
+      // the design height's five over a blank band.
+      if (h >= 683) {
+        const sl = FIX.SESS_MANY['sessions.list'];
+        metrics = Object.assign({}, FIX.SESS_MANY, { 'sessions.list': Object.assign({}, sl, { value: sl.value.map(function (x, i) {
+          return Object.assign({}, x, i < 2 ? { state: 'waiting', message: 'Claude is waiting for your input' } : { state: 'idle', message: '' }); }) }) });
+        const got = attrs(R('sessions')(colors), 'data-session').length;
+        if (got < (h >= 770 ? (W.tallSess770 || 8) : (W.tallSess683 || 6))) fail('LOOKS', where + ' SESS_MANY', 'only ' + got + ' sessions in a tall frame');
+      }
       // GPUs: 8 cards at least.
       [['GPU_HOUSE_BUSY', 8], ['GPU_HOUSE_BUSY9', 9]].forEach(function (c) {
         metrics = FIX[c[0]];
@@ -1008,6 +1143,17 @@ __HARNESS.skins.forEach(function (skin) {
         if (!/seen/i.test(r)) fail('LOOKS', key + ' h=576 offline row ' + i, 'cached row without its age');
       });
     }
+    // On-device (Go, 2026-10-24): a server name longer than the mockup's ran under the
+    // first tab. The header line stays within the date line's 15 columns.
+    if (W.alertsByHost) {
+      [['atlas', 'chiketi · atlas'], ['build-runner-eleven', 'build-runner-eleven']].forEach(function (c) {
+        metrics = Object.assign({}, FIX.FULL, { 'sys.hostname': Object.assign({}, FIX.FULL['sys.hostname'], { value: c[0] }) });
+        const html = R('lab')(colors);
+        const m2 = /<div data-hostline style="([^"]*)">([^<]*)</.exec(html);
+        if (!m2 || m2[2] !== c[1]) fail('LOOKS', key + ' host line ' + c[0], 'got ' + (m2 && m2[2]));
+        else if (c[0].length > 6 && !/max-width:[^;]*cqw;.*text-overflow:ellipsis/.test(m2[1])) fail('LOOKS', key + ' host line', 'long name not bounded');
+      });
+    }
     metrics = FIX.GPU_HOUSE_MANY;
     { const html = R('gpus')(colors);
       if (/all in the table/.test(html) && attrs(html, 'data-gpu-row').length < 12) fail('LOOKS', key + ' h=576', 'says all in the table while the table hides GPUs'); }
@@ -1019,6 +1165,9 @@ __HARNESS.skins.forEach(function (skin) {
       __HARNESS.resetState(); seedRandom(1);
       const fresh = R(id)(colors);
       scanScreen1(FAMILIES.Vintage.Scanlines); sfTosHomelab(FAMILIES['Sci-Fi'].TOS);
+      // and after the other Kiosk looks (TNG, both Scanlines rasters, VFD)
+      tngHomelab(FAMILIES['Sci-Fi'].TNG); scanGpus(FAMILIES.Vintage.Scanlines); scanHomelab(FAMILIES.Vintage.Scanlines);
+      if (typeof vfdHomelab === 'function') vfdHomelab(FAMILIES.Vintage.VFD);
       __HARNESS.resetState(); seedRandom(1);
       if (R(id)(colors) !== fresh) fail('LOOKS', key + ' ' + id, 'differs after Scanlines and TOS screens');
       R(id)(colors);
@@ -1035,6 +1184,7 @@ __HARNESS.skins.forEach(function (skin) {
     setTabPlan(null);
   });
   if (JSON.stringify(__HARNESS.allSkins()) !== SKIN_SNAP) fail('LOOKS', 'skins', 'a shared skin object was written');
+  { const now = fnSnap(); if (now.length !== SKIN_FNS.length || now.some(function (f, i) { return f !== SKIN_FNS[i]; })) fail('LOOKS', 'skins', 'a shared skin function was replaced'); }
   metrics = FIX.FULL;
 })();
 

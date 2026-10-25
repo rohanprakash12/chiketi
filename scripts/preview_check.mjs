@@ -61,7 +61,14 @@ for (const [fam, v] of THEMES) {
           f.querySelectorAll('*').forEach(function (el) {
             const r = el.getBoundingClientRect();
             if (!r.width || !r.height) return;
-            if (r.right > fr.right + 1 || r.bottom > fr.bottom + 1 || r.left < fr.left - 1 || r.top < fr.top - 1) {
+            // A skin's glass may overscan on purpose (Scanlines: scale(1.008), clipped by
+            // the frame): allow exactly that much past the edge, nothing more.
+            let tol = 1;
+            for (let a = el; a && a !== f; a = a.parentElement) {
+              const sc = /scale\(([\d.]+)\)/.exec(a.style.transform || '');
+              if (sc && Number(sc[1]) > 1) { tol += (Number(sc[1]) - 1) / 2 * Math.max(fr.width, fr.height); break; }
+            }
+            if (r.right > fr.right + tol || r.bottom > fr.bottom + tol || r.left < fr.left - tol || r.top < fr.top - tol) {
               bad.push('outside the preview: ' + el.tagName + ' "' + (el.textContent || '').trim().slice(0, 24) + '"');
             }
           });
