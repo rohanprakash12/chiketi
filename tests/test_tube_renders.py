@@ -27,7 +27,7 @@ def _manifest():
 
 
 def _js_const(name):
-    m = re.search(r"const %s = (.*?);\n" % name, LAYOUT_JS.read_text())
+    m = re.search(r"const " + name + r" = (.*?);\n", LAYOUT_JS.read_text())
     assert m, name
     return json.loads(m.group(1))
 
@@ -53,7 +53,7 @@ def test_every_variant_and_height_has_a_panel_and_a_layout():
     assert _js_const("TUBES_HEIGHTS") == layout.HEIGHTS
     for v in layout.VARIANTS:
         for h in layout.HEIGHTS:
-            name = "panel-%s-%d" % (v, h)
+            name = f"panel-{v}-{h}"
             assert name in files and files[name]["w"] == 2048 and files[name]["h"] == 2 * h, name
             assert js[v][str(h)]["slots"], (v, h)
 
@@ -101,7 +101,7 @@ def test_the_manifest_hash_covers_the_layout_and_every_file():
     m = _manifest()
     d = hashlib.sha256(m["layout_hash"].encode())
     # pack.py hashes in its own order: panels by variant and height, then the parts.
-    order = ["panel-%s-%d" % (v, h) for v in layout.VARIANTS for h in layout.HEIGHTS]
+    order = [f"panel-{v}-{h}" for v in layout.VARIANTS for h in layout.HEIGHTS]
     order += [n for n in _pack_parts()]
     assert sorted(order) == sorted(m["files"])
     for name in order:

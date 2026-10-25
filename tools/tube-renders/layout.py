@@ -35,7 +35,8 @@ def header(variant):
 
 def lab(H):
     plates, paint, labels, slots = header('lab')
-    plates += [dict(x=6, y=98, w=302, h=208), dict(x=316, y=98, w=702, h=208), dict(x=6, y=314, w=1012, h=H - 320)]
+    plates += [dict(x=6, y=98, w=302, h=208), dict(x=316, y=98, w=702, h=208),
+               dict(x=6, y=314, w=1012, h=H - 320)]
     paint += [dict(t='CONDITION', x=26, y=120, s=12), dict(t='STATIONS', x=336, y=120, s=12),
               dict(t='LAMPS:  UP · HEALTH', x=998, y=120, s=9, c='dim', a='r'),
               dict(t='HOSTS', x=26, y=272, s=11), dict(t='FAULTS', x=148, y=272, s=11),
@@ -46,7 +47,8 @@ def lab(H):
     slots += [dict(kind='hosts', x=88, y=244, h=48), dict(kind='faults', x=222, y=244, h=48)]
     for k in range(9):
         cx, cy = 336 + (k % 3) * 226, 150 + (k // 3) * 52
-        slots += [dict(kind='hostup', k=k, x=cx + 12, y=cy + 6, d=24), dict(kind='hosthealth', k=k, x=cx + 42, y=cy + 6, d=24)]
+        slots += [dict(kind='hostup', k=k, x=cx + 12, y=cy + 6, d=24),
+                  dict(kind='hosthealth', k=k, x=cx + 42, y=cy + 6, d=24)]
         labels.append(dict(x=cx + 60, y=cy - 9, w=158, h=30, kind='host', k=k))
     slots.append(dict(kind='faultcount', x=998, y=336))
     slots.append(dict(kind='faultlist', x=26, y=352, w=972, h=H - 368))
@@ -62,7 +64,8 @@ def sessions(H):
         h = rh + (extra - 5 * (extra // 5) if k == 4 else 0)
         plates.append(dict(x=6, y=y, w=1012, h=h))
         mid = y + h / 2
-        paint += [dict(t='TOKENS', x=742, y=y + 20, s=9, c='dim', a='r'), dict(t='AGENTS', x=820, y=y + 20, s=9, c='dim', a='c'),
+        paint += [dict(t='TOKENS', x=742, y=y + 20, s=9, c='dim', a='r'),
+                  dict(t='AGENTS', x=820, y=y + 20, s=9, c='dim', a='c'),
                   dict(t='RUNNING', x=996, y=y + 20, s=9, c='dim', a='r')]
         slots += [dict(kind='slamp', k=k, x=40, y=round(mid), d=34),
                   dict(kind='swin', k=k, x=70, y=round(mid - 33), w=500, h=66),
@@ -81,18 +84,24 @@ def gpus(H, rows):
     # which v4 did not have.
     mh = H - 128 if rows == 1 else (H - 136) // 2
     k_y = mh / base                             # module offsets scale with the module
-    sy = lambda v: round(v * k_y)
+
+    def sy(v):
+        return round(v * k_y)
     for k in range(4 * rows):
         x, y = 6 + (k % 4) * 254, 98 + (k // 4) * (mh + 8)
         plates.append(dict(x=x, y=y, w=248, h=mh))
         labels.append(dict(x=x + 24, y=y + 14, w=200, h=28, kind='gpu', k=k))
         if rows == 1:
-            slots += [dict(kind='geye', k=k, x=x + 124, y=y + sy(150), d=150), dict(kind='gtemp', k=k, x=x + 124, y=y + sy(272), h=56),
-                      dict(kind='gvram', k=k, x=x + 14, y=y + sy(380), w=220), dict(kind='gpow', k=k, x=x + 14, y=y + sy(428), w=220),
+            slots += [dict(kind='geye', k=k, x=x + 124, y=y + sy(150), d=150),
+                      dict(kind='gtemp', k=k, x=x + 124, y=y + sy(272), h=56),
+                      dict(kind='gvram', k=k, x=x + 14, y=y + sy(380), w=220),
+                      dict(kind='gpow', k=k, x=x + 14, y=y + sy(428), w=220),
                       dict(kind='gstate', k=k, x=x + 22, y=y + sy(476))]
         else:
-            slots += [dict(kind='geye', k=k, x=x + 66, y=y + sy(104), d=96), dict(kind='gtemp', k=k, x=x + 184, y=y + sy(56), h=40),
-                      dict(kind='gvram', k=k, x=x + 112, y=y + sy(158), w=126), dict(kind='gpow', k=k, x=x + 112, y=y + sy(194), w=126),
+            slots += [dict(kind='geye', k=k, x=x + 66, y=y + sy(104), d=96),
+                      dict(kind='gtemp', k=k, x=x + 184, y=y + sy(56), h=40),
+                      dict(kind='gvram', k=k, x=x + 112, y=y + sy(158), w=126),
+                      dict(kind='gpow', k=k, x=x + 112, y=y + sy(194), w=126),
                       dict(kind='gstate', k=k, x=x + 18, y=y + sy(226))]
     slots.append(dict(kind='gfoot', x=12, y=H - 24, w=1000, h=20))
     return dict(plates=plates, paint=paint, labels=labels, slots=slots)
