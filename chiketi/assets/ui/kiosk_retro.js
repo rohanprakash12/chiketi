@@ -780,7 +780,7 @@ function tubGpus(c) {
     const len = Array.from((stale + gpuFooterText(G)).replace(/<[^>]*>/g, '').replace(/&[a-z]+;|&#\d+;/g, 'x')).length;
     const room = f.w - (more ? (more.length + 2) * 0.74 * 12 : 0);
     const fz = Math.max(0.6, Math.min(1, room / (len * 0.74 * 12)));
-    h += tAbs(f.x, f.y, f.w, f.h, `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;zoom:${fz.toFixed(3)}">${tubPaint(stale + gpuFooterText(G), 12)}</span>` +
+    h += tAbs(f.x, f.y, f.w, f.h, `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;zoom:${fz.toFixed(3)}">${tubPaint(stale + gpuFooterText(G), 12, null, 'display:block;overflow:hidden;text-overflow:ellipsis')}</span>` +
       (more ? tubPaint(more, 12, null, 'flex-shrink:0') : ''), 'display:flex;justify-content:space-between;align-items:center;gap:' + kq(12) + ';white-space:nowrap;overflow:hidden');
     return h;
   });

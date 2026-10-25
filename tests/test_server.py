@@ -649,6 +649,12 @@ class TestScreenModesServer:
         monkeypatch.setitem(server._UI_ASSET_CACHE, name, server._ui_asset(name) + " ")
         assert server._display_build() != before
 
+    def test_nothing_but_whitespace_after_the_last_script(self):
+        # A listener appended after control_app.js's closing tag would show as page text.
+        for html in (server._build_display_html(), server._build_html()):
+            tail = html[html.rindex("</script>") + len("</script>"):]
+            assert tail.replace("</body>", "").replace("</html>", "").strip() == ""
+
     def test_pages_inline_the_screen_spec(self):
         for html in (server._build_display_html(), server._build_html()):
             assert "__SCREEN_SPEC_JSON__" not in html and '"sessions"' in html
