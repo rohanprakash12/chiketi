@@ -938,6 +938,12 @@ __HARNESS.skins.forEach(function (skin) {
   // Either side of the threshold (830).
   eq('cols just under', kioskCols([276, 277, 277], 830), 'repeat(3,1fr)');
   eq('cols just over', kioskCols([276, 277, 278], 830), 'repeat(3,minmax(0,1fr))');
+  // Magic eye (spec "Magic eye"): an id option for its SVG ids, the label escaped.
+  const ids = function (h) { return (h.match(/ id="[^"]*"/g) || []).sort(); };
+  const e0 = magicEye(40, 'LOAD', 100, { rich: true, id: 'gpus-0' }), e1 = magicEye(60, 'LOAD', 100, { rich: true, id: 'gpus-1' });
+  eq('eye ids distinct', ids(e0).some(function (x) { return ids(e1).indexOf(x) !== -1; }), false);
+  eq('eye ids from the id', ids(e0).every(function (x) { return x.indexOf('gpus-0') !== -1; }), true);
+  eq('eye label escaped', magicEye(40, '<x>', 100, {}).indexOf('&lt;x&gt;') !== -1 && magicEye(40, '<x>', 100, {}).indexOf('<x>') === -1, true);
   // A skin may say how GPU states are coloured; today's skins do not.
   kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
   eq('gpuState hook', gpuStateColor('busy'), '#abcabc');

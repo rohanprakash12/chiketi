@@ -1566,7 +1566,9 @@ const EYE_PHOSPHOR = {
 function magicEye(pct, label, size, opts) {
   opts = opts || {};
   const P = EYE_PHOSPHOR[opts.phosphor] || EYE_PHOSPHOR.green;
-  const eid = svgId('', label);
+  // Ids from opts.id when given (two eyes may share a label: the Tubes GPU bays),
+  // else from the label, as before.
+  const eid = opts.id ? svgId('me-', opts.id) : svgId('', label);
   const cx = 210, cy = 210, rOuter = 146, rInner = 66;
   const minAngle = 4, maxAngle = 320;
   // A real EM34 closes its shadow as the signal rises -- a strong reading is
@@ -1623,7 +1625,7 @@ function magicEye(pct, label, size, opts) {
         '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
         (label ? '<span style="color:#9d8a72;font-size:' + gq(Math.max(8, holeSize*0.155)) + ';' +
           'font-family:\'IBM Plex Mono\',monospace;line-height:1;letter-spacing:0.08em;' +
-          'margin-top:' + gq(holeSize*0.06) + '">' + label + '</span>' : '') +
+          'margin-top:' + gq(holeSize*0.06) + '">' + esc(String(label)) + '</span>' : '') +
       '</div>' +
     '</div>' +
   '</div>';
