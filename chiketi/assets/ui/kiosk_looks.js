@@ -180,6 +180,20 @@ function kioskIssueLayout(n, h) {
   return { cols: 2, rows: rows, rowH: Math.floor(h / rows), big: false, shown: shown, more: n - shown };
 }
 
+/* A three-column host grid: sized to the names, as the mockups (repeat(3,1fr) gives
+   a column with a long name more room), when a generous estimate says they fit
+   (`fixed` units per row besides the name, `perChar` units a character, `avail` for
+   the three tracks); otherwise three equal columns, names cut short, so a long name
+   can never push the grid off the screen. Hosts fill the grid row by row. */
+function kioskCols(names, fixed, perChar, avail) {
+  const need = [0, 1, 2].reduce(function (sum, c) {
+    let most = 0;
+    names.forEach(function (nm, i) { if (i % 3 === c) most = Math.max(most, Array.from(String(nm)).length); });
+    return sum + fixed + most * perChar;
+  }, 0);
+  return need <= avail ? 'repeat(3,1fr)' : 'repeat(3,minmax(0,1fr))';
+}
+
 /* The empty-plan notice for a theme: its look's own, else today's. */
 function kioskNoticeFor(fam, v) {
   const k = KIOSK_RENDERERS[fam + '/' + v];

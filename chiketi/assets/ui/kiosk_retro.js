@@ -216,13 +216,16 @@ const VFD_K = { kHour: _VF.green || '#00DDAA', kSec: _VF.amber || '#FFAA22', kDa
 const VF = { g: _VF.green || '#00DDAA', gb: _VF.greenBright || '#44FFCC', gd: _VF.greenDim || '#008866',
              a: _VF.amber || '#FFAA22', ad: _VF.amberDim || '#886611', b: _VF.blue || '#00D4CC', bd: _VF.blueDim || '#007A77',
              r: _VF.red || '#FF4433', y: _VF.yellow || '#DDCC00', ghost: '#13241e' };
-/* Lit and unlit text. `t` is markup (already escaped). */
+/* Lit and unlit text. `t` is markup (already escaped). The font is named alone, as
+   the mockup: glyphs it lacks (the up/down triangles) fall back to the browser's
+   default face, not a monospace one. */
+const VFD_FONT = "'Share Tech Mono'";
 function vt(t, sz, c, ls) {
-  return `<span data-lit style="font-family:${STM};font-size:${kq(sz)};letter-spacing:${kq(ls == null ? 2 : ls)};color:${c};` +
+  return `<span data-lit style="font-family:${VFD_FONT};font-size:${kq(sz)};letter-spacing:${kq(ls == null ? 2 : ls)};color:${c};` +
     `text-shadow:0 0 ${kq(Math.max(2, Math.round(sz / 3)))} ${c},0 0 ${kq(Math.round(sz / 3 * 2.5))} ${c}44">${t}</span>`;
 }
 function vghost(t, sz, ls) {
-  return `<span style="font-family:${STM};font-size:${kq(sz)};letter-spacing:${kq(ls == null ? 2 : ls)};color:${VF.ghost}">${t}</span>`;
+  return `<span style="font-family:${VFD_FONT};font-size:${kq(sz)};letter-spacing:${kq(ls == null ? 2 : ls)};color:${VF.ghost}">${t}</span>`;
 }
 function vleg(words, on, c, sz) {
   return words.map(function (w) { return w === on ? vt(w, sz || 16, c, 3) : vghost(w, sz || 16, 3); })
@@ -305,7 +308,7 @@ function vfdHomelab(c) {
     `<div style="display:flex;align-items:flex-end;gap:${kq(30)}">${big(L.hosts.length, 'HOSTS', VF.g, !pending)}${big(L.counts.ok, 'HEALTHY', VF.g, !pending)}` +
       `${big(warn, 'WARN', VF.a, warn)}${big(crit, 'ALERT', VF.r, crit)}` +
       `<div data-cond style="margin-left:auto;text-align:right;line-height:1.7">${vleg(['NORMAL', 'CAUTION', 'ALERT'], on, onC, 17)}<br>${checked}</div></div>` +
-    `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
+    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(function (h) { return h.name; }), 111, 19 * 0.55 + 2, 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
     `<div style="margin-top:${kq(10)};border-top:1px solid #1a1a16;padding-top:${kq(6)};${dim}"><div style="height:${kq(AH)};overflow:hidden">${list}</div></div>`);
 }
 
@@ -367,7 +370,9 @@ function vfdGpus(c) {
   const f = kioskFit(n, Math.floor(B / 40), Math.floor((B - 24) / 40));
   const shown = G.rows.slice(0, f.shown);
   const rowH = Math.min(104, Math.floor((B - (f.more ? 24 : 0)) / Math.max(1, shown.length)));
-  const form = rowH >= 80 ? 'big' : rowH >= 56 ? 'normal' : 'compact';
+  // Big and normal rows keep the mockup's line boxes (a big row's legend wraps to a
+  // second line); compact rows set their own, tighter ones.
+  const form = rowH >= 88 ? 'big' : rowH >= 62 ? 'normal' : 'compact';
   const rows = shown.map(function (r) {
     const st = r.state;
     const sc = st === 'throttling' || st === 'hot' ? VF.a : st === 'critical' ? VF.r : st === 'busy' ? VF.g
@@ -376,12 +381,12 @@ function vfdGpus(c) {
     // A cached row's age takes the model's line (compact rows: after the state word).
     const age = r.seen_at ? sessAge(r.seen_at) : '--';
     // A big row's legend wraps onto a second line, as the mockup; smaller rows keep one line.
-    const stateBox = `<div data-state data-fit style="white-space:${form === 'big' ? 'normal' : 'nowrap'};font-size:${kq(12)};line-height:1.1">` +
+    const stateBox = `<div data-state data-fit style="white-space:${form === 'big' ? 'normal' : 'nowrap'}${form === 'compact' ? ';font-size:' + kq(12) + ';line-height:1.1' : ''}">` +
       (form === 'big' && word ? vleg(['BUSY', 'IDLE', 'THROT', 'HOT'], word, sc, 12) : vt(GPU_LABEL[st] || 'UNKNOWN', 12, sc, 2)) +
       (form === 'compact' && !r.fresh ? ' ' + vt('SEEN ' + age.split(' ')[0].toUpperCase(), 11, VF.gd, 1) : '') + `</div>`;
     const title = vfdUp(r.host) + ' ' + r.index;
     const titleLine = function (sz) {
-      return `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:-${kq(10)};padding-left:${kq(10)};font-size:${kq(sz)}">${vt(title, sz, VF.g)}</div>`;
+      return `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:-${kq(10)};padding-left:${kq(10)}${form === 'compact' ? ';font-size:' + kq(sz) : ''}">${vt(title, sz, VF.g)}</div>`;
     };
     const nameCell = form === 'compact'
       ? `<div style="line-height:1;min-width:0">${titleLine(17)}${stateBox}</div>`
@@ -397,11 +402,11 @@ function vfdGpus(c) {
     };
     const tsz = form === 'big' ? 44 : form === 'normal' ? 34 : 26;
     const memOk = mt !== null && mt >= -50 && mt <= 200;
-    const tempCell = `<div style="text-align:right;line-height:1;font-size:${kq(tsz)}">${vt(temp === null ? '--' : Math.round(temp) + '&deg;', tsz, temp === null ? VF.gd : temp >= 85 ? VF.r : temp >= 70 ? VF.y : VF.g)}` +
-      (memOk ? `<div data-mem style="font-size:${kq(form === 'compact' ? 11 : 13)};line-height:${form === 'compact' ? 1.1 : 1}">${vt('MEM ' + Math.round(mt) + '&deg;', form === 'compact' ? 11 : 13, mt >= 85 ? VF.a : VF.gd)}</div>` : '') + `</div>`;
+    const tempCell = `<div style="text-align:right;line-height:1${form === 'compact' ? ';font-size:' + kq(tsz) : ''}">${vt(temp === null ? '--' : Math.round(temp) + '&deg;', tsz, temp === null ? VF.gd : temp >= 85 ? VF.r : temp >= 70 ? VF.y : VF.g)}` +
+      (memOk ? `<div data-mem${form === 'compact' ? ' style="font-size:' + kq(11) + ';line-height:1.1"' : ''}>${vt('MEM ' + Math.round(mt) + '&deg;', form === 'compact' ? 11 : 13, mt >= 85 ? VF.a : VF.gd)}</div>` : '') + `</div>`;
     const psz = form === 'big' ? 38 : form === 'normal' ? 30 : 24;
-    const powCell = `<div style="text-align:right;line-height:1;font-size:${kq(psz)}">${pw === null ? vt('--', psz, VF.gd) : vt(String(Math.round(pw)), psz, VF.a) + vt('W', 14, VF.ad)}` +
-      (lim !== null && form !== 'compact' ? `<div style="font-size:${kq(12)};line-height:1.2">${vt('OF ' + Math.round(lim) + ' W', 12, VF.ad)}</div>` : '') + `</div>`;
+    const powCell = `<div style="text-align:right;line-height:1${form === 'compact' ? ';font-size:' + kq(psz) : ''}">${pw === null ? vt('--', psz, VF.gd) : vt(String(Math.round(pw)), psz, VF.a) + vt('W', 14, VF.ad)}` +
+      (lim !== null && form !== 'compact' ? `<div>${vt('OF ' + Math.round(lim) + ' W', 12, VF.ad)}</div>` : '') + `</div>`;
     return `<div data-gpu-row="${esc(r.host)}|${r.index}" style="display:grid;grid-template-columns:${kq(170)} minmax(0,1fr) minmax(0,1fr) ${kq(110)} ${kq(120)};` +
         `gap:0 ${kq(18)};align-items:center;height:${kq(rowH)};border-bottom:1px solid #15150f;${r.fresh ? '' : 'opacity:0.6;'}">` +
       nameCell + meter('LOAD ' + (util === null ? '--' : Math.round(util) + '%'), util, util !== null && util > 80 ? VF.a : VF.g) +

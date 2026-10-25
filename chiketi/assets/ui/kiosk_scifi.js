@@ -134,7 +134,7 @@ function tngHomelab(c) {
   else {
     const systems = new Set(L.issues.map(function (i) { return String(i.host); })).size;
     body = tngSec(K.violet, 'SYSTEMS', 'UP / HEALTH') +
-      `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
+      `<div style="display:grid;grid-template-columns:${kioskCols(L.hosts.map(function (h) { return h.name; }), 146, (SH > 40 ? 25 : 21) * 0.5, 830)};gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
       `<div style="margin-top:${kq(12)}">` +
         tngSec(n ? sc(L.issues[0]) : K.blue, 'ALERTS', L.mode === 'pending' ? 'ACQUIRING TELEMETRY' : `${n} OPEN · ${systems} SYSTEMS`) + `</div>` +
       `<div style="margin-top:${kq(6)};height:${kq(AH)};overflow:hidden">${list}</div>`;
@@ -237,20 +237,20 @@ function tngGpus(c) {
     const v = gpuVram(g);
     const mt = gpuFin(g.mem_temp);
     const mem = mt !== null && mt >= -50 && mt <= 200
-      ? `<div style="font-size:${kq(15)};line-height:1;color:${mt >= 85 ? K.peach : K.dim}">MEM ${Math.round(mt)}&deg;</div>` : '';
+      ? `<div style="font-size:${kq(15)};${tight ? 'line-height:1;' : ''}color:${mt >= 85 ? K.peach : K.dim}">MEM ${Math.round(mt)}&deg;</div>` : '';
     const seen = g.fresh ? '' : `<div style="font-size:${kq(12)};color:${K.dim};letter-spacing:.06em">SEEN ${g.seen_at ? sessAge(g.seen_at) : '--'} AGO</div>`;
     return `<div data-gpu-row="${esc(g.host)}|${g.index}" style="display:grid;grid-template-columns:${kq(big ? 120 : 104)} ${kq(128)} minmax(0,1fr) minmax(0,1fr) ${kq(84)} ${kq(140)};` +
         `gap:0 ${kq(14)};align-items:center;height:${kq(rowH)};${g.fresh ? '' : 'opacity:.6'}">` +
       `<div style="min-width:0"><div style="font-size:${kq(big ? 26 : 22)};color:${K.text};line-height:1">GPU ${g.index}</div>` +
         `<div style="font-size:${kq(14)};color:${K.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${inline ? esc(g.host) + ' · ' : ''}${esc(g.short)}</div></div>` +
       `<div>${tngPill(col, GPU_LABEL[g.state], 24)}${seen}</div>` +
-      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};line-height:1.2;color:${K.dim};letter-spacing:.1em"><span>LOAD</span>` +
+      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};${tight ? 'line-height:1.2;' : ''}color:${K.dim};letter-spacing:.1em"><span>LOAD</span>` +
         `<span style="color:${K.gold};font-size:${kq(19)}">${util === null ? '--' : Math.round(util) + '%'}</span></div>${bar(util, col)}</div>` +
-      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};line-height:1.2;color:${K.dim};letter-spacing:.1em"><span>VRAM</span>` +
+      `<div><div style="display:flex;justify-content:space-between;font-size:${kq(15)};${tight ? 'line-height:1.2;' : ''}color:${K.dim};letter-spacing:.1em"><span>VRAM</span>` +
         `<span style="color:${K.gold};font-size:${kq(19)}">${v.text}</span></div>${bar(v.pct, K.lilac)}</div>` +
-      `<div style="text-align:right;line-height:1;font-size:${kq(big ? 36 : tight ? 24 : 30)}"><span style="font-size:${kq(big ? 36 : tight ? 24 : 30)};color:${temp === null ? K.dim : temp >= 85 ? K.peach : K.blue}">` +
+      `<div style="text-align:right;line-height:1;${tight ? 'font-size:' + kq(24) : ''}"><span style="font-size:${kq(big ? 36 : tight ? 24 : 30)};color:${temp === null ? K.dim : temp >= 85 ? K.peach : K.blue}">` +
         `${temp === null ? '--' : Math.round(temp) + '&deg;'}</span>${mem}</div>` +
-      `<div style="text-align:right;line-height:1.1;font-size:${kq(big ? 27 : tight ? 20 : 23)}"><span style="font-size:${kq(big ? 27 : tight ? 20 : 23)};color:${K.text}">${pw === null ? '--' : Math.round(pw)}</span>` +
+      `<div style="text-align:right;line-height:1.1;${tight ? 'font-size:' + kq(20) : ''}"><span style="font-size:${kq(big ? 27 : tight ? 20 : 23)};color:${K.text}">${pw === null ? '--' : Math.round(pw)}</span>` +
         `<span style="font-size:${kq(16)};color:${K.dim}"> / ${lim === null ? '--' : Math.round(lim)} W</span>` +
         `<div style="font-size:${kq(15)};color:${K.dim}">${pr === null ? '--' : pr} PROC${pr === 1 ? '' : 'S'}</div></div></div>`;
   };
