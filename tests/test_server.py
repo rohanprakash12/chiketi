@@ -637,7 +637,8 @@ class TestScreenModesServer:
         monkeypatch.setitem(server._UI_ASSET_CACHE, "screens.json", server._ui_asset("screens.json") + " ")
         assert server._display_build() != before
 
-    @pytest.mark.parametrize("name", ["kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js", "kiosk_retro.js"])
+    @pytest.mark.parametrize("name", ["kiosk_looks.js", "kiosk_scifi.js", "kiosk_terminal.js", "kiosk_retro.js",
+                                      "tubes_layout.js"])
     def test_kiosk_looks_are_inlined_and_in_the_build(self, monkeypatch, name):
         # The looks are part of the renderer script on both pages, and a change to one
         # reloads open displays.
@@ -647,6 +648,12 @@ class TestScreenModesServer:
         before = server._display_build()
         monkeypatch.setitem(server._UI_ASSET_CACHE, name, server._ui_asset(name) + " ")
         assert server._display_build() != before
+
+    def test_nothing_but_whitespace_after_the_last_script(self):
+        # A listener appended after control_app.js's closing tag would show as page text.
+        for html in (server._build_display_html(), server._build_html()):
+            tail = html[html.rindex("</script>") + len("</script>"):]
+            assert tail.replace("</body>", "").replace("</html>", "").strip() == ""
 
     def test_pages_inline_the_screen_spec(self):
         for html in (server._build_display_html(), server._build_html()):
@@ -1035,6 +1042,59 @@ class TestTokenComparisonAndContentTypes:
             ) as resp:
                 assert resp.status == 200
                 assert resp.headers.get("Content-Type") == want
+
+
+class TestTubesAssets:
+    """The rendered Tubes parts: a bounded route that serves only manifest names."""
+
+    def _get(self, srv, path):
+        try:
+            with urllib.request.urlopen(srv.url(path), timeout=5) as resp:
+                return resp.status, dict(resp.headers), resp.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, {}, b""
+
+    def test_a_manifest_name_is_served_as_webp_and_cached(self):
+        name = sorted(server._tubes_manifest()["files"])[0]
+        with _LiveServer() as srv:
+            code, headers, body = self._get(srv, f"/assets/tubes/{name}.webp?v={server._tubes_manifest()['hash']}")
+        assert code == 200 and headers["Content-Type"] == "image/webp"
+        assert "immutable" in headers["Cache-Control"] and "max-age=31536000" in headers["Cache-Control"]
+        assert body[:4] == b"RIFF" and body[8:12] == b"WEBP"
+
+    @pytest.mark.parametrize("path", ["../manifest.json", "..%2fmanifest.json", "%2e%2e/x.webp", "nope.webp",
+                                      "manifest.json", "eye-back.png", "eye-back", "sub/eye-back.webp", ""])
+    def test_anything_else_is_404(self, path):
+        with _LiveServer() as srv:
+            assert self._get(srv, "/assets/tubes/" + path)[0] == 404
+
+    def test_only_the_current_hash_is_cached_for_good(self):
+        name = sorted(server._tubes_manifest()["files"])[0]
+        with _LiveServer() as srv:
+            _, cur, _ = self._get(srv, f"/assets/tubes/{name}.webp?v={server._tubes_manifest()['hash']}")
+            _, old, _ = self._get(srv, f"/assets/tubes/{name}.webp?v=0123456789ab")
+            _, none, _ = self._get(srv, f"/assets/tubes/{name}.webp")
+        assert "immutable" in cur["Cache-Control"]
+        assert old["Cache-Control"] == "no-cache" and none["Cache-Control"] == "no-cache"
+
+    def test_a_missing_manifest_means_404_not_a_crash(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(server, "_TUBES_DIR", str(tmp_path))
+        monkeypatch.setattr(server, "_TUBES_MANIFEST", None)
+        monkeypatch.setattr(server, "_TUBES_CACHE", {})
+        assert server._tube_file("eye-back") is None
+        assert isinstance(server._display_build(), str)
+
+    def test_a_listed_file_missing_on_disk_is_404(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(server, "_TUBES_DIR", str(tmp_path))
+        monkeypatch.setattr(server, "_TUBES_MANIFEST", {"hash": "abc", "files": {"gone": {}}})
+        monkeypatch.setattr(server, "_TUBES_CACHE", {})
+        assert server._tube_file("gone") is None
+
+    def test_the_manifest_hash_is_in_the_display_build(self, monkeypatch):
+        before = server._display_build()
+        changed = dict(server._tubes_manifest(), hash="000000000000")
+        monkeypatch.setattr(server, "_TUBES_MANIFEST", changed)
+        assert server._display_build() != before
 
 
 class TestRejectedPostLeavesStateAlone:

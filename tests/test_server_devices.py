@@ -227,6 +227,7 @@ def test_change_during_write_gets_a_follow_up_flush(monkeypatch):
 
 # ── Screen modes ──────────────────────────────────────────────────────────
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_kiosk_theme_route():
     with _LiveServer() as srv:
         with pytest.raises(urllib.error.HTTPError) as e:

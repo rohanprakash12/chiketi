@@ -73,3 +73,14 @@ def isolate_state(tmp_path, monkeypatch):
     monkeypatch.setattr(_server, "_kiosk_theme", "Sci-Fi/TOS", raising=False)
     monkeypatch.setattr(_server, "_pending_backup", None, raising=False)
     monkeypatch.setattr(_server, "_XRANDR_CACHE", [], raising=False)
+
+
+@pytest.fixture
+def kiosk_without_tubes(monkeypatch):
+    """Every real theme is a Kiosk theme since Tubes joined the looks; the paths for a
+    theme Kiosk mode refuses (unknown, or from an older release) still need testing, so
+    these tests leave Tubes out of the Kiosk allowlist."""
+    import chiketi.screens as screens
+    kiosk = dict(screens.SPEC["modes"]["kiosk"])
+    kiosk["themes"] = [t for t in kiosk["themes"] if t != "Vintage/Tubes"]
+    monkeypatch.setitem(screens.SPEC["modes"], "kiosk", kiosk)

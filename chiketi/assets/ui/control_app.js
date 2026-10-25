@@ -562,4 +562,10 @@ document.getElementById('forgetDevice').addEventListener('click', async () => {
 });
 loadDevices();
 setInterval(loadDevices, 3000);
+/* A Tubes part that fails to load in a preview is hidden, never a broken-image icon. */
+document.addEventListener('error', function (e) {
+  const t = e.target;
+  if (t && t.tagName === 'IMG' && t.closest && t.closest('[data-look="Vintage/Tubes"]')) t.style.visibility = 'hidden';
+}, true);
 </script>
+

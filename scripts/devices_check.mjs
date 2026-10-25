@@ -217,18 +217,20 @@ await kp.route('**/api/metrics', r => r.fulfill({ json: FIX.FULL }));   // Home 
 await kp.goto(`${BASE}/display?device=${kid}`);
 await kp.waitForSelector('#pairing:not([hidden])');
 await api('POST', `/api/devices/${kid}/approve`, { name: 'Modes' });
-await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Vintage/Tubes' });   // not a Kiosk theme (yet)
+// Every theme is a Kiosk theme now (the fallback to TOS for others is in the Python tests):
+// a Self theme stays on the switch to Kiosk.
+await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Vintage/Tubes' });
 await kp.waitForFunction(() => activeVariant === 'Tubes' && enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
 await kp.evaluate(() => { window.__marker = 1; });
 await api('POST', `/api/devices/${kid}`, { mode: 'kiosk' });
-await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens.map(s => s.id).join() === 'lab,sessions,gpus', null, { timeout: 8000 });
+await kp.waitForFunction(() => activeVariant === 'Tubes' && enabledScreens.map(s => s.id).join() === 'lab,sessions,gpus', null, { timeout: 8000 });
 // Same theme across a mode change: Self/TOS -> Kiosk/TOS.
 await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Sci-Fi/TOS' });
 await kp.waitForFunction(() => enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
 await api('POST', `/api/devices/${kid}`, { mode: 'kiosk' });
 await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens[0].id === 'lab', null, { timeout: 8000 });
 if (!(await kp.evaluate(() => window.__marker === 1))) fail('a mode change reloaded the page');
-console.log('ok   mode switches reach the display; Kiosk falls back to TOS; same theme kept');
+console.log('ok   mode switches reach the display; the theme stays across them');
 
 // 19. Each Kiosk look reaches the open display, and is still drawn after a reload.
 {
@@ -243,6 +245,14 @@ console.log('ok   mode switches reach the display; Kiosk falls back to TOS; same
     await drawn(theme).catch(() => fail(theme + ' did not reach the display'));
     await kp.reload();
     await drawn(theme).catch(() => fail(theme + ' lost after a reload'));
+    if (theme === 'Vintage/Tubes') {
+      // The rendered parts load (the panel and every instrument on screen), and the
+      // display keeps its plan's parts decoded.
+      await kp.waitForFunction(() => {
+        const im = [...document.querySelectorAll('#display img')];
+        return im.length > 10 && im.every(i => i.complete && i.naturalWidth > 0) && tubesHeld.length > 10;
+      }, null, { timeout: 5000 }).catch(() => fail('Tubes parts did not load'));
+    }
   }
   await api('POST', `/api/devices/${kid}`, { mode: 'kiosk', theme: 'Sci-Fi/TOS' });
   await kp.waitForFunction(() => activeVariant === 'TOS', null, { timeout: 8000 });

@@ -95,7 +95,7 @@ function kioskSess() {
   const ck = m('sessions.checked_at');
   const t = ck.available ? Number(ck.value) : NaN;
   const counts = { waiting: 0, busy: 0, shell: 0, idle: 0 };
-  d.list.forEach(function (s) { counts[SESS_ORDER[s.state] !== undefined ? s.state : 'idle']++; });
+  d.list.forEach(function (s) { counts[Object.prototype.hasOwnProperty.call(SESS_ORDER, s.state) ? s.state : 'idle']++; });
   return Object.assign({}, d, { counts: counts, waiting: counts.waiting,
     host: ck.extra && ck.extra.host ? String(ck.extra.host) : '',
     checkedAt: isFinite(t) && t > 0 ? t : null });

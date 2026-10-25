@@ -59,8 +59,20 @@ for (const [fam, v] of THEMES) {
           if (look && look !== fam + '/' + v) bad.push('preview is ' + look);
           const fr = f.getBoundingClientRect();
           f.querySelectorAll('*').forEach(function (el) {
-            const r = el.getBoundingClientRect();
-            if (!r.width || !r.height) return;
+            const r0 = el.getBoundingClientRect();
+            if (!r0.width || !r0.height) return;
+            // What shows: the box cut by every clipping ancestor (a lamp's glow clipped
+            // at the frame's edge is fine), as fit_check measures it.
+            const r = { left: r0.left, top: r0.top, right: r0.right, bottom: r0.bottom };
+            for (let a = el.parentElement; a && a !== f; a = a.parentElement) {
+              const o = getComputedStyle(a).overflow;
+              if (o === 'hidden' || o === 'clip') {
+                const c = a.getBoundingClientRect();
+                r.left = Math.max(r.left, c.left); r.top = Math.max(r.top, c.top);
+                r.right = Math.min(r.right, c.right); r.bottom = Math.min(r.bottom, c.bottom);
+              }
+            }
+            if (r.right <= r.left || r.bottom <= r.top) return;
             // A skin's glass may overscan on purpose (Scanlines: scale(1.008), clipped by
             // the frame): allow exactly that much past the edge, nothing more.
             let tol = 1;

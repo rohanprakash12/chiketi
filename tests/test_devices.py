@@ -300,6 +300,7 @@ def test_bad_mode_or_screens_rejected_and_nothing_changes(body):
     assert r.snapshot() == before
 
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_mode_switch_clears_unsupported_theme():
     r, _ = reg()
     approved(r)                                                      # self
@@ -313,6 +314,7 @@ def test_mode_switch_clears_unsupported_theme():
     assert r.admin_update("kiosk-1", {"mode": "self"})["theme"] == "Others/Claude"   # allowed: kept
 
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_supplied_unsupported_theme_rejects():
     r, _ = reg()
     r.kiosk_capable = True
@@ -326,6 +328,7 @@ def test_supplied_unsupported_theme_rejects():
     assert r.admin_update("kiosk-1", {"mode": "self", "theme": "Vintage/VFD"})["theme"] == "Vintage/VFD"
 
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_self_service_cannot_change_mode_or_screens():
     r, _ = reg()
     r.kiosk_capable = True
@@ -365,6 +368,7 @@ def test_local_survives_full_registry():
         r.approve("d-extra", "Extra")
 
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_load_migrates_devices_without_mode():
     old = {"go": {"name": "Go", "auto_rotate": False, "seconds": 20, "theme": "Sci-Fi/TOS", "gear": True,
                   "caps": GO},
@@ -387,6 +391,7 @@ def test_load_migrates_devices_without_mode():
     assert r2.snapshot()["wide"]["theme"] == "Vintage/Tubes"
 
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_clean_devices_keeps_missing_mode_as_none():
     out = clean_devices({"go": {"name": "Go", "caps": {}}})
     assert out["go"]["mode"] is None and out["go"]["screens"] is None
@@ -418,7 +423,7 @@ def test_saved_screens_survive_new_defaults():
 KIOSK_LOOKS_1 = ["Sci-Fi/TNG", "Sci-Fi/DS9", "Terminal/cyan", "Terminal/amber", "Terminal/phosphor",
                  "Terminal/red_alert", "Terminal/blue", "Terminal/hacker", "Terminal/Arch", "Terminal/Ubuntu",
                  "Terminal/openSUSE", "Terminal/Mandriva",
-                 "Vintage/Scanlines", "Vintage/VFD"]
+                 "Vintage/Scanlines", "Vintage/VFD", "Vintage/Tubes"]
 
 
 @pytest.mark.parametrize("theme", KIOSK_LOOKS_1)

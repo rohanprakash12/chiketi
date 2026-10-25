@@ -1566,7 +1566,9 @@ const EYE_PHOSPHOR = {
 function magicEye(pct, label, size, opts) {
   opts = opts || {};
   const P = EYE_PHOSPHOR[opts.phosphor] || EYE_PHOSPHOR.green;
-  const eid = svgId('', label);
+  // Ids from opts.id when given (two eyes may share a label: the Tubes GPU bays),
+  // else from the label, as before.
+  const eid = opts.id ? svgId('me-', opts.id) : svgId('', label);
   const cx = 210, cy = 210, rOuter = 146, rInner = 66;
   const minAngle = 4, maxAngle = 320;
   // A real EM34 closes its shadow as the signal rises -- a strong reading is
@@ -1620,10 +1622,10 @@ function magicEye(pct, label, size, opts) {
         '</g>' +
       '</svg>' +
       '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + gq(holeSize) + ';height:' + gq(holeSize) + ';border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + gq(5*s) + ' ' + gq(10*s) + ' rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:flex;flex-direction:column;align-items:center;justify-content:center">' +
-        '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
+        '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + (opts.text !== undefined ? esc(String(opts.text)) : Math.round(pct) + '%') + '</span>' +
         (label ? '<span style="color:#9d8a72;font-size:' + gq(Math.max(8, holeSize*0.155)) + ';' +
           'font-family:\'IBM Plex Mono\',monospace;line-height:1;letter-spacing:0.08em;' +
-          'margin-top:' + gq(holeSize*0.06) + '">' + label + '</span>' : '') +
+          'margin-top:' + gq(holeSize*0.06) + '">' + esc(String(label)) + '</span>' : '') +
       '</div>' +
     '</div>' +
   '</div>';
@@ -4178,7 +4180,7 @@ function gpuHouseData() {
   hosts.forEach(function (h, i) { if (!hostOrder.has(String(h.host))) hostOrder.set(String(h.host), i); });
   const ord = function (host) { return hostOrder.has(host) ? hostOrder.get(host) : 99; };
   const rows = ((gm.available && Array.isArray(gm.value)) ? gm.value.filter(isObj) : []).map(function (r) {
-    return Object.assign({}, r, { state: GPU_ORDER[r.state] !== undefined ? r.state : 'unknown',
+    return Object.assign({}, r, { state: Object.prototype.hasOwnProperty.call(GPU_ORDER, r.state) ? r.state : 'unknown',
                                   host: String(r.host == null ? '' : r.host), index: gpuFin(r.index) || 0 });
   });
   rows.sort(function (a, b) {
