@@ -306,7 +306,7 @@ function vfdHomelab(c) {
       `${big(warn, 'WARN', VF.a, warn)}${big(crit, 'ALERT', VF.r, crit)}` +
       `<div data-cond style="margin-left:auto;text-align:right;line-height:1.7">${vleg(['NORMAL', 'CAUTION', 'ALERT'], on, onC, 17)}<br>${checked}</div></div>` +
     `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
-    `<div style="margin-top:${kq(10)};border-top:1px solid #1a1a16;padding-top:${kq(6)};height:${kq(AH)};overflow:hidden;${dim}">${list}</div>`);
+    `<div style="margin-top:${kq(10)};border-top:1px solid #1a1a16;padding-top:${kq(6)};${dim}"><div style="height:${kq(AH)};overflow:hidden">${list}</div></div>`);
 }
 
 function vfdSessions(c) {
@@ -373,14 +373,19 @@ function vfdGpus(c) {
     const sc = st === 'throttling' || st === 'hot' ? VF.a : st === 'critical' ? VF.r : st === 'busy' ? VF.g
       : (st === 'offline' || st === 'unreadable') ? VF.a : VF.gd;
     const word = VFD_GPU_WORD[st];
-    const seen = r.fresh ? '' : ' ' + vt('SEEN ' + (r.seen_at ? sessAge(r.seen_at) : '--') + ' AGO', 11, VF.gd, 1);
-    const stateBox = `<div data-state style="${form === 'compact' ? 'display:inline-block' : ''}">` +
-      (form === 'big' && word ? vleg(['BUSY', 'IDLE', 'THROT', 'HOT'], word, sc, 12) : vt(GPU_LABEL[st] || 'UNKNOWN', 12, sc, 2)) + seen + `</div>`;
+    // A cached row's age takes the model's line (compact rows: after the state word).
+    const age = r.seen_at ? sessAge(r.seen_at) : '--';
+    const stateBox = `<div data-state data-fit style="white-space:nowrap;font-size:${kq(12)};line-height:1.1">` +
+      (form === 'big' && word ? vleg(['BUSY', 'IDLE', 'THROT', 'HOT'], word, sc, 12) : vt(GPU_LABEL[st] || 'UNKNOWN', 12, sc, 2)) +
+      (form === 'compact' && !r.fresh ? ' ' + vt('SEEN ' + age.split(' ')[0].toUpperCase(), 11, VF.gd, 1) : '') + `</div>`;
     const title = vfdUp(r.host) + ' ' + r.index;
+    const titleLine = function (sz) {
+      return `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:-${kq(10)};padding-left:${kq(10)};font-size:${kq(sz)}">${vt(title, sz, VF.g)}</div>`;
+    };
     const nameCell = form === 'compact'
-      ? `<div style="white-space:nowrap;overflow:hidden;line-height:1">${vt(title, 17, VF.g)} ${stateBox}</div>`
-      : `<div style="line-height:1.2;min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:-${kq(10)};padding-left:${kq(10)}">${vt(title, form === 'big' ? 23 : 19, VF.g)}</div>` +
-        `<div style="white-space:nowrap;overflow:hidden">${vt(esc(r.short), 13, VF.bd)}</div>${stateBox}</div>`;
+      ? `<div style="line-height:1;min-width:0">${titleLine(17)}${stateBox}</div>`
+      : `<div style="line-height:1.2;min-width:0">${titleLine(form === 'big' ? 23 : 19)}` +
+        `<div style="white-space:nowrap;overflow:hidden">${r.fresh ? vt(esc(r.short), 13, VF.bd) : vt('SEEN ' + age.toUpperCase() + ' AGO', 13, VF.gd, 1)}</div>${stateBox}</div>`;
     const util = gpuFin(r.util), temp = gpuFin(r.temp), pw = gpuFin(r.power), lim = gpuFin(r.power_limit), mt = gpuFin(r.mem_temp);
     const used = gpuFin(r.vram_used), tot = gpuFin(r.vram_total);
     const vpct = used !== null && tot !== null && tot > 0 ? Math.max(0, Math.min(100, used / tot * 100)) : null;
@@ -391,11 +396,11 @@ function vfdGpus(c) {
     };
     const tsz = form === 'big' ? 44 : form === 'normal' ? 34 : 26;
     const memOk = mt !== null && mt >= -50 && mt <= 200;
-    const tempCell = `<div style="text-align:right;line-height:1">${vt(temp === null ? '--' : Math.round(temp) + '&deg;', tsz, temp === null ? VF.gd : temp >= 85 ? VF.r : temp >= 70 ? VF.y : VF.g)}` +
-      (memOk ? `<div data-mem${form === 'compact' ? ' style="line-height:1.1"' : ''}>${vt('MEM ' + Math.round(mt) + '&deg;', form === 'compact' ? 11 : 13, mt >= 85 ? VF.a : VF.gd)}</div>` : '') + `</div>`;
+    const tempCell = `<div style="text-align:right;line-height:1;font-size:${kq(tsz)}">${vt(temp === null ? '--' : Math.round(temp) + '&deg;', tsz, temp === null ? VF.gd : temp >= 85 ? VF.r : temp >= 70 ? VF.y : VF.g)}` +
+      (memOk ? `<div data-mem style="font-size:${kq(form === 'compact' ? 11 : 13)};line-height:${form === 'compact' ? 1.1 : 1}">${vt('MEM ' + Math.round(mt) + '&deg;', form === 'compact' ? 11 : 13, mt >= 85 ? VF.a : VF.gd)}</div>` : '') + `</div>`;
     const psz = form === 'big' ? 38 : form === 'normal' ? 30 : 24;
-    const powCell = `<div style="text-align:right;line-height:1">${pw === null ? vt('--', psz, VF.gd) : vt(String(Math.round(pw)), psz, VF.a) + vt('W', 14, VF.ad)}` +
-      (lim !== null && form !== 'compact' ? `<div>${vt('OF ' + Math.round(lim) + ' W', 12, VF.ad)}</div>` : '') + `</div>`;
+    const powCell = `<div style="text-align:right;line-height:1;font-size:${kq(psz)}">${pw === null ? vt('--', psz, VF.gd) : vt(String(Math.round(pw)), psz, VF.a) + vt('W', 14, VF.ad)}` +
+      (lim !== null && form !== 'compact' ? `<div style="font-size:${kq(12)};line-height:1.2">${vt('OF ' + Math.round(lim) + ' W', 12, VF.ad)}</div>` : '') + `</div>`;
     return `<div data-gpu-row="${esc(r.host)}|${r.index}" style="display:grid;grid-template-columns:${kq(170)} minmax(0,1fr) minmax(0,1fr) ${kq(110)} ${kq(120)};` +
         `gap:0 ${kq(18)};align-items:center;height:${kq(rowH)};border-bottom:1px solid #15150f;${r.fresh ? '' : 'opacity:0.6;'}">` +
       nameCell + meter('LOAD ' + (util === null ? '--' : Math.round(util) + '%'), util, util !== null && util > 80 ? VF.a : VF.g) +

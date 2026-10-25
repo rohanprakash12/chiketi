@@ -66,7 +66,7 @@ for (const [fam, v] of THEMES) {
             let tol = 1;
             for (let a = el; a && a !== f; a = a.parentElement) {
               const sc = /scale\(([\d.]+)\)/.exec(a.style.transform || '');
-              if (sc) { tol += (Number(sc[1]) - 1) / 2 * Math.max(fr.width, fr.height); break; }
+              if (sc && Number(sc[1]) > 1) { tol += (Number(sc[1]) - 1) / 2 * Math.max(fr.width, fr.height); break; }
             }
             if (r.right > fr.right + tol || r.bottom > fr.bottom + tol || r.left < fr.left - tol || r.top < fr.top - tol) {
               bad.push('outside the preview: ' + el.tagName + ' "' + (el.textContent || '').trim().slice(0, 24) + '"');
