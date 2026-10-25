@@ -36,14 +36,14 @@ const KIOSK_THEMES = SPEC0.modes.kiosk.themes.map(k => k.split('/'))
   .filter(fv => !process.env.THEMES || process.env.THEMES.split(',').includes(fv.join('/')));
 const SELF_THEMES = [['Sci-Fi', 'TOS'], ['Others', 'Claude'], ['Sci-Fi', 'TNG'], ['Sci-Fi', 'DS9']];
 const CASES = (process.env.CASES ||
-  'lab:KIOSK_CALM,lab:FULL,lab:HL_RED,lab:HL_BUSY,lab:HL_LONG12,lab:HL_PENDING,lab:HL_STALE,lab:HL_UNCONFIGURED,lab:HL_HOSTILE,' +
+  'lab:KIOSK_CALM,lab:FULL,lab:HL_RED,lab:HL_BUSY,lab:HL_LONG12,lab:HL_WIDE12,lab:HL_PENDING,lab:HL_STALE,lab:HL_UNCONFIGURED,lab:HL_HOSTILE,' +
   'sessions:FULL,sessions:SESS_BUSY,sessions:SESS_MANY,sessions:SESS_MSG7,sessions:SESS_OFFLINE,sessions:SESS_EMPTY,sessions:SESS_PENDING,sessions:SESS_HOSTILE,' +
   'gpus:GPU_HOUSE,gpus:GPU_HOUSE_BUSY,gpus:GPU_HOUSE_BUSY9,gpus:GPU_HOUSE_STALE11,gpus:GPU_HOUSE_MANY,gpus:GPU_HOUSE_OLD,gpus:GPU_HOUSE_STALE,gpus:GPU_HOUSE_NONE,' +
   'gpus:GPU_HOUSE_HOSTILE,gpus:GPU_HOUSE_LONG_HOSTS,sessions:LIVE,screen5:FULL')
   .split(',').map(c => c.split(':'));
 // The phase 2 busy cases hold the new looks to the spec's volumes; TOS and Claude are
-// unchanged by agreement (they predate them), so they skip these three.
-const NEW_LOOK_ONLY = ['HL_LONG12', 'SESS_MSG7', 'GPU_HOUSE_STALE11'];
+// unchanged by agreement (they predate them), so they skip these.
+const NEW_LOOK_ONLY = ['HL_LONG12', 'HL_WIDE12', 'SESS_MSG7', 'GPU_HOUSE_STALE11'];
 const TABS = Math.max(1, Number(process.env.TABS || 2));
 const KIOSK = ['lab', 'sessions', 'overview', 'myday', 'home', 'harness', 'gpus'];
 mkdirSync(OUT, { recursive: true });

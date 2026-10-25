@@ -134,7 +134,7 @@ function tngHomelab(c) {
   else {
     const systems = new Set(L.issues.map(function (i) { return String(i.host); })).size;
     body = tngSec(K.violet, 'SYSTEMS', 'UP / HEALTH') +
-      `<div style="display:grid;grid-template-columns:${kioskCols(L.hosts.map(function (h) { return h.name; }), 146, (SH > 40 ? 25 : 21) * 0.5, 830)};gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
+      `<div style="display:grid;grid-template-columns:${kioskCols(L.hosts.map(function (h) { const fs = SH > 40 ? 25 : 21; return 146 + kioskTextW(h.name, 'antonio', fs, fs * 0.04); }), 830)};gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
       `<div style="margin-top:${kq(12)}">` +
         tngSec(n ? sc(L.issues[0]) : K.blue, 'ALERTS', L.mode === 'pending' ? 'ACQUIRING TELEMETRY' : `${n} OPEN · ${systems} SYSTEMS`) + `</div>` +
       `<div style="margin-top:${kq(6)};height:${kq(AH)};overflow:hidden">${list}</div>`;

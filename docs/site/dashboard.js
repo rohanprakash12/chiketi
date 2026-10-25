@@ -4787,16 +4787,32 @@ function kioskIssueLayout(n, h) {
   return { cols: 2, rows: rows, rowH: Math.floor(h / rows), big: false, shown: shown, more: n - shown };
 }
 
-/* A three-column host grid: sized to the names, as the mockups (repeat(3,1fr) gives
-   a column with a long name more room), when a generous estimate says they fit
-   (`fixed` units per row besides the name, `perChar` units a character, `avail` for
-   the three tracks); otherwise three equal columns, names cut short, so a long name
-   can never push the grid off the screen. Hosts fill the grid row by row. */
-function kioskCols(names, fixed, perChar, avail) {
+/* Text width, as an upper bound, for the looks' host grids: the advance widths of the
+   bundled fonts (Antonio at weight 400, upper case; Share Tech Mono is monospace),
+   letter spacing included, counted after upper-casing (which can lengthen a name:
+   ß is SS); any character not in the table is charged 1.25 em, more than a fallback
+   glyph takes. */
+const KIOSK_EM = {
+  antonio: {" ":0.241,"!":0.258,"\"":0.363,"#":0.417,"$":0.393,"%":1.063,"&":0.468,"'":0.202,"(":0.273,")":0.273,"*":0.427,"+":0.332,",":0.226,"-":0.34,".":0.26,"/":0.356,"0":0.417,"1":0.417,"2":0.417,"3":0.417,"4":0.417,"5":0.417,"6":0.417,"7":0.417,"8":0.417,"9":0.417,":":0.239,";":0.274,"<":0.356,"=":0.353,">":0.356,"?":0.417,"@":0.743,"A":0.443,"B":0.448,"C":0.448,"D":0.466,"E":0.369,"F":0.365,"G":0.458,"H":0.48,"I":0.242,"J":0.428,"K":0.444,"L":0.339,"M":0.633,"N":0.495,"O":0.461,"P":0.437,"Q":0.461,"R":0.458,"S":0.404,"T":0.307,"U":0.466,"V":0.431,"W":0.654,"X":0.389,"Y":0.404,"Z":0.337,"[":0.307,"\\":0.359,"]":0.307,"^":0.449,"_":0.365,"`":0.198,"{":0.321,"|":0.262,"}":0.321,"~":0.545},
+  stm: 0.54,
+};
+function kioskTextW(text, font, size, ls) {
+  return Array.from(String(text == null ? '' : text).toUpperCase()).reduce(function (w, ch) {
+    const em = font === 'stm' ? (ch >= ' ' && ch <= '~' ? KIOSK_EM.stm : 1.25)
+      : (KIOSK_EM.antonio[ch] !== undefined ? KIOSK_EM.antonio[ch] : 1.25);
+    return w + em * size + (ls || 0);
+  }, 0);
+}
+/* A three-column host grid, filled row by row: sized to the names, as the mockups
+   (repeat(3,1fr) gives a column with a long name more room), when each column's widest
+   row (`widths`, upper bounds from kioskTextW) adds up to no more than `avail`, the
+   three tracks' room; otherwise three equal columns with names cut short, so a long
+   name can never push the grid off the screen. */
+function kioskCols(widths, avail) {
   const need = [0, 1, 2].reduce(function (sum, c) {
     let most = 0;
-    names.forEach(function (nm, i) { if (i % 3 === c) most = Math.max(most, Array.from(String(nm)).length); });
-    return sum + fixed + most * perChar;
+    widths.forEach(function (w, i) { if (i % 3 === c) most = Math.max(most, w); });
+    return sum + most;
   }, 0);
   return need <= avail ? 'repeat(3,1fr)' : 'repeat(3,minmax(0,1fr))';
 }
@@ -4943,7 +4959,7 @@ function tngHomelab(c) {
   else {
     const systems = new Set(L.issues.map(function (i) { return String(i.host); })).size;
     body = tngSec(K.violet, 'SYSTEMS', 'UP / HEALTH') +
-      `<div style="display:grid;grid-template-columns:${kioskCols(L.hosts.map(function (h) { return h.name; }), 146, (SH > 40 ? 25 : 21) * 0.5, 830)};gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
+      `<div style="display:grid;grid-template-columns:${kioskCols(L.hosts.map(function (h) { const fs = SH > 40 ? 25 : 21; return 146 + kioskTextW(h.name, 'antonio', fs, fs * 0.04); }), 830)};gap:${kq(6)} ${kq(12)};margin-top:${kq(8)}">${sys}</div>` +
       `<div style="margin-top:${kq(12)}">` +
         tngSec(n ? sc(L.issues[0]) : K.blue, 'ALERTS', L.mode === 'pending' ? 'ACQUIRING TELEMETRY' : `${n} OPEN · ${systems} SYSTEMS`) + `</div>` +
       `<div style="margin-top:${kq(6)};height:${kq(AH)};overflow:hidden">${list}</div>`;
@@ -6082,6 +6098,14 @@ function vfdHomelab(c) {
       upMark + ` <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${vt(vfdUp(h.name), 19, col)}</span>` +
       st + (h.n && h.health !== 'ok' ? ' ' + vt(String(h.n), 15, h.health === 'warn' ? VF.a : VF.r) : '') + `</div>`;
   }).join('') + (L.hosts.length > list12.length ? `<div style="display:flex;align-items:center;height:${kq(30)}">${vt('+' + (L.hosts.length - list12.length) + ' HOSTS', 15, VF.gd, 3)}</div>` : '');
+  // A host row's width, as an upper bound: the triangle (a fallback glyph, 1.25 em),
+  // the name, the health word and count, and the flex gaps between them.
+  const vfdHostW = function (h) {
+    const st = { ok: 'OK', warn: 'WARN', crit: 'ALERT', down: 'DOWN' }[h.health] || '--';
+    const count = h.n && h.health !== 'ok' ? String(h.n) : '';
+    return 1.25 * 16 + 2 + kioskTextW(h.name, 'stm', 19, 2) + kioskTextW(st, 'stm', 15, 3) +
+      (count ? kioskTextW(count, 'stm', 15, 2) + 10 : 0) + 20;
+  };
   const gridRows = Math.ceil(Math.min(L.hosts.length, 12) / 3);
   const AH = H - 120 - 118 - 32 * gridRows;
   const n = L.issues.length, lay = kioskIssueLayout(n, AH);
@@ -6107,7 +6131,7 @@ function vfdHomelab(c) {
     `<div style="display:flex;align-items:flex-end;gap:${kq(30)}">${big(L.hosts.length, 'HOSTS', VF.g, !pending)}${big(L.counts.ok, 'HEALTHY', VF.g, !pending)}` +
       `${big(warn, 'WARN', VF.a, warn)}${big(crit, 'ALERT', VF.r, crit)}` +
       `<div data-cond style="margin-left:auto;text-align:right;line-height:1.7">${vleg(['NORMAL', 'CAUTION', 'ALERT'], on, onC, 17)}<br>${checked}</div></div>` +
-    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(function (h) { return h.name; }), 111, 19 * 0.55 + 2, 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
+    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(vfdHostW), 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
     `<div style="margin-top:${kq(10)};border-top:1px solid #1a1a16;padding-top:${kq(6)};${dim}"><div style="height:${kq(AH)};overflow:hidden">${list}</div></div>`);
 }
 

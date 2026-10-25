@@ -502,6 +502,13 @@ const HL_LONG12 = (function () {
   }));
   return f;
 })();
+/* Twelve hosts whose names are as wide as letters get (and lengthen when upper-cased). */
+const HL_WIDE12 = (function () {
+  const names = Array.from({ length: 12 }, function (_, i) { return i % 4 === 3 ? 'großstraßeßß' + i : 'WWWWWWWWWW' + String(i).padStart(2, '0'); });
+  const f = homelab('warn', [{ host: names[0], key: 'k', severity: 'warn', title: 'Wide name check', detail: '', since: NOW_S - 60 }]);
+  f['homelab.hosts'] = mval(names.map(function (n, i) { return { name: n, state: i ? 'ok' : 'warn' }; }));
+  return f;
+})();
 /* Eleven GPUs on four hosts, stale: every look's stale overflow path. */
 const GPU_HOUSE_STALE11 = (function () {
   const f = gpuBusy(9);
@@ -517,7 +524,7 @@ const SESS_MSG7 = sessionsFixture('ok', Array.from({ length: 7 }, function (_, i
 /* Every Kiosk screen calm: Home Lab nominal, nobody waiting, GPUs fine. */
 const KIOSK_CALM = sessionsFixture('ok', FULL['sessions.list'].value.filter(function (s) { return s.state !== 'waiting'; }));
 
-module.exports = { HL_BUSY, HL_UNKNOWN, HL_LONG12, GPU_HOUSE_STALE11, SESS_MSG7, GPU_HOUSE_BUSY, GPU_HOUSE_BUSY9, SESS_BUSY, KIOSK_CALM, GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
+module.exports = { HL_BUSY, HL_UNKNOWN, HL_LONG12, HL_WIDE12, GPU_HOUSE_STALE11, SESS_MSG7, GPU_HOUSE_BUSY, GPU_HOUSE_BUSY9, SESS_BUSY, KIOSK_CALM, GPU_HOUSE, GPU_HOUSE_TIES, GPU_HOUSE_NONE, GPU_HOUSE_INCOMPLETE, GPU_HOUSE_PENDING_WITH_ROWS,
                    GPU_HOUSE_INCOMPLETE_WITH_ROWS, GPU_HOUSE_STALE, GPU_HOUSE_STALE_EMPTY, GPU_HOUSE_SPARSE,
                    GPU_HOUSE_MIXED_POWER, GPU_HOUSE_ONE_OFFLINE, GPU_HOUSE_MANY, GPU_HOUSE_HOSTILE, GPU_HOUSE_OLD, GPU_HOUSE_LONG_HOSTS,
                    GPU_HOUSE_MEM_EDGE, GPU_HOUSE_MEM_NULL,

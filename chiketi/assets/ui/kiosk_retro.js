@@ -283,6 +283,14 @@ function vfdHomelab(c) {
       upMark + ` <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${vt(vfdUp(h.name), 19, col)}</span>` +
       st + (h.n && h.health !== 'ok' ? ' ' + vt(String(h.n), 15, h.health === 'warn' ? VF.a : VF.r) : '') + `</div>`;
   }).join('') + (L.hosts.length > list12.length ? `<div style="display:flex;align-items:center;height:${kq(30)}">${vt('+' + (L.hosts.length - list12.length) + ' HOSTS', 15, VF.gd, 3)}</div>` : '');
+  // A host row's width, as an upper bound: the triangle (a fallback glyph, 1.25 em),
+  // the name, the health word and count, and the flex gaps between them.
+  const vfdHostW = function (h) {
+    const st = { ok: 'OK', warn: 'WARN', crit: 'ALERT', down: 'DOWN' }[h.health] || '--';
+    const count = h.n && h.health !== 'ok' ? String(h.n) : '';
+    return 1.25 * 16 + 2 + kioskTextW(h.name, 'stm', 19, 2) + kioskTextW(st, 'stm', 15, 3) +
+      (count ? kioskTextW(count, 'stm', 15, 2) + 10 : 0) + 20;
+  };
   const gridRows = Math.ceil(Math.min(L.hosts.length, 12) / 3);
   const AH = H - 120 - 118 - 32 * gridRows;
   const n = L.issues.length, lay = kioskIssueLayout(n, AH);
@@ -308,7 +316,7 @@ function vfdHomelab(c) {
     `<div style="display:flex;align-items:flex-end;gap:${kq(30)}">${big(L.hosts.length, 'HOSTS', VF.g, !pending)}${big(L.counts.ok, 'HEALTHY', VF.g, !pending)}` +
       `${big(warn, 'WARN', VF.a, warn)}${big(crit, 'ALERT', VF.r, crit)}` +
       `<div data-cond style="margin-left:auto;text-align:right;line-height:1.7">${vleg(['NORMAL', 'CAUTION', 'ALERT'], on, onC, 17)}<br>${checked}</div></div>` +
-    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(function (h) { return h.name; }), 111, 19 * 0.55 + 2, 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
+    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(vfdHostW), 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
     `<div style="margin-top:${kq(10)};border-top:1px solid #1a1a16;padding-top:${kq(6)};${dim}"><div style="height:${kq(AH)};overflow:hidden">${list}</div></div>`);
 }
 

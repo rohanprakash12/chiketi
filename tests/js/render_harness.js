@@ -928,8 +928,12 @@ __HARNESS.skins.forEach(function (skin) {
   eq('issues 40 tall', lay(40, 480), [2, 16, false, 31, 9]);
   eq('issues 0', lay(0, 284), [1, 1, true, 0, 0]);
   // Host grids: sized to the names when they fit, equal columns when they would not.
-  eq('cols fit', kioskCols(['atlas', 'vesta', 'home assistant'], 146, 12.5, 830), 'repeat(3,1fr)');
-  eq('cols long', kioskCols(['build-runner-eleven', 'storage-array-main', 'backup-target-two'], 146, 12.5, 830), 'repeat(3,minmax(0,1fr))');
+  const tngW = function (n) { return 146 + kioskTextW(n, 'antonio', 21, 21 * 0.04); };
+  eq('cols fit', kioskCols(['atlas', 'vesta', 'home assistant'].map(tngW), 830), 'repeat(3,1fr)');
+  eq('cols long', kioskCols(['build-runner-eleven', 'storage-array-main', 'backup-target-two'].map(tngW), 830), 'repeat(3,minmax(0,1fr))');
+  eq('cols wide letters', kioskCols(['WWWWWWWWWW00', 'WWWWWWWWWW01', 'WWWWWWWWWW02'].map(tngW), 830), 'repeat(3,minmax(0,1fr))');
+  eq('text width grows when upper-casing does', kioskTextW('ß', 'stm', 10, 0), 2 * 0.54 * 10);
+  eq('unknown glyphs charged 1.25 em', kioskTextW('漢', 'antonio', 20, 0), 25);
   // A skin may say how GPU states are coloured; today's skins do not.
   kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
   eq('gpuState hook', gpuStateColor('busy'), '#abcabc');
