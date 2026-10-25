@@ -76,3 +76,6 @@ select = ["E", "F", "W", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # Imports must follow the sys.path.insert that makes `chiketi` importable.
 "scripts/gen_site_assets.py" = ["E402"]
+# The Blender scripts that made the shipped Tubes renders (they run inside Blender's own
+# Python): kept as they rendered, so only style rules are relaxed; F and B still apply.
+"tools/tube-renders/{panel,parts,tubes,in12}.py" = ["E401", "E402", "E501", "E731", "E741", "I001", "UP031"]
