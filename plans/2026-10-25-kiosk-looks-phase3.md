@@ -143,3 +143,16 @@ These override the tasks above where they differ.
 14. **Tests:** `tubPanelH(kioskH())` after `setFrameH(246)` and `(1200)` gives 600; slot extents per kind (circles with the 1.1 bezel, right-aligned Nixie rows, the five-glyph clock); "v4 at 600" checks against committed v4 coordinates for `lab` and `sessions` (the GPU modules change by design, item 2).
 15. **Performance:** cold readiness with the cache cleared and the preload off; the 60-minute memory check is required. Preloading both GPU variants near the 4/5 boundary means up to 4 panels (about 60 MB decoded, within the 120 MB budget; noted as a change to "at most 3").
 16. **Switches:** the harness switch sequence includes the Self Tubes screens (`tubeScreen1`, `tubeGpuScreen`). Plate lettering sizes from the raw code-point length, then escapes; minimum 9 units, then an ellipsis.
+
+## Results on the Go (deployed build, 2026-10-25)
+
+Measured in the Go's own Chromium over CDP, the WebP parts served by the chiketi server:
+
+| Screen (fixture) | Cold readiness (cache off, no preload) | Warm redraw median | Warm p95 |
+|---|---|---|---|
+| Home Lab (HL_BUSY) | 308–383 ms | 34 ms | 50 ms |
+| Sessions (SESS_BUSY) | 330–381 ms | 35 ms | 99 ms |
+| GPUs, 8 cards (GPU_HOUSE_BUSY) | 344–683 ms | 117 ms | 184 ms |
+| GPUs, 9 states (GPU_HOUSE) | 464–620 ms | 117 ms | 150 ms |
+
+Budgets (spec): cold ≤ 1.5 s, warm median ≤ 150 ms, p95 ≤ 300 ms: all met.
