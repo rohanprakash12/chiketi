@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from chiketi import screens
 from chiketi.themes import THEMES
 
@@ -29,6 +31,7 @@ def test_fields():
     assert built == ["lab", "sessions", "gpus"]
 
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_defaults_and_themes():
     for mode in screens.MODES:
         assert set(screens.defaults(mode)) <= set(screens.mode_screens(mode))

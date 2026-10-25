@@ -90,14 +90,14 @@ function cleanModel() {
 // shared_helpers.js reads PANEL_SPEC at load time, so it must already be bound
 // (it is, above). Concatenated into a single eval -- see the note at the top.
 // The Kiosk looks follow screen_functions.js, as server.py inlines them.
-const KIOSK_JS = ['kiosk_looks.js', 'kiosk_scifi.js', 'kiosk_terminal.js', 'kiosk_retro.js'];
+const KIOSK_JS = ['kiosk_looks.js', 'kiosk_scifi.js', 'kiosk_terminal.js', 'tubes_layout.js', 'kiosk_retro.js'];
 eval(
   fs.readFileSync(path.join(UI, 'shared_helpers.js'), 'utf8') + '\n' +
   fs.readFileSync(path.join(UI, 'screen_functions.js'), 'utf8') + '\n' +
   KIOSK_JS.map(function (f) { return fs.readFileSync(path.join(UI, f), 'utf8'); }).join('\n') +
   // const bindings stay inside this eval; hand out what the checks below need.
   '\nglobalThis.__HARNESS = { skins: [BS_SKIN_TOS, BS_SKIN_CLAUDE],' +
-  ' distroSkins: DISTRO_SKINS,' +
+  ' distroSkins: DISTRO_SKINS, tubesFiles: TUBES_FILES, tubesHash: TUBES_HASH,' +
   ' allSkins: function () { return [BS_SKIN_TOS, BS_SKIN_DS9, BS_SKIN_TNG, BS_SKIN_CLAUDE, BS_SKIN_SCAN, BS_SKIN_TUBE, BS_SKIN_VFD, DISTRO_SKINS]; },' +
   ' resetState: function () { for (const k of Object.keys(DISTRO_HIST)) delete DISTRO_HIST[k]; } };'
 );
@@ -168,10 +168,20 @@ KIOSK_WORDS['Sci-Fi/DS9'] = LOOK_WORDS({ FULL: 'GREEN', KIOSK_CALM: 'GREEN', HL_
   status: { ok: '#2A9D8F', warn: '#F2A33A', crit: '#FF3B30' } });
 // Phase 2. Scanlines speaks today's TOS words; its frame has no worst-colour part.
 KIOSK_WORDS['Vintage/Scanlines'] = LOOK_WORDS({}, { status: { ok: '', warn: '', crit: '' }, tallSess770: 7 });
+// Tubes: lit lettering, fixed capacities (9 station slots, 5 session rows).
+KIOSK_WORDS['Vintage/Tubes'] = LOOK_WORDS({ FULL: 'NORMAL', KIOSK_CALM: 'NORMAL', HL_YELLOW: 'CAUTION', HL_RED: 'ALERT', HL_BUSY: 'ALERT',
+  HL_STALE: 'STALE · CHECKED', HL_PENDING: 'ACQUIRING TELEMETRY', HL_UNCONFIGURED: 'HOME LAB NOT CONFIGURED' }, {
+  lit: true, condWords: ['NORMAL', 'CAUTION', 'ALERT'], legend: Object.keys(GPU_WORDS).map(function (k) { return GPU_WORDS[k]; }),
+  gpuLit: function (st) { return [GPU_WORDS[st]]; }, hostSlots: 9, fixedSess: 5, tabRow: true,
+  sessWord: { waiting: 'NEEDS INPUT', busy: 'WORKING', shell: 'RUNNING SHELL', idle: 'IDLE' },
+  status: { ok: '', warn: '', crit: '' },
+  memCount: function (html) { return (html.match(/data-mem/g) || []).length; },
+  memHas: function (html, t) { return new RegExp('data-mem[^>]*>(?:<span[^>]*>)?MEM ' + t + '&deg;<').test(html); } });
 // VFD lights its words: checked only where lit, and states in their own legends.
 KIOSK_WORDS['Vintage/VFD'] = LOOK_WORDS({ FULL: 'NORMAL', KIOSK_CALM: 'NORMAL', HL_YELLOW: 'CAUTION', HL_RED: 'ALERT', HL_BUSY: 'ALERT',
   HL_STALE: 'STALE · CHECKED', HL_PENDING: 'ACQUIRING TELEMETRY', HL_UNCONFIGURED: 'HOME LAB NOT CONFIGURED' }, {
-  lit: true, tallSess770: 7, condWords: ['NORMAL', 'CAUTION', 'ALERT'], legend: ['BUSY', 'IDLE', 'THROT', 'HOT'],
+  lit: true, tallSess770: 7, condWords: ['NORMAL', 'CAUTION', 'ALERT'],
+  sessWord: { waiting: 'INPUT', busy: 'WORK', shell: 'SHELL', idle: 'IDLE' }, legend: ['BUSY', 'IDLE', 'THROT', 'HOT'],
   gpuWord: function (st) { return { busy: 'BUSY', idle: 'IDLE', throttling: 'THROT', hot: 'HOT', critical: 'HOT' }[st] || GPU_WORDS[st]; },
   // Big rows light the legend word, smaller rows the full word.
   gpuLit: function (st) { return [{ busy: 'BUSY', idle: 'IDLE', throttling: 'THROT', hot: 'HOT', critical: 'HOT' }[st], GPU_WORDS[st]].filter(Boolean); },
@@ -186,6 +196,14 @@ const has = function (W, html, word) {
   // A lit look (VFD) spells every state in its unlit legends too: only lit text counts.
   if (W && W.lit) return new RegExp('data-lit[^>]*>[^<]*' + reEsc(word)).test(html);
   return W && W.ci ? html.toLowerCase().indexOf(word.toLowerCase()) !== -1 : html.indexOf(word) !== -1;
+};
+/* How many hosts a look shows of n, and the "+N HOSTS" it owes: a look with fixed station
+   slots (Tubes: 9) shows all that fit, else one fewer and a plate for the rest. */
+const hostsShown = function (W, n) { return W.hostSlots && n > W.hostSlots ? W.hostSlots - 1 : n; };
+const hostsMoreOk = function (W, html, n) {
+  if (!W.hostSlots || n <= W.hostSlots) return !/\+\d+ HOSTS/.test(html);
+  const m = /\+(\d+) HOSTS/.exec(html);
+  return !!m && Number(m[1]) === n - (W.hostSlots - 1);
 };
 /* State containers (VFD): <div data-cond> / <div data-state>, markup up to its </div>. */
 const containers = function (html, marker) {
@@ -212,17 +230,29 @@ const litOnly = function (box, word, legend) {
    letterboxed on a strip is still the full layout (its MEM lines are fine). */
 const layoutOf = function (html) { return /class="screen-frame[^"]*\bstrip\b/.test(html) ? 'strip' : 'full'; };
 /* Images: only the Tubes assets, and only plain attributes. */
+// A manifest part's URL, versioned with the current hash.
+const tubesUrl = function (u) {
+  const m = /^\/assets\/tubes\/([a-z0-9-]+)\.webp\?v=([0-9a-f]+)$/.exec(u);
+  return !!m && __HARNESS.tubesFiles.indexOf(m[1]) !== -1 && m[2] === __HARNESS.tubesHash;
+};
 const imgReason = function (html) {
   const re = /<img\b((?:"[^"]*"|'[^']*'|[^<>"'])*)>/gi;
   let mm;
   while ((mm = re.exec(html))) {
-    const attrs = mm[1].match(/([a-zA-Z-]+)\s*=/g) || [];
+    // Attribute names only: quoted values (a src's ?v=) are not attributes.
+    const attrs = mm[1].replace(/"[^"]*"|'[^']*'/g, '""').match(/([a-zA-Z-]+)\s*=/g) || [];
     for (const a of attrs) {
       const n = a.replace(/\s*=$/, '').toLowerCase();
       if (['src', 'alt', 'style', 'class'].indexOf(n) === -1) return 'img attribute ' + n;
     }
     const src = /\bsrc="([^"]*)"/.exec(mm[1]);
-    if (!src || !/^\/assets\/tubes\/[a-z0-9-]+\.webp\?v=[0-9a-f]+$/.test(src[1])) return 'img src ' + (src ? src[1] : '(none)');
+    if (!src || !tubesUrl(src[1])) return 'img src ' + (src ? src[1] : '(none)');
+  }
+  // CSS images (the Tubes windows' border-image) follow the same rule.
+  const cre = /url\(([^)]*)\)/g;
+  while ((mm = cre.exec(html))) {
+    const u = mm[1].replace(/^['"]|['"]$/g, '');
+    if (u.charAt(0) !== '#' && !tubesUrl(u)) return 'css url ' + u;
   }
   return null;
 };
@@ -943,6 +973,7 @@ __HARNESS.skins.forEach(function (skin) {
   const e0 = magicEye(40, 'LOAD', 100, { rich: true, id: 'gpus-0' }), e1 = magicEye(60, 'LOAD', 100, { rich: true, id: 'gpus-1' });
   eq('eye ids distinct', ids(e0).some(function (x) { return ids(e1).indexOf(x) !== -1; }), false);
   eq('eye ids from the id', ids(e0).every(function (x) { return x.indexOf('gpus-0') !== -1; }), true);
+  eq('eye text override', magicEye(0, '', 100, { text: '--' }).indexOf('>--</span>') !== -1 && magicEye(0, '', 100, { text: '--' }).indexOf('>0%<') === -1, true);
   eq('eye label escaped', magicEye(40, '<x>', 100, {}).indexOf('&lt;x&gt;') !== -1 && magicEye(40, '<x>', 100, {}).indexOf('<x>') === -1, true);
   // A skin may say how GPU states are coloured; today's skins do not.
   kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
@@ -1015,7 +1046,8 @@ __HARNESS.skins.forEach(function (skin) {
         want.forEach(function (x) { byName[esc(x.name)] = [esc(x.name), String(x.up), x.health]; });
         const exp = got.map(function (g) { return byName[g[0]] || ['?']; });
         if (JSON.stringify(got) !== JSON.stringify(exp)) fail('LOOKS', where + ' ' + fx, 'hosts ' + JSON.stringify(got) + ' != ' + JSON.stringify(exp));
-        if (W.hostCap !== undefined ? got.length < Math.min(W.hostCap, want.length) : got.length !== want.length) {
+        if (!hostsMoreOk(W, html, want.length)) fail('LOOKS', where + ' ' + fx, '+N HOSTS wrong');
+        if (W.hostCap !== undefined ? got.length < Math.min(W.hostCap, want.length) : got.length !== hostsShown(W, want.length)) {
           fail('LOOKS', where + ' ' + fx, 'shows ' + got.length + ' of ' + want.length + ' hosts');
         }
       });
@@ -1047,7 +1079,8 @@ __HARNESS.skins.forEach(function (skin) {
         metrics = FIX.HL_LONG12;
         const html = R('lab')(colors);
         const hosts = attrs(html, 'data-host');
-        if (W.hostCap !== undefined ? hosts.length < 12 : hosts.length !== 12) fail('LOOKS', where + ' HL_LONG12', 'shows ' + hosts.length + ' of 12 hosts');
+        if (W.hostCap !== undefined ? hosts.length < 12 : hosts.length !== hostsShown(W, 12)) fail('LOOKS', where + ' HL_LONG12', 'shows ' + hosts.length + ' of 12 hosts');
+        if (!hostsMoreOk(W, html, 12)) fail('LOOKS', where + ' HL_LONG12', '+N HOSTS wrong');
         if (!W.alertsByHost) {
           const got = attrs(html, 'data-alert').map(Number), more = W.more.exec(html);
           if (got.length < 8 || got.join() !== got.map(function (_, i) { return i; }).join()) fail('LOOKS', where + ' HL_LONG12', 'alerts ' + got.join());
@@ -1065,13 +1098,13 @@ __HARNESS.skins.forEach(function (skin) {
       }
       // A lit look: each session's and GPU's own legend lights its state, and only that.
       if (W.lit) {
-        const SW = { waiting: 'INPUT', busy: 'WORK', shell: 'SHELL', idle: 'IDLE' };
+        const SW = W.sessWord, SL = Object.keys(SW).map(function (k) { return SW[k]; });
         ['FULL', 'SESS_BUSY', 'SESS_MSG7'].forEach(function (fx) {
           metrics = FIX[fx];
           const list = sessData().list, html = R('sessions')(colors);
           html.split('data-session="').slice(1).forEach(function (r, i) {
             const box = containers(r, 'data-state')[0] || '';
-            if (!litOnly(box, SW[list[i].state] || 'IDLE', ['INPUT', 'WORK', 'SHELL', 'IDLE'])) fail('LOOKS', where + ' ' + fx + ' session ' + i, 'state legend wrong');
+            if (!litOnly(box, SW[list[i].state] || SW.idle, SL)) fail('LOOKS', where + ' ' + fx + ' session ' + i, 'state legend wrong');
           });
         });
         ['GPU_HOUSE_BUSY', 'GPU_HOUSE_BUSY9', 'GPU_HOUSE_STALE11'].forEach(function (fx) {
@@ -1085,7 +1118,7 @@ __HARNESS.skins.forEach(function (skin) {
       }
       // No wasted space (the Go's 683, and 770): a taller frame shows more sessions, not
       // the design height's five over a blank band.
-      if (h >= 683) {
+      if (h >= 683 && !W.fixedSess) {
         const sl = FIX.SESS_MANY['sessions.list'];
         metrics = Object.assign({}, FIX.SESS_MANY, { 'sessions.list': Object.assign({}, sl, { value: sl.value.map(function (x, i) {
           return Object.assign({}, x, i < 2 ? { state: 'waiting', message: 'Claude is waiting for your input' } : { state: 'idle', message: '' }); }) }) });
@@ -1116,8 +1149,9 @@ __HARNESS.skins.forEach(function (skin) {
         'homelab.issues': Object.assign({}, FIX.HL_BUSY['homelab.issues'], { value: iss }),
         'homelab.hosts': Object.assign({}, FIX.HL_BUSY['homelab.hosts'], { value: names.map(function (n) {
           return { name: n, state: iss.some(function (i) { return i.host === n; }) ? 'warn' : 'ok' }; }) }) });
-      const got = attrs(R('lab')(colors), 'data-host').length;
-      if (got !== 12) fail('LOOKS', key + ' h=576 12 hosts ' + k + ' issues', 'shows ' + got + ' hosts');
+      const lh = R('lab')(colors), got = attrs(lh, 'data-host').length;
+      if (!hostsMoreOk(W, lh, 12)) fail('LOOKS', key + ' h=576 12 hosts ' + k + ' issues', '+N HOSTS wrong');
+      if (got !== hostsShown(W, 12)) fail('LOOKS', key + ' h=576 12 hosts ' + k + ' issues', 'shows ' + got + ' hosts');
     });
     metrics = Object.assign({}, FIX.GPU_HOUSE_BUSY, { 'homelab.gpus': Object.assign({}, FIX.GPU_HOUSE_BUSY['homelab.gpus'], {
       value: FIX.GPU_HOUSE_BUSY['homelab.gpus'].value.map(function (r, i) { return Object.assign({}, r, { host: 'box' + (i % 5) }); }) }) });
@@ -1182,6 +1216,20 @@ __HARNESS.skins.forEach(function (skin) {
         fail('LOOKS', key + ' ' + id, 'Scanlines differs after this look');
       }
     });
+    // A look with a tab row lays the tabs out left to right in the plan's order, on
+    // screen and not just in the DOM (the reversed plan, every tab).
+    if (W.tabRow) {
+      const order = ['gpus', 'harness', 'sessions', 'home', 'myday', 'lab', 'overview'];
+      setTabPlan(tabs(order));
+      metrics = FIX.FULL;
+      const html = R('lab')(colors), re = /data-tab="([a-z]+)"[^>]*style="position:absolute;left:([\d.]+)cqw/g;
+      const seen = [];
+      let mm;
+      while ((mm = re.exec(html))) seen.push([mm[1], Number(mm[2])]);
+      if (seen.map(function (x) { return x[0]; }).join() !== order.join()) fail('LOOKS', key, 'tab order ' + seen.map(function (x) { return x[0]; }).join());
+      if (seen.some(function (x, i) { return i && x[1] <= seen[i - 1][1]; })) fail('LOOKS', key, 'tabs not left to right in plan order');
+      setTabPlan(null);
+    }
     // An empty plan right after choosing the theme: the look's own notice.
     setTabPlan([]);
     const notice = screenPlan({ mode: 'kiosk', screens: [], family: fv[0], variant: fv[1] }).notice;

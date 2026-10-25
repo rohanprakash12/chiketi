@@ -1622,7 +1622,7 @@ function magicEye(pct, label, size, opts) {
         '</g>' +
       '</svg>' +
       '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:' + gq(holeSize) + ';height:' + gq(holeSize) + ';border-radius:50%;background:radial-gradient(circle at 38% 30%,#141714 0%,#090a09 28%,#030303 72%,#000 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,0.02),inset 0 -' + gq(5*s) + ' ' + gq(10*s) + ' rgba(0,0,0,0.92),0 0 0 1px rgba(255,255,255,0.02);display:flex;flex-direction:column;align-items:center;justify-content:center">' +
-        '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + Math.round(pct) + '%</span>' +
+        '<span style="color:' + P.ink + ';font-size:' + gq(Math.max(11, holeSize*0.3)) + ';font-weight:700;font-family:\'Nixie One\',cursive;line-height:1;text-shadow:0 0 4px rgba(' + P.text + ',0.10),0 0 8px rgba(' + P.text + ',0.05)">' + (opts.text !== undefined ? esc(String(opts.text)) : Math.round(pct) + '%') + '</span>' +
         (label ? '<span style="color:#9d8a72;font-size:' + gq(Math.max(8, holeSize*0.155)) + ';' +
           'font-family:\'IBM Plex Mono\',monospace;line-height:1;letter-spacing:0.08em;' +
           'margin-top:' + gq(holeSize*0.06) + '">' + esc(String(label)) + '</span>' : '') +

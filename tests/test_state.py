@@ -415,6 +415,7 @@ def test_state_without_devices_defaults_empty(tmp_path, monkeypatch):
 
 # ── Screen modes: kiosk_theme, no screen_rotation, the migration ──────────
 
+@pytest.mark.usefixtures("kiosk_without_tubes")
 def test_kiosk_theme_and_no_screen_rotation():
     p = _write(json.dumps({"version": 1, "theme": "Others/Claude",
                            "screen_rotation": {"screen6": {"enabled": False, "duration": 10}}}))

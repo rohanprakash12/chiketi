@@ -217,18 +217,20 @@ await kp.route('**/api/metrics', r => r.fulfill({ json: FIX.FULL }));   // Home 
 await kp.goto(`${BASE}/display?device=${kid}`);
 await kp.waitForSelector('#pairing:not([hidden])');
 await api('POST', `/api/devices/${kid}/approve`, { name: 'Modes' });
-await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Vintage/Tubes' });   // not a Kiosk theme (yet)
+// Every theme is a Kiosk theme now (the fallback to TOS for others is in the Python tests):
+// a Self theme stays on the switch to Kiosk.
+await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Vintage/Tubes' });
 await kp.waitForFunction(() => activeVariant === 'Tubes' && enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
 await kp.evaluate(() => { window.__marker = 1; });
 await api('POST', `/api/devices/${kid}`, { mode: 'kiosk' });
-await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens.map(s => s.id).join() === 'lab,sessions,gpus', null, { timeout: 8000 });
+await kp.waitForFunction(() => activeVariant === 'Tubes' && enabledScreens.map(s => s.id).join() === 'lab,sessions,gpus', null, { timeout: 8000 });
 // Same theme across a mode change: Self/TOS -> Kiosk/TOS.
 await api('POST', `/api/devices/${kid}`, { mode: 'self', theme: 'Sci-Fi/TOS' });
 await kp.waitForFunction(() => enabledScreens[0].id === 'screen1', null, { timeout: 8000 });
 await api('POST', `/api/devices/${kid}`, { mode: 'kiosk' });
 await kp.waitForFunction(() => activeVariant === 'TOS' && enabledScreens[0].id === 'lab', null, { timeout: 8000 });
 if (!(await kp.evaluate(() => window.__marker === 1))) fail('a mode change reloaded the page');
-console.log('ok   mode switches reach the display; Kiosk falls back to TOS; same theme kept');
+console.log('ok   mode switches reach the display; the theme stays across them');
 
 // 19. Each Kiosk look reaches the open display, and is still drawn after a reload.
 {

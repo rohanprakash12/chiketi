@@ -120,3 +120,26 @@
 - [ ] Merge, push, CI, `chiketi-site deploy server --dry-run`, deploy (Rohan authorised the phase on 2026-10-25).
 - [ ] On the Go, over CDP: warm redraw (20 per screen, busy fixtures) and cold readiness with the WebP parts from the chiketi server; memory over 60 minutes of rotation if time allows. Record the numbers; if over budget, report (keeping the static layers between redraws is a separate, approved change).
 - [ ] Go screenshots of the three Tubes screens; parity page updated; Rohan's per-screen feedback round follows.
+
+---
+
+## Revisions after the plan review (independent reviewer; Codex out of quota)
+
+These override the tasks above where they differ.
+
+1. **Tabs follow the plan on screen, not only in the DOM.** Nothing about the tabs is baked. The header has one `tabrow` slot (x 222–676); `tubFrame` lays the plan's tabs out left to right in plan order, a built screen 84 units wide (lamp d=24 over the new `tabplate` part, 76 × 22, with its live label), a planned one 46 (lamp d=14 over painted lettering, wrapped on a space and shrunk to fit). 3 × 84 + 4 × 46 = 436 ≤ 454. Harness: the `data-tab` left offsets rise in DOM order; a layout test: the Kiosk screen list fits the row.
+2. **GPU footer.** `gpus4` modules are `H − 128` tall, `gpus8` rows `(H − 136) / 2`; a `gfoot` slot at `H − 24` carries `gpuFooterText` (counts, power or partial power, nodetail/incomplete notes), the stale marker and `+N MORE`. A listed difference from v4 (whose modules ran to the bottom).
+3. **Host checks.** The three LOOKS host checks (per-fixture cap, HL_LONG12, the 12-host loop) use `W.hostSlots`: a look with 9 slots shows `min(n, 9)` when n ≤ 9, else 8 stations and a `+N HOSTS` plate whose count is checked exactly. Past 9, the 8 shown are the worst first (down, crit, warn, unknown, ok; ties in the server's order) and the `+N` plate takes the worst hidden health's colour.
+4. **Tubes words** (all in `data-lit` text): lab `FULL`/`KIOSK_CALM` `NORMAL`, `HL_YELLOW` `CAUTION`, `HL_RED`/`HL_BUSY` `ALERT` (in `data-cond`), `HL_STALE` `STALE · CHECKED`, `HL_PENDING` `ACQUIRING TELEMETRY`, `HL_UNCONFIGURED` `HOME LAB NOT CONFIGURED`; sessions and GPUs keep the TOS words (lit); `memHas` matches `MEM n°`; the lit-session check uses `W.sessWord`. The harness's own `KIOSK_JS` list gains `tubes_layout.js`; `__HARNESS.tubesFiles()` exposes `TUBES_FILES`, and `imgReason` requires the name to be one of them, for `<img src>` and for every CSS `url(` (the `border-image` windows).
+5. **`magicEye` with no reading:** `opts.text` overrides the printed percentage; the Tubes GPU bay passes `--` and a closed eye (pct 0) when load is missing. Absent `opts.text`, output is unchanged (golden). (The label was already escaped by Task 1.)
+6. **Fault capacity grows with the frame** (`kioskIssueLayout` adds rows past 16 alerts when there is room), as on the other looks; the Capacities line reads "4 large, else 2 columns of 8 (more rows in a tall frame), then `+N MORE`", and the checks run at 600 and 683.
+7. **Images:** parts carry `alt=""` and an explicit `kq` width and height; only the opaque panel needs steel behind it, and the frame already has it (no dark boxes behind the alpha parts).
+8. **Caching:** `immutable, max-age=31536000` only when `?v=` equals the current manifest hash, else `no-cache`; a missing manifest makes the route 404 (no crash at startup). A test recomputes the manifest hash from the layout hash and the file bytes.
+9. **Renders** are not bit-reproducible on a GPU: no claim; the manifest records the Blender version and samples (`rendered_with`). `render.sh` makes the weight-100 Antonio instance for the IN-12 cathodes at render time (never shipped).
+10. **Refused-theme coverage:** `tests/test_screens.py`, `tests/test_server_devices.py`, `tests/test_state.py`, `tests/test_devices.py`, `tests/test_server.py` monkeypatch the Kiosk allowlist to leave Tubes out where they test the "valid Self theme, not a Kiosk theme" path; `devices_check` step 13 checks that a Self theme stays on the switch to Kiosk.
+11. **Notice variant:** a fifth panel variant `notice` (title STANDBY, one body plate, `nwin` and `nhint` slots), so the notice shows no session legends.
+12. **Session tokens:** Nixie digits with an INS-1 decimal-point lamp where the value has one, and the unit from `/[KMB]$/`.
+13. **Site:** it draws only Self screens: no WebPs in `docs/`, only the regenerated bundle.
+14. **Tests:** `tubPanelH(kioskH())` after `setFrameH(246)` and `(1200)` gives 600; slot extents per kind (circles with the 1.1 bezel, right-aligned Nixie rows, the five-glyph clock); "v4 at 600" checks against committed v4 coordinates for `lab` and `sessions` (the GPU modules change by design, item 2).
+15. **Performance:** cold readiness with the cache cleared and the preload off; the 60-minute memory check is required. Preloading both GPU variants near the 4/5 boundary means up to 4 panels (about 60 MB decoded, within the 120 MB budget; noted as a change to "at most 3").
+16. **Switches:** the harness switch sequence includes the Self Tubes screens (`tubeScreen1`, `tubeGpuScreen`). Plate lettering sizes from the raw code-point length, then escapes; minimum 9 units, then an ellipsis.

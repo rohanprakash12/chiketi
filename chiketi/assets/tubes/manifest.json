@@ -1,0 +1,402 @@
+{
+ "files": {
+  "ann-amber": {
+   "bytes": 3670,
+   "h": 280,
+   "w": 800
+  },
+  "ann-blue": {
+   "bytes": 3428,
+   "h": 280,
+   "w": 800
+  },
+  "ann-green": {
+   "bytes": 3484,
+   "h": 280,
+   "w": 800
+  },
+  "ann-off": {
+   "bytes": 2740,
+   "h": 280,
+   "w": 800
+  },
+  "ann-red": {
+   "bytes": 3612,
+   "h": 280,
+   "w": 800
+  },
+  "ann-white": {
+   "bytes": 3286,
+   "h": 280,
+   "w": 800
+  },
+  "eye-back": {
+   "bytes": 4258,
+   "h": 384,
+   "w": 384
+  },
+  "eye-front": {
+   "bytes": 38510,
+   "h": 384,
+   "w": 384
+  },
+  "in12-back": {
+   "bytes": 8112,
+   "h": 330,
+   "w": 240
+  },
+  "in12-front": {
+   "bytes": 44140,
+   "h": 330,
+   "w": 240
+  },
+  "in13-back": {
+   "bytes": 7488,
+   "h": 140,
+   "w": 1400
+  },
+  "in13-front": {
+   "bytes": 49484,
+   "h": 140,
+   "w": 1400
+  },
+  "jewel-amber-off": {
+   "bytes": 7226,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-amber-on": {
+   "bytes": 7274,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-blue-off": {
+   "bytes": 7042,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-blue-on": {
+   "bytes": 7104,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-green-off": {
+   "bytes": 7174,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-green-on": {
+   "bytes": 6938,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-red-off": {
+   "bytes": 7188,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-red-on": {
+   "bytes": 6842,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-white-off": {
+   "bytes": 7060,
+   "h": 192,
+   "w": 192
+  },
+  "jewel-white-on": {
+   "bytes": 6740,
+   "h": 192,
+   "w": 192
+  },
+  "panel-gpus4-576": {
+   "bytes": 25034,
+   "h": 1152,
+   "w": 2048
+  },
+  "panel-gpus4-600": {
+   "bytes": 26286,
+   "h": 1200,
+   "w": 2048
+  },
+  "panel-gpus4-620": {
+   "bytes": 26226,
+   "h": 1240,
+   "w": 2048
+  },
+  "panel-gpus4-640": {
+   "bytes": 27292,
+   "h": 1280,
+   "w": 2048
+  },
+  "panel-gpus4-660": {
+   "bytes": 26960,
+   "h": 1320,
+   "w": 2048
+  },
+  "panel-gpus4-683": {
+   "bytes": 26832,
+   "h": 1366,
+   "w": 2048
+  },
+  "panel-gpus4-700": {
+   "bytes": 27076,
+   "h": 1400,
+   "w": 2048
+  },
+  "panel-gpus4-720": {
+   "bytes": 27582,
+   "h": 1440,
+   "w": 2048
+  },
+  "panel-gpus4-745": {
+   "bytes": 27536,
+   "h": 1490,
+   "w": 2048
+  },
+  "panel-gpus4-770": {
+   "bytes": 28198,
+   "h": 1540,
+   "w": 2048
+  },
+  "panel-gpus8-576": {
+   "bytes": 30036,
+   "h": 1152,
+   "w": 2048
+  },
+  "panel-gpus8-600": {
+   "bytes": 30832,
+   "h": 1200,
+   "w": 2048
+  },
+  "panel-gpus8-620": {
+   "bytes": 30922,
+   "h": 1240,
+   "w": 2048
+  },
+  "panel-gpus8-640": {
+   "bytes": 32088,
+   "h": 1280,
+   "w": 2048
+  },
+  "panel-gpus8-660": {
+   "bytes": 31886,
+   "h": 1320,
+   "w": 2048
+  },
+  "panel-gpus8-683": {
+   "bytes": 31486,
+   "h": 1366,
+   "w": 2048
+  },
+  "panel-gpus8-700": {
+   "bytes": 31780,
+   "h": 1400,
+   "w": 2048
+  },
+  "panel-gpus8-720": {
+   "bytes": 31966,
+   "h": 1440,
+   "w": 2048
+  },
+  "panel-gpus8-745": {
+   "bytes": 31710,
+   "h": 1490,
+   "w": 2048
+  },
+  "panel-gpus8-770": {
+   "bytes": 32716,
+   "h": 1540,
+   "w": 2048
+  },
+  "panel-lab-576": {
+   "bytes": 33602,
+   "h": 1152,
+   "w": 2048
+  },
+  "panel-lab-600": {
+   "bytes": 34738,
+   "h": 1200,
+   "w": 2048
+  },
+  "panel-lab-620": {
+   "bytes": 34164,
+   "h": 1240,
+   "w": 2048
+  },
+  "panel-lab-640": {
+   "bytes": 35532,
+   "h": 1280,
+   "w": 2048
+  },
+  "panel-lab-660": {
+   "bytes": 35102,
+   "h": 1320,
+   "w": 2048
+  },
+  "panel-lab-683": {
+   "bytes": 34074,
+   "h": 1366,
+   "w": 2048
+  },
+  "panel-lab-700": {
+   "bytes": 34454,
+   "h": 1400,
+   "w": 2048
+  },
+  "panel-lab-720": {
+   "bytes": 34536,
+   "h": 1440,
+   "w": 2048
+  },
+  "panel-lab-745": {
+   "bytes": 34520,
+   "h": 1490,
+   "w": 2048
+  },
+  "panel-lab-770": {
+   "bytes": 35944,
+   "h": 1540,
+   "w": 2048
+  },
+  "panel-notice-576": {
+   "bytes": 21706,
+   "h": 1152,
+   "w": 2048
+  },
+  "panel-notice-600": {
+   "bytes": 22602,
+   "h": 1200,
+   "w": 2048
+  },
+  "panel-notice-620": {
+   "bytes": 22604,
+   "h": 1240,
+   "w": 2048
+  },
+  "panel-notice-640": {
+   "bytes": 23584,
+   "h": 1280,
+   "w": 2048
+  },
+  "panel-notice-660": {
+   "bytes": 23020,
+   "h": 1320,
+   "w": 2048
+  },
+  "panel-notice-683": {
+   "bytes": 22962,
+   "h": 1366,
+   "w": 2048
+  },
+  "panel-notice-700": {
+   "bytes": 23050,
+   "h": 1400,
+   "w": 2048
+  },
+  "panel-notice-720": {
+   "bytes": 23344,
+   "h": 1440,
+   "w": 2048
+  },
+  "panel-notice-745": {
+   "bytes": 22594,
+   "h": 1490,
+   "w": 2048
+  },
+  "panel-notice-770": {
+   "bytes": 23980,
+   "h": 1540,
+   "w": 2048
+  },
+  "panel-sessions-576": {
+   "bytes": 36324,
+   "h": 1152,
+   "w": 2048
+  },
+  "panel-sessions-600": {
+   "bytes": 37242,
+   "h": 1200,
+   "w": 2048
+  },
+  "panel-sessions-620": {
+   "bytes": 36740,
+   "h": 1240,
+   "w": 2048
+  },
+  "panel-sessions-640": {
+   "bytes": 37784,
+   "h": 1280,
+   "w": 2048
+  },
+  "panel-sessions-660": {
+   "bytes": 37476,
+   "h": 1320,
+   "w": 2048
+  },
+  "panel-sessions-683": {
+   "bytes": 35828,
+   "h": 1366,
+   "w": 2048
+  },
+  "panel-sessions-700": {
+   "bytes": 37292,
+   "h": 1400,
+   "w": 2048
+  },
+  "panel-sessions-720": {
+   "bytes": 37284,
+   "h": 1440,
+   "w": 2048
+  },
+  "panel-sessions-745": {
+   "bytes": 36236,
+   "h": 1490,
+   "w": 2048
+  },
+  "panel-sessions-770": {
+   "bytes": 38022,
+   "h": 1540,
+   "w": 2048
+  },
+  "tabplate": {
+   "bytes": 1998,
+   "h": 104,
+   "w": 320
+  }
+ },
+ "hash": "68554320d178",
+ "layout_hash": "04b66e9b8b77",
+ "meta": {
+  "in12": {
+   "baseline_shift_units": 0.2072436809539795,
+   "digit_cy_units": 0.0,
+   "digit_h_units": 2.3574790954589844,
+   "font_size_units": 3.75,
+   "h": 330,
+   "hh": 1.45,
+   "hw": 0.95,
+   "units_h": 3.3,
+   "w": 240
+  },
+  "in13": {
+   "axis_z": 0,
+   "glow_x0_units": -4.4,
+   "glow_x1_units": 4.4,
+   "h": 140,
+   "left_x": -6.2,
+   "px_per_unit": 111.11111111111111,
+   "w": 1400
+  }
+ },
+ "rendered_with": {
+  "blender": "Blender 4.5.15 LTS",
+  "samples": {
+   "in12": 384,
+   "panel": 256,
+   "parts": 256,
+   "tubes": 384
+  }
+ }
+}
