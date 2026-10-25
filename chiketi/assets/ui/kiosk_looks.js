@@ -180,20 +180,21 @@ function kioskIssueLayout(n, h) {
   return { cols: 2, rows: rows, rowH: Math.floor(h / rows), big: false, shown: shown, more: n - shown };
 }
 
-/* Text width, as an upper bound, for the looks' host grids: the advance widths of the
-   bundled fonts (Antonio at weight 400, upper case; Share Tech Mono is monospace),
-   letter spacing included, counted after upper-casing (which can lengthen a name:
-   ß is SS); any character not in the table is charged 1.25 em, more than a fallback
-   glyph takes. */
+/* Text width for the looks' host grids, as an upper bound up to device-pixel rounding
+   at 1024 wide and up: the advance widths of the bundled fonts (Antonio at weight 400,
+   upper case; Share Tech Mono is monospace), letter spacing included, counted after
+   upper-casing (which can lengthen a name: ß is SS), plus a unit a character for the
+   rounding. A character outside the table makes the width unknown (Infinity), so the
+   grid falls back to equal columns. */
 const KIOSK_EM = {
   antonio: {" ":0.241,"!":0.258,"\"":0.363,"#":0.417,"$":0.393,"%":1.063,"&":0.468,"'":0.202,"(":0.273,")":0.273,"*":0.427,"+":0.332,",":0.226,"-":0.34,".":0.26,"/":0.356,"0":0.417,"1":0.417,"2":0.417,"3":0.417,"4":0.417,"5":0.417,"6":0.417,"7":0.417,"8":0.417,"9":0.417,":":0.239,";":0.274,"<":0.356,"=":0.353,">":0.356,"?":0.417,"@":0.743,"A":0.443,"B":0.448,"C":0.448,"D":0.466,"E":0.369,"F":0.365,"G":0.458,"H":0.48,"I":0.242,"J":0.428,"K":0.444,"L":0.339,"M":0.633,"N":0.495,"O":0.461,"P":0.437,"Q":0.461,"R":0.458,"S":0.404,"T":0.307,"U":0.466,"V":0.431,"W":0.654,"X":0.389,"Y":0.404,"Z":0.337,"[":0.307,"\\":0.359,"]":0.307,"^":0.449,"_":0.365,"`":0.198,"{":0.321,"|":0.262,"}":0.321,"~":0.545},
   stm: 0.54,
 };
 function kioskTextW(text, font, size, ls) {
   return Array.from(String(text == null ? '' : text).toUpperCase()).reduce(function (w, ch) {
-    const em = font === 'stm' ? (ch >= ' ' && ch <= '~' ? KIOSK_EM.stm : 1.25)
-      : (KIOSK_EM.antonio[ch] !== undefined ? KIOSK_EM.antonio[ch] : 1.25);
-    return w + em * size + (ls || 0);
+    const em = font === 'stm' ? (ch >= ' ' && ch <= '~' ? KIOSK_EM.stm : null)
+      : (KIOSK_EM.antonio[ch] !== undefined ? KIOSK_EM.antonio[ch] : null);
+    return em === null ? Infinity : w + em * size + (ls || 0) + 1;
   }, 0);
 }
 /* A three-column host grid, filled row by row: sized to the names, as the mockups

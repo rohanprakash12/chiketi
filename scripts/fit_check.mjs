@@ -29,7 +29,7 @@ const OUT = process.env.OUT || 'fit-shots';
 // The four landscape heights the spec names (576, 600, 683, 770 units), the strip
 // and a portrait 'other' shape (both letterbox the Kiosk looks), and the Go.
 const SHAPES = process.env.SHAPES ? process.env.SHAPES.split(',').map(x => x.split('x').map(Number))
-  : [[1024, 576], [1024, 600], [1536, 1024], [1024, 770], [1800, 1200], [1920, 462], [1024, 1400]];
+  : [[1024, 576], [1024, 600], [1536, 1024], [1024, 770], [1800, 1200], [1920, 462], [1024, 1400], [800, 480]];
 // Kiosk themes from screens.json, never a fixed list; THEMES=Sci-Fi/TNG,... narrows them.
 const SPEC0 = JSON.parse(readFileSync(new URL('../chiketi/assets/ui/screens.json', import.meta.url)));
 const KIOSK_THEMES = SPEC0.modes.kiosk.themes.map(k => k.split('/'))

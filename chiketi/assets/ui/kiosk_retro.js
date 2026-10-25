@@ -36,7 +36,7 @@ function scanFrame(active, status, body, foot) {
   const S = bsS();
   // Home Lab's footer is the mockup's 14-unit soft line; Sessions and GPUs keep today's 13-unit dim one.
   const fs = active === 'lab' ? 14 : 13, fc = active === 'lab' ? S.soft : S.dim;
-  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM}">` +
+  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM};font-size:${kq(16)}">` +
     `<div style="position:absolute;left:0;right:0;top:0;height:${kq(6)};background:${status};` +
       (status === S.edge ? '' : `box-shadow:0 0 ${kq(14)} ${status}88;`) + `"></div>` +
     bsHeader(active) + body +
@@ -245,7 +245,7 @@ function vfdFrame(active, body) {
       (c ? `box-shadow:0 0 ${kq(6)} ${c}55,inset 0 0 ${kq(6)} ${c}33` : '') + `">` +
       (c ? vt((t.active ? '▶ ' : '') + label, sz, c, 2) : vghost(label, sz, t.built ? 2 : 1)) + `</span>`;
   }).join('');
-  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM}">` +
+  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM};font-size:${kq(16)}">` +
     `<div style="position:absolute;left:${kq(24)};top:${kq(22)};right:${kq(232)};display:flex;gap:${kq(5)};white-space:nowrap;overflow:hidden">${tabs}</div>` +
     `<div style="position:absolute;right:${kq(24)};top:${kq(8)};text-align:right;line-height:1">${vt(D.hm, 62, VF.g, 4)}` +
       `<div style="margin-top:${kq(4)}">${vt(D.day, 15, VF.a, 4)} ${vt(D.short.slice(4) + ' ' + D.year, 15, VF.b, 3)}</div></div>` +
@@ -316,7 +316,7 @@ function vfdHomelab(c) {
     `<div style="display:flex;align-items:flex-end;gap:${kq(30)}">${big(L.hosts.length, 'HOSTS', VF.g, !pending)}${big(L.counts.ok, 'HEALTHY', VF.g, !pending)}` +
       `${big(warn, 'WARN', VF.a, warn)}${big(crit, 'ALERT', VF.r, crit)}` +
       `<div data-cond style="margin-left:auto;text-align:right;line-height:1.7">${vleg(['NORMAL', 'CAUTION', 'ALERT'], on, onC, 17)}<br>${checked}</div></div>` +
-    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(vfdHostW), 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
+    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(vfdHostW).concat(L.hosts.length > list12.length ? [kioskTextW('+' + (L.hosts.length - list12.length) + ' HOSTS', 'stm', 15, 3)] : []), 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
     `<div style="margin-top:${kq(10)};border-top:1px solid #1a1a16;padding-top:${kq(6)};${dim}"><div style="height:${kq(AH)};overflow:hidden">${list}</div></div>`);
 }
 
@@ -380,7 +380,7 @@ function vfdGpus(c) {
   const rowH = Math.min(104, Math.floor((B - (f.more ? 24 : 0)) / Math.max(1, shown.length)));
   // Big and normal rows keep the mockup's line boxes (a big row's legend wraps to a
   // second line); compact rows set their own, tighter ones.
-  const form = rowH >= 88 ? 'big' : rowH >= 62 ? 'normal' : 'compact';
+  const form = rowH >= 88 ? 'big' : rowH >= 63 ? 'normal' : 'compact';
   const rows = shown.map(function (r) {
     const st = r.state;
     const sc = st === 'throttling' || st === 'hot' ? VF.a : st === 'critical' ? VF.r : st === 'busy' ? VF.g

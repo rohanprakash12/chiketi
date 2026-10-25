@@ -4787,20 +4787,21 @@ function kioskIssueLayout(n, h) {
   return { cols: 2, rows: rows, rowH: Math.floor(h / rows), big: false, shown: shown, more: n - shown };
 }
 
-/* Text width, as an upper bound, for the looks' host grids: the advance widths of the
-   bundled fonts (Antonio at weight 400, upper case; Share Tech Mono is monospace),
-   letter spacing included, counted after upper-casing (which can lengthen a name:
-   ß is SS); any character not in the table is charged 1.25 em, more than a fallback
-   glyph takes. */
+/* Text width for the looks' host grids, as an upper bound up to device-pixel rounding
+   at 1024 wide and up: the advance widths of the bundled fonts (Antonio at weight 400,
+   upper case; Share Tech Mono is monospace), letter spacing included, counted after
+   upper-casing (which can lengthen a name: ß is SS), plus a unit a character for the
+   rounding. A character outside the table makes the width unknown (Infinity), so the
+   grid falls back to equal columns. */
 const KIOSK_EM = {
   antonio: {" ":0.241,"!":0.258,"\"":0.363,"#":0.417,"$":0.393,"%":1.063,"&":0.468,"'":0.202,"(":0.273,")":0.273,"*":0.427,"+":0.332,",":0.226,"-":0.34,".":0.26,"/":0.356,"0":0.417,"1":0.417,"2":0.417,"3":0.417,"4":0.417,"5":0.417,"6":0.417,"7":0.417,"8":0.417,"9":0.417,":":0.239,";":0.274,"<":0.356,"=":0.353,">":0.356,"?":0.417,"@":0.743,"A":0.443,"B":0.448,"C":0.448,"D":0.466,"E":0.369,"F":0.365,"G":0.458,"H":0.48,"I":0.242,"J":0.428,"K":0.444,"L":0.339,"M":0.633,"N":0.495,"O":0.461,"P":0.437,"Q":0.461,"R":0.458,"S":0.404,"T":0.307,"U":0.466,"V":0.431,"W":0.654,"X":0.389,"Y":0.404,"Z":0.337,"[":0.307,"\\":0.359,"]":0.307,"^":0.449,"_":0.365,"`":0.198,"{":0.321,"|":0.262,"}":0.321,"~":0.545},
   stm: 0.54,
 };
 function kioskTextW(text, font, size, ls) {
   return Array.from(String(text == null ? '' : text).toUpperCase()).reduce(function (w, ch) {
-    const em = font === 'stm' ? (ch >= ' ' && ch <= '~' ? KIOSK_EM.stm : 1.25)
-      : (KIOSK_EM.antonio[ch] !== undefined ? KIOSK_EM.antonio[ch] : 1.25);
-    return w + em * size + (ls || 0);
+    const em = font === 'stm' ? (ch >= ' ' && ch <= '~' ? KIOSK_EM.stm : null)
+      : (KIOSK_EM.antonio[ch] !== undefined ? KIOSK_EM.antonio[ch] : null);
+    return em === null ? Infinity : w + em * size + (ls || 0) + 1;
   }, 0);
 }
 /* A three-column host grid, filled row by row: sized to the names, as the mockups
@@ -4855,7 +4856,7 @@ function tngFrame(active, title, summary, body) {
       `color:#000;font-size:${kq(16)};font-weight:600;letter-spacing:.05em;border-left:${kq(4)} solid #000;white-space:nowrap;` +
       `min-width:0;overflow:hidden;text-overflow:ellipsis">${x[0]}</span>`;
   }).join('');
-  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:#000;font-family:Antonio;color:${K.text};text-transform:uppercase">` +
+  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:#000;font-family:Antonio;font-size:${kq(16)};color:${K.text};text-transform:uppercase">` +
     `<div style="position:absolute;left:${kq(10)};top:${kq(10)};width:${kq(150)};height:${kq(96)};background:${sc};border-radius:${kq(40)} 0 0 0">` +
       `<i style="position:absolute;right:0;bottom:0;width:${kq(26)};height:${kq(84)};background:#000;border-radius:${kq(18)} 0 0 0"></i>` +
       `<div style="position:absolute;left:${kq(12)};right:${kq(30)};bottom:${kq(6)};text-align:right;color:#000;line-height:1">` +
@@ -5137,7 +5138,7 @@ function ds9Frame(active, body, foot) {
   }).join('');
   const D = kioskClock();
   const worst = kioskWorst(), bar = D9_STATUS[worst];
-  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:${K.bg};font-family:Rajdhani;font-weight:600;` +
+  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:${K.bg};font-family:Rajdhani;font-weight:600;font-size:${kq(16)};` +
       `color:${K.steel};text-transform:uppercase">` +
     `<div style="position:absolute;left:0;right:0;top:0;height:${kq(6)};background:${bar};${worst === 'ok' ? '' : `box-shadow:0 0 ${kq(14)} ${bar}88;`}"></div>` +
     `<div style="position:absolute;left:${kq(14)};top:${kq(18)};display:flex;gap:${kq(4)}">${tabs}</div>` +
@@ -5851,7 +5852,7 @@ function scanFrame(active, status, body, foot) {
   const S = bsS();
   // Home Lab's footer is the mockup's 14-unit soft line; Sessions and GPUs keep today's 13-unit dim one.
   const fs = active === 'lab' ? 14 : 13, fc = active === 'lab' ? S.soft : S.dim;
-  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM}">` +
+  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM};font-size:${kq(16)}">` +
     `<div style="position:absolute;left:0;right:0;top:0;height:${kq(6)};background:${status};` +
       (status === S.edge ? '' : `box-shadow:0 0 ${kq(14)} ${status}88;`) + `"></div>` +
     bsHeader(active) + body +
@@ -6060,7 +6061,7 @@ function vfdFrame(active, body) {
       (c ? `box-shadow:0 0 ${kq(6)} ${c}55,inset 0 0 ${kq(6)} ${c}33` : '') + `">` +
       (c ? vt((t.active ? '▶ ' : '') + label, sz, c, 2) : vghost(label, sz, t.built ? 2 : 1)) + `</span>`;
   }).join('');
-  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM}">` +
+  return bsFrame(`<div data-status="${kioskWorst()}" style="position:absolute;inset:0;font-family:${STM};font-size:${kq(16)}">` +
     `<div style="position:absolute;left:${kq(24)};top:${kq(22)};right:${kq(232)};display:flex;gap:${kq(5)};white-space:nowrap;overflow:hidden">${tabs}</div>` +
     `<div style="position:absolute;right:${kq(24)};top:${kq(8)};text-align:right;line-height:1">${vt(D.hm, 62, VF.g, 4)}` +
       `<div style="margin-top:${kq(4)}">${vt(D.day, 15, VF.a, 4)} ${vt(D.short.slice(4) + ' ' + D.year, 15, VF.b, 3)}</div></div>` +
@@ -6131,7 +6132,7 @@ function vfdHomelab(c) {
     `<div style="display:flex;align-items:flex-end;gap:${kq(30)}">${big(L.hosts.length, 'HOSTS', VF.g, !pending)}${big(L.counts.ok, 'HEALTHY', VF.g, !pending)}` +
       `${big(warn, 'WARN', VF.a, warn)}${big(crit, 'ALERT', VF.r, crit)}` +
       `<div data-cond style="margin-left:auto;text-align:right;line-height:1.7">${vleg(['NORMAL', 'CAUTION', 'ALERT'], on, onC, 17)}<br>${checked}</div></div>` +
-    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(vfdHostW), 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
+    `<div style="display:grid;grid-template-columns:${kioskCols(list12.map(vfdHostW).concat(L.hosts.length > list12.length ? [kioskTextW('+' + (L.hosts.length - list12.length) + ' HOSTS', 'stm', 15, 3)] : []), 904)};gap:${kq(2)} ${kq(36)};margin-top:${kq(10)};${dim}">${hosts}</div>` +
     `<div style="margin-top:${kq(10)};border-top:1px solid #1a1a16;padding-top:${kq(6)};${dim}"><div style="height:${kq(AH)};overflow:hidden">${list}</div></div>`);
 }
 
@@ -6195,7 +6196,7 @@ function vfdGpus(c) {
   const rowH = Math.min(104, Math.floor((B - (f.more ? 24 : 0)) / Math.max(1, shown.length)));
   // Big and normal rows keep the mockup's line boxes (a big row's legend wraps to a
   // second line); compact rows set their own, tighter ones.
-  const form = rowH >= 88 ? 'big' : rowH >= 62 ? 'normal' : 'compact';
+  const form = rowH >= 88 ? 'big' : rowH >= 63 ? 'normal' : 'compact';
   const rows = shown.map(function (r) {
     const st = r.state;
     const sc = st === 'throttling' || st === 'hot' ? VF.a : st === 'critical' ? VF.r : st === 'busy' ? VF.g

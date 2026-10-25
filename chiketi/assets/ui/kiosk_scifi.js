@@ -30,7 +30,7 @@ function tngFrame(active, title, summary, body) {
       `color:#000;font-size:${kq(16)};font-weight:600;letter-spacing:.05em;border-left:${kq(4)} solid #000;white-space:nowrap;` +
       `min-width:0;overflow:hidden;text-overflow:ellipsis">${x[0]}</span>`;
   }).join('');
-  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:#000;font-family:Antonio;color:${K.text};text-transform:uppercase">` +
+  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:#000;font-family:Antonio;font-size:${kq(16)};color:${K.text};text-transform:uppercase">` +
     `<div style="position:absolute;left:${kq(10)};top:${kq(10)};width:${kq(150)};height:${kq(96)};background:${sc};border-radius:${kq(40)} 0 0 0">` +
       `<i style="position:absolute;right:0;bottom:0;width:${kq(26)};height:${kq(84)};background:#000;border-radius:${kq(18)} 0 0 0"></i>` +
       `<div style="position:absolute;left:${kq(12)};right:${kq(30)};bottom:${kq(6)};text-align:right;color:#000;line-height:1">` +
@@ -312,7 +312,7 @@ function ds9Frame(active, body, foot) {
   }).join('');
   const D = kioskClock();
   const worst = kioskWorst(), bar = D9_STATUS[worst];
-  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:${K.bg};font-family:Rajdhani;font-weight:600;` +
+  return bsFrame(`<div data-status="${worst}" style="position:absolute;inset:0;background:${K.bg};font-family:Rajdhani;font-weight:600;font-size:${kq(16)};` +
       `color:${K.steel};text-transform:uppercase">` +
     `<div style="position:absolute;left:0;right:0;top:0;height:${kq(6)};background:${bar};${worst === 'ok' ? '' : `box-shadow:0 0 ${kq(14)} ${bar}88;`}"></div>` +
     `<div style="position:absolute;left:${kq(14)};top:${kq(18)};display:flex;gap:${kq(4)}">${tabs}</div>` +

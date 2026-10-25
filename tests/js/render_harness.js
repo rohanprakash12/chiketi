@@ -932,8 +932,12 @@ __HARNESS.skins.forEach(function (skin) {
   eq('cols fit', kioskCols(['atlas', 'vesta', 'home assistant'].map(tngW), 830), 'repeat(3,1fr)');
   eq('cols long', kioskCols(['build-runner-eleven', 'storage-array-main', 'backup-target-two'].map(tngW), 830), 'repeat(3,minmax(0,1fr))');
   eq('cols wide letters', kioskCols(['WWWWWWWWWW00', 'WWWWWWWWWW01', 'WWWWWWWWWW02'].map(tngW), 830), 'repeat(3,minmax(0,1fr))');
-  eq('text width grows when upper-casing does', kioskTextW('ß', 'stm', 10, 0), 2 * 0.54 * 10);
-  eq('unknown glyphs charged 1.25 em', kioskTextW('漢', 'antonio', 20, 0), 25);
+  eq('text width grows when upper-casing does', kioskTextW('ß', 'stm', 10, 0), 2 * (0.54 * 10 + 1));
+  eq('unknown glyphs make the width unknown', kioskTextW('ab漢', 'antonio', 20, 0), Infinity);
+  eq('unknown glyphs give equal columns', kioskCols([tngW('‰'), 200, 200], 830), 'repeat(3,minmax(0,1fr))');
+  // Either side of the threshold (830).
+  eq('cols just under', kioskCols([276, 277, 277], 830), 'repeat(3,1fr)');
+  eq('cols just over', kioskCols([276, 277, 278], 830), 'repeat(3,minmax(0,1fr))');
   // A skin may say how GPU states are coloured; today's skins do not.
   kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
   eq('gpuState hook', gpuStateColor('busy'), '#abcabc');
