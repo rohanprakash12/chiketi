@@ -133,6 +133,23 @@ function renderDisplay() {
   currentScreenIdx = idx;
   currentId = enabledScreens[idx].id;
   document.getElementById('display').innerHTML = enabledScreens[idx].fn(themeColors);
+  keepTubesDecoded(plan);
+}
+
+/* Tubes draws rendered parts: keep the ones this display needs (its plan, its height)
+   decoded, so a redraw or a tab change never waits on an image; release the rest. */
+let tubesKey = '', tubesHeld = [];
+function keepTubesDecoded(plan) {
+  const want = plan.mode === 'kiosk' && activeFamily + '/' + activeVariant === 'Vintage/Tubes' ? tubNeeded(plan) : [];
+  const key = want.join('|');
+  if (key === tubesKey) return;
+  tubesKey = key;
+  tubesHeld = want.map(function (name) {
+    const im = new Image();
+    im.src = tubUrl(name);
+    if (im.decode) im.decode().catch(function () {});
+    return im;
+  });
 }
 
 /* ── Polling: one at a time, each with a deadline. A stalled request must not

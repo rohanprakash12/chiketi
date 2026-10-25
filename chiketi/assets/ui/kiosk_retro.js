@@ -779,6 +779,19 @@ function tubGpus(c) {
   });
 }
 
+/* The parts a Tubes display should keep decoded for its plan at this height (spec
+   "Performance"): its screens' panels (both GPU variants at 4 or 5 cards, which can flip
+   between redraws) and every instrument part. */
+function tubNeeded(plan) {
+  const P = tubPanelH(kioskH()), n = gpuHouseData().rows.length, out = [];
+  (plan.empty ? ['notice'] : plan.list.map(function (x) { return x.id; })).forEach(function (id) {
+    const vs = id === 'gpus' ? (n === 4 || n === 5 ? ['gpus4', 'gpus8'] : [n > 4 ? 'gpus8' : 'gpus4'])
+      : (id === 'lab' || id === 'sessions' || id === 'notice') ? [id] : [];
+    vs.forEach(function (v) { out.push('panel-' + v + '-' + P); });
+  });
+  return out.concat(TUBES_FILES.filter(function (f) { return f.indexOf('panel-') !== 0; }));
+}
+
 function tubNotice(c) {
   return tubScreen('notice', '', function (L) {
     const w = tubSlot(L, 'nwin'), hint = tubSlot(L, 'nhint');

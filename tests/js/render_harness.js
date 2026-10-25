@@ -975,6 +975,21 @@ __HARNESS.skins.forEach(function (skin) {
   eq('eye ids from the id', ids(e0).every(function (x) { return x.indexOf('gpus-0') !== -1; }), true);
   eq('eye text override', magicEye(0, '', 100, { text: '--' }).indexOf('>--</span>') !== -1 && magicEye(0, '', 100, { text: '--' }).indexOf('>0%<') === -1, true);
   eq('eye label escaped', magicEye(40, '<x>', 100, {}).indexOf('&lt;x&gt;') !== -1 && magicEye(40, '<x>', 100, {}).indexOf('<x>') === -1, true);
+  // Tubes preload: the plan's panels at this height (both GPU variants at 4 or 5 cards), and the parts.
+  {
+    const plan = function (ids) { return screenPlan({ mode: 'kiosk', screens: ids, family: 'Vintage', variant: 'Tubes' }); };
+    const parts = __HARNESS.tubesFiles.filter(function (f) { return f.indexOf('panel-') !== 0; });
+    setFrameH(683); metrics = FIX.FULL;
+    eq('tubes needs', tubNeeded(plan(['lab', 'gpus'])), ['panel-lab-683', 'panel-gpus4-683'].concat(parts));
+    metrics = FIX.GPU_HOUSE_BUSY;
+    eq('tubes needs gpus8', tubNeeded(plan(['gpus'])).slice(0, 2), ['panel-gpus8-683', parts[0]]);
+    metrics = Object.assign({}, FIX.GPU_HOUSE_BUSY, { 'homelab.gpus': Object.assign({}, FIX.GPU_HOUSE_BUSY['homelab.gpus'], {
+      value: FIX.GPU_HOUSE_BUSY['homelab.gpus'].value.slice(0, 5) }) });
+    eq('tubes needs both near the boundary', tubNeeded(plan(['gpus'])).slice(0, 2), ['panel-gpus4-683', 'panel-gpus8-683']);
+    setFrameH(730); metrics = FIX.FULL;
+    eq('tubes needs notice', tubNeeded(plan([]))[0], 'panel-notice-720');
+    setFrameH(600); metrics = FIX.FULL;
+  }
   // A skin may say how GPU states are coloured; today's skins do not.
   kioskSkinFrom('t-gpu', __HARNESS.skins[0], { gpuState: function () { return '#abcabc'; } });
   eq('gpuState hook', gpuStateColor('busy'), '#abcabc');

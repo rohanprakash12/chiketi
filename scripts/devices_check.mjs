@@ -245,6 +245,14 @@ console.log('ok   mode switches reach the display; the theme stays across them')
     await drawn(theme).catch(() => fail(theme + ' did not reach the display'));
     await kp.reload();
     await drawn(theme).catch(() => fail(theme + ' lost after a reload'));
+    if (theme === 'Vintage/Tubes') {
+      // The rendered parts load (the panel and every instrument on screen), and the
+      // display keeps its plan's parts decoded.
+      await kp.waitForFunction(() => {
+        const im = [...document.querySelectorAll('#display img')];
+        return im.length > 10 && im.every(i => i.complete && i.naturalWidth > 0) && tubesHeld.length > 10;
+      }, null, { timeout: 5000 }).catch(() => fail('Tubes parts did not load'));
+    }
   }
   await api('POST', `/api/devices/${kid}`, { mode: 'kiosk', theme: 'Sci-Fi/TOS' });
   await kp.waitForFunction(() => activeVariant === 'TOS', null, { timeout: 8000 });
